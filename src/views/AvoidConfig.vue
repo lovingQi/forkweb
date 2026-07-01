@@ -23,7 +23,7 @@
         <el-card shadow="never" class="preview-card">
           <template #header>避障范围实时预览</template>
           <div class="preview-canvas">
-            <CanvasView :show-map="false" />
+            <CanvasView :show-map="false" :show-avoid-box="true" />
           </div>
         </el-card>
       </el-col>

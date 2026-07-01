@@ -7,6 +7,12 @@
       <el-button size="small" @click="zoom(1 / 1.2)">缩小</el-button>
       <el-tag size="small" type="info">{{ (scale * 1000).toFixed(1) }} px/m</el-tag>
     </div>
+    <div class="canvas-legend">
+      <div v-for="(c, i) in LASER_COLORS" :key="i" class="legend-item">
+        <span class="legend-swatch" :style="{ background: c }"></span>
+        <span>组{{ i + 1 }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -14,9 +20,15 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRobotStore, type Point } from '@/stores/robot'
 
-const props = withDefaults(defineProps<{ showMap?: boolean }>(), { showMap: true })
+const props = withDefaults(defineProps<{ showMap?: boolean; showAvoidBox?: boolean }>(), {
+  showMap: true,
+  showAvoidBox: false
+})
 
 const store = useRobotStore()
+
+// 激光分组固定配色(按组序号取色)
+const LASER_COLORS = ['#f87171', '#fbbf24', '#c084fc', '#f472b6', '#22d3ee', '#38bdf8']
 
 const wrap = ref<HTMLDivElement | null>(null)
 const cv = ref<HTMLCanvasElement | null>(null)
@@ -284,26 +296,68 @@ function drawClearances() {
   if (!ctx || store.clearances.length < 2) return
   ctx.strokeStyle = '#f59e0b'
   ctx.lineWidth = 2
-  // clearances.points 为成对线段端点
-  for (let i = 0; i + 1 < store.clearances.length; i += 2) {
-    const a = worldToScreen(store.clearances[i])
-    const b = worldToScreen(store.clearances[i + 1])
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
-  }
+  // 将 clearances 各点按顺序连成一圈闭合多边形
+  ctx.beginPath()
+  store.clearances.forEach((p, i) => {
+    const s = worldToScreen(p)
+    if (i === 0) ctx!.moveTo(s.x, s.y)
+    else ctx!.lineTo(s.x, s.y)
+  })
+  ctx.closePath()
+  ctx.stroke()
+}
+
+// 基于避障参数(已保存值)绘制配置范围框：车体边缘外扩 min 距离，一圈虚线
+function drawAvoidBox() {
+  if (!ctx || !props.showAvoidBox) return
+  const av = store.paramsInfo['avoid']
+  if (!av) return
+  const fmin = Number(av.clearance_front_min?.default)
+  const bmin = Number(av.clearance_back_min?.default)
+  const smin = Number(av.clearance_side_min?.default)
+  if (!isFinite(fmin) || !isFinite(bmin) || !isFinite(smin)) return
+
+  const [x, y, thDeg] = store.pose
+  const th = (thDeg * Math.PI) / 180
+  const size = store.robotSize
+  const front = (size.length_front || size.length / 2 || 400) + fmin
+  const rear = (size.length_rear || size.length / 2 || 400) + bmin
+  const halfW = (size.width || 600) / 2 + smin
+
+  const corners: Point[] = [
+    { x: front, y: halfW },
+    { x: front, y: -halfW },
+    { x: -rear, y: -halfW },
+    { x: -rear, y: halfW }
+  ]
+  const screenPts = corners.map((c) => {
+    const wx = x + c.x * Math.cos(th) - c.y * Math.sin(th)
+    const wy = y + c.x * Math.sin(th) + c.y * Math.cos(th)
+    return worldToScreen({ x: wx, y: wy })
+  })
+
+  ctx.setLineDash([6, 4])
+  ctx.strokeStyle = '#e5e7eb'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  screenPts.forEach((p, i) => {
+    if (i === 0) ctx!.moveTo(p.x, p.y)
+    else ctx!.lineTo(p.x, p.y)
+  })
+  ctx.closePath()
+  ctx.stroke()
+  ctx.setLineDash([])
 }
 
 function drawLaser() {
   if (!ctx) return
-  ctx.fillStyle = '#ef4444'
-  for (const group of store.laserGroups) {
+  store.laserGroups.forEach((group, i) => {
+    ctx!.fillStyle = LASER_COLORS[i % LASER_COLORS.length]
     for (const p of group) {
       const s = worldToScreen(p)
-      ctx.fillRect(s.x - 1, s.y - 1, 2, 2)
+      ctx!.fillRect(s.x - 1, s.y - 1, 2, 2)
     }
-  }
+  })
 }
 
 function drawRobot() {
@@ -358,6 +412,7 @@ function render() {
     drawMap()
     drawPath()
     drawClearances()
+    drawAvoidBox()
     drawLaser()
     drawRobot()
   }
@@ -426,5 +481,30 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+.canvas-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  background: rgba(11, 18, 32, 0.7);
+  border-radius: 6px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1;
+}
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
 }
 </style>
