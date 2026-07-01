@@ -1,0 +1,36 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 运行时配置文件不缓存，便于切换后端地址
+    location = /config.js {
+        add_header Cache-Control "no-store";
+    }
+
+    # REST 反向代理到车端内嵌服务
+    location /api/ {
+        proxy_pass http://${CAR_HOST}:${CAR_PORT}/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # WebSocket 反向代理(升级握手)
+    location /ws/ {
+        proxy_pass http://${CAR_HOST}:${CAR_PORT}/ws/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # 单页应用回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
