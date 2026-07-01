@@ -25,7 +25,9 @@ let raf = 0
 let ro: ResizeObserver | null = null
 
 // 视图状态：scale 为 px/mm，pan 为附加在跟随中心上的世界偏移(mm)
-const scale = ref(0.05)
+// 初始分辨率约 35px/m(0.035 px/mm)，以机器人为中心，其余区域靠拖动查看
+const INIT_SCALE = 0.035
+const scale = ref(INIT_SCALE)
 let panX = 0
 let panY = 0
 let follow = true
@@ -157,31 +159,12 @@ function zoom(factor: number) {
   scale.value = Math.min(2, Math.max(0.001, scale.value * factor))
 }
 
-// 初始视图：优先整张地图自适应；无地图则以机器人为中心用合适缩放
-function fitToMap(): boolean {
-  if (!mapMeta || !cv.value) return false
-  const c = cv.value
-  const worldW = mapMeta.w * mapMeta.res
-  const worldH = mapMeta.h * mapMeta.res
-  if (worldW <= 0 || worldH <= 0 || c.width === 0 || c.height === 0) return false
-  const margin = 0.92
-  const s = Math.min((c.width * margin) / worldW, (c.height * margin) / worldH)
-  scale.value = Math.min(2, Math.max(0.0005, s))
-  follow = false
-  panX = mapMeta.minX + worldW / 2
-  panY = mapMeta.maxY - worldH / 2
-  return true
-}
-
+// 初始视图：以机器人为中心，固定初始分辨率(约 35px/m)，超出范围靠拖动查看
 function initialView() {
-  if (fitToMap()) return
   follow = true
   panX = 0
   panY = 0
-  if (cv.value && cv.value.width > 0) {
-    // 无地图时默认约 25m 视野，机器人居中
-    scale.value = Math.min(2, Math.max(0.005, cv.value.width / 25000))
-  }
+  scale.value = INIT_SCALE
 }
 
 function onWheel(e: WheelEvent) {
@@ -422,7 +405,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 360px;
+  min-height: 240px;
   background: #0b1220;
   border-radius: 8px;
   overflow: hidden;
