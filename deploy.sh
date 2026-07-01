@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # forkweb 叉车端一键重编译并运行脚本
 #   拉取最新代码 -> 构建镜像 -> 重启容器
+#
+# 首次部署(车端无 SSH key，用 HTTPS 克隆):
+#   git clone https://github.com/lovingQi/forkweb.git
+#   cd forkweb && ./deploy.sh --host <车端后端IP>
+#
 # 用法示例:
 #   ./deploy.sh                       # 用默认参数
 #   ./deploy.sh --host 172.10.25.132  # 指定车端后端 IP
@@ -50,7 +55,10 @@ fi
 
 echo "==> [1/4] 更新代码"
 if [ "$DO_PULL" = "1" ] && [ -d .git ]; then
-  git pull --ff-only || echo "[警告] git pull 失败，使用当前代码继续"
+  # 先按仓库现有配置拉取；失败则禁用代理直连重试(兜底车端坏代理)
+  git pull --ff-only \
+    || git -c http.proxy= -c https.proxy= pull --ff-only \
+    || echo "[警告] git pull 失败，使用当前代码继续"
 else
   echo "跳过 git pull"
 fi

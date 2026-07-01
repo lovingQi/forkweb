@@ -38,3 +38,21 @@ docker compose up -d --build
 ```
 
 默认映射宿主机 `8081` -> 容器 `80`。
+
+## 叉车端一键部署
+
+车端无 SSH key，用 HTTPS 克隆(仓库为 Public，`clone`/`pull` 免认证)：
+
+```bash
+# 首次
+git clone https://github.com/lovingQi/forkweb.git
+cd forkweb
+./deploy.sh --host <车端后端IP>     # 前后端同机可省略 --host，默认用 host.docker.internal
+
+# 之后每次更新(脚本内部自动 git pull)
+./deploy.sh --host <车端后端IP>
+```
+
+`deploy.sh` 会依次：`git pull` → `docker build` → 移除旧容器 → `docker run`，并打印访问地址与日志命令。
+
+常用参数：`--host`(后端地址) `--car-port`(后端端口，默认 8080) `--port`(前端宿主端口，默认 8081) `--no-pull`(仅重建不拉代码)。
