@@ -4,3 +4,4 @@ dist-ssr
 .git
 *.local
 .DS_Store
+deploy.sh
