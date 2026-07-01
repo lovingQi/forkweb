@@ -24,9 +24,15 @@ import StatusPanel from '@/components/StatusPanel.vue'
 .dashboard,
 .dash-row {
   height: 100%;
+  min-height: 0;
+}
+.dash-row :deep(.el-col) {
+  height: 100%;
+  min-height: 0;
 }
 .canvas-card {
   height: 100%;
+  min-height: 0;
 }
 :deep(.canvas-card-body) {
   height: calc(100% - 0px);
@@ -38,6 +44,7 @@ import StatusPanel from '@/components/StatusPanel.vue'
 }
 .status-card {
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 .status-card :deep(.el-card__body) {

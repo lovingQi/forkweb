@@ -60,13 +60,20 @@ onMounted(() => {
 .avoid-config,
 .row {
   height: 100%;
+  min-height: 0;
+}
+.row :deep(.el-col) {
+  height: 100%;
+  min-height: 0;
 }
 .form-card {
   height: 100%;
+  min-height: 0;
   overflow-y: auto;
 }
 .preview-card {
   height: 100%;
+  min-height: 0;
 }
 .preview-card :deep(.el-card__body) {
   height: calc(100% - 56px);
