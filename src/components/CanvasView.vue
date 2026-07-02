@@ -30,6 +30,14 @@ const store = useRobotStore()
 // 激光分组固定配色(按组序号取色)
 const LASER_COLORS = ['#f87171', '#fbbf24', '#c084fc', '#f472b6', '#22d3ee', '#38bdf8']
 
+// 路网拓扑配色/尺寸
+const PATH_STRAIGHT_COLOR = 'rgba(96,165,250,0.35)' // 直线连接
+const PATH_BEZIER_COLOR = '#e879f9' // 贝塞尔曲线(醒目区分)
+const PATH_NODE_COLOR = '#60a5fa' // 路径点方块
+const PATH_NODE_TEXT_COLOR = '#cbd5e1' // 路径点名称
+const PATH_NODE_SIZE = 6 // 方块边长(px, 固定)
+const PATH_LABEL_MIN_SCALE = 0.06 // 名称显示的最小缩放(px/mm)
+
 const wrap = ref<HTMLDivElement | null>(null)
 const cv = ref<HTMLCanvasElement | null>(null)
 let ctx: CanvasRenderingContext2D | null = null
@@ -58,9 +66,17 @@ interface Goal {
   x: number
   y: number
 }
+interface PathEdge {
+  a: Point
+  b: Point
+  bezier: boolean
+  c1?: Point
+  c2?: Point
+}
 let mapGoals: Goal[] = []
 let mapPathPts: Record<string, Point> = {}
-let mapPathEdges: Array<[Point, Point]> = []
+let mapPathEdges: PathEdge[] = []
+let mapPathNodes: Array<{ name: string; x: number; y: number }> = []
 
 function parsePoseStr(s?: string): Point {
   if (!s) return { x: 0, y: 0 }
@@ -74,6 +90,7 @@ function buildMapCache() {
   mapGoals = []
   mapPathPts = {}
   mapPathEdges = []
+  mapPathNodes = []
   const data = store.map.data
   if (!data) return
 
@@ -118,16 +135,51 @@ function buildMapCache() {
     })
   }
   if (Array.isArray(objs.PathPoint)) {
+    // 第一趟：收集节点
     for (const pp of objs.PathPoint) {
-      if (pp && pp.name) mapPathPts[pp.name] = parsePoseStr(pp.pose)
+      if (pp && pp.name) {
+        const pt = parsePoseStr(pp.pose)
+        mapPathPts[pp.name] = pt
+        mapPathNodes.push({ name: pp.name, x: pt.x, y: pt.y })
+      }
     }
+    // 第二趟：基于 connections 生成边(缺失时回退 vertex 画直线)
     for (const pp of objs.PathPoint) {
-      if (!pp || !pp.name || !pp.vertex) continue
+      if (!pp || !pp.name) continue
       const a = mapPathPts[pp.name]
-      const neighbors = String(pp.vertex).trim().split(/\s+/)
-      for (const nb of neighbors) {
-        const b = mapPathPts[nb]
-        if (a && b) mapPathEdges.push([a, b])
+      if (!a) continue
+      if (Array.isArray(pp.connections) && pp.connections.length > 0) {
+        for (const con of pp.connections) {
+          if (!con || !con.name) continue
+          const b = mapPathPts[con.name]
+          if (!b) continue
+          const type = Number(con.type) || 0
+          if (type === 1) {
+            const x1 = Number(con.x1) || 0
+            const y1 = Number(con.y1) || 0
+            const x2 = Number(con.x2) || 0
+            const y2 = Number(con.y2) || 0
+            if (x1 === 0 && y1 === 0 && x2 === 0 && y2 === 0) {
+              mapPathEdges.push({ a, b, bezier: false })
+            } else {
+              mapPathEdges.push({
+                a,
+                b,
+                bezier: true,
+                c1: { x: a.x + x1, y: a.y + y1 },
+                c2: { x: a.x + x2, y: a.y + y2 }
+              })
+            }
+          } else {
+            mapPathEdges.push({ a, b, bezier: false })
+          }
+        }
+      } else if (pp.vertex) {
+        const neighbors = String(pp.vertex).trim().split(/\s+/)
+        for (const nb of neighbors) {
+          const b = mapPathPts[nb]
+          if (b) mapPathEdges.push({ a, b, bezier: false })
+        }
       }
     }
   }
@@ -251,17 +303,46 @@ function drawMap() {
     ctx.drawImage(mapCanvas, 0, 0, mapMeta.w, mapMeta.h, topLeft.x, topLeft.y, dw, dh)
   }
 
-  // 路径点拓扑边
+  // 路径点拓扑边(直线/贝塞尔)
   if (mapPathEdges.length > 0) {
-    ctx.strokeStyle = 'rgba(96,165,250,0.35)'
-    ctx.lineWidth = 1
-    for (const [a, b] of mapPathEdges) {
-      const sa = worldToScreen(a)
-      const sb = worldToScreen(b)
-      ctx.beginPath()
-      ctx.moveTo(sa.x, sa.y)
-      ctx.lineTo(sb.x, sb.y)
-      ctx.stroke()
+    for (const e of mapPathEdges) {
+      const sa = worldToScreen(e.a)
+      const sb = worldToScreen(e.b)
+      if (e.bezier && e.c1 && e.c2) {
+        const sc1 = worldToScreen(e.c1)
+        const sc2 = worldToScreen(e.c2)
+        ctx.strokeStyle = PATH_BEZIER_COLOR
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(sa.x, sa.y)
+        ctx.bezierCurveTo(sc1.x, sc1.y, sc2.x, sc2.y, sb.x, sb.y)
+        ctx.stroke()
+      } else {
+        ctx.strokeStyle = PATH_STRAIGHT_COLOR
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(sa.x, sa.y)
+        ctx.lineTo(sb.x, sb.y)
+        ctx.stroke()
+      }
+    }
+  }
+
+  // 路径点节点方块 + 名称
+  if (mapPathNodes.length > 0) {
+    const half = PATH_NODE_SIZE / 2
+    ctx.fillStyle = PATH_NODE_COLOR
+    for (const n of mapPathNodes) {
+      const s = worldToScreen(n)
+      ctx.fillRect(s.x - half, s.y - half, PATH_NODE_SIZE, PATH_NODE_SIZE)
+    }
+    if (scale.value >= PATH_LABEL_MIN_SCALE) {
+      ctx.fillStyle = PATH_NODE_TEXT_COLOR
+      ctx.font = '11px sans-serif'
+      for (const n of mapPathNodes) {
+        const s = worldToScreen(n)
+        ctx.fillText(n.name, s.x + 6, s.y - 6)
+      }
     }
   }
 
