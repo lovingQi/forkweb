@@ -13,12 +13,21 @@
         <span>组{{ i + 1 }}</span>
       </div>
     </div>
+    <div
+      v-if="ctxMenu.visible"
+      class="ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+    >
+      <div class="ctx-menu-item" @click="onAutoDrive">到达 {{ ctxMenu.name }}</div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRobotStore, type Point } from '@/stores/robot'
+import { control } from '@/api/http'
 
 const props = withDefaults(defineProps<{ showMap?: boolean; showAvoidBox?: boolean }>(), {
   showMap: true,
@@ -57,6 +66,15 @@ let userInteracted = false
 let dragging = false
 let lastX = 0
 let lastY = 0
+
+// 右键菜单(到达)状态
+const NODE_HIT_RADIUS = 12 // 右键命中路径点的像素半径
+const ctxMenu = ref<{ visible: boolean; x: number; y: number; name: string }>({
+  visible: false,
+  x: 0,
+  y: 0,
+  name: ''
+})
 
 // 地图离屏缓存(障碍点云预渲染到世界尺度的离屏画布，绘制时整体缩放 blit)
 let mapCanvas: HTMLCanvasElement | null = null
@@ -233,10 +251,13 @@ function initialView() {
 
 function onWheel(e: WheelEvent) {
   e.preventDefault()
+  hideCtxMenu()
   zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1)
 }
 
 function onDown(e: MouseEvent) {
+  if (e.button === 2) return // 右键不触发拖动
+  hideCtxMenu()
   userInteracted = true
   dragging = true
   lastX = e.clientX
@@ -262,6 +283,48 @@ function onMove(e: MouseEvent) {
 
 function onUp() {
   dragging = false
+}
+
+// 命中检测：返回距(px,py)最近且在半径内的路径点名称，否则 null
+function hitTestPathNode(px: number, py: number): string | null {
+  let best = NODE_HIT_RADIUS
+  let hit: string | null = null
+  for (const n of mapPathNodes) {
+    const s = worldToScreen(n)
+    const d = Math.hypot(s.x - px, s.y - py)
+    if (d <= best) {
+      best = d
+      hit = n.name
+    }
+  }
+  return hit
+}
+
+function hideCtxMenu() {
+  ctxMenu.value.visible = false
+}
+
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  const name = hitTestPathNode(e.offsetX, e.offsetY)
+  if (name) {
+    ctxMenu.value = { visible: true, x: e.offsetX, y: e.offsetY, name }
+  } else {
+    ctxMenu.value.visible = false
+  }
+}
+
+async function onAutoDrive() {
+  const name = ctxMenu.value.name
+  hideCtxMenu()
+  if (!name) return
+  try {
+    const res = await control('autodrive', { goal_name: name })
+    if (res && res.succeed) ElMessage.success('已下发到达: ' + name)
+    else ElMessage.error('失败：' + (res && res.error ? res.error : '未知错误'))
+  } catch (e: any) {
+    ElMessage.error('请求失败：' + (e && e.message ? e.message : e))
+  }
 }
 
 function drawGrid() {
@@ -516,6 +579,7 @@ onMounted(() => {
   const c = cv.value!
   c.addEventListener('wheel', onWheel, { passive: false })
   c.addEventListener('mousedown', onDown)
+  c.addEventListener('contextmenu', onContextMenu)
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
   buildMapCache()
@@ -530,6 +594,7 @@ onBeforeUnmount(() => {
   if (c) {
     c.removeEventListener('wheel', onWheel)
     c.removeEventListener('mousedown', onDown)
+    c.removeEventListener('contextmenu', onContextMenu)
   }
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mouseup', onUp)
@@ -587,5 +652,24 @@ onBeforeUnmount(() => {
   height: 10px;
   border-radius: 2px;
   display: inline-block;
+}
+.ctx-menu {
+  position: absolute;
+  z-index: 20;
+  background: rgba(11, 18, 32, 0.95);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 96px;
+}
+.ctx-menu-item {
+  padding: 6px 10px;
+  color: #e5e7eb;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.ctx-menu-item:hover {
+  background: #1e293b;
 }
 </style>
