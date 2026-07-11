@@ -303,6 +303,45 @@ app.post('/api/replay/package/import', async (req, res) => {
   }
 })
 
+app.post('/api/replay/package/import-path', async (req, res) => {
+  const zipPath = path.resolve(String(req.body.path || ''))
+  if (!zipPath || path.extname(zipPath).toLowerCase() !== '.zip') {
+    res.status(400).json({ succeed: false, error: 'path must be a .zip file' })
+    return
+  }
+  try {
+    const stat = await fs.stat(zipPath)
+    if (!stat.isFile()) {
+      res.status(400).json({ succeed: false, error: 'path must be a file' })
+      return
+    }
+    const imported = await importDiagnosticPackage(zipPath)
+    const data = await session.load({
+      logDir: imported.logDir,
+      mapDir: imported.mapDir,
+      mapFile: imported.mapFile,
+      forceReload: true
+    })
+    res.json({
+      succeed: true,
+      package: {
+        id: imported.id,
+        rootDir: imported.rootDir,
+        logDir: imported.logDir,
+        mapDir: imported.mapDir,
+        mapFile: imported.mapFile,
+        manifest: imported.manifest,
+        mapAliases: imported.mapAliases,
+        aliasConflicts: imported.aliasConflicts,
+        rootCauseFeedback: imported.rootCauseFeedback
+      },
+      overview: data.overview
+    })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
 app.get('/api/replay/cache', async (_req, res) => {
   res.json(await getCacheSummary())
 })

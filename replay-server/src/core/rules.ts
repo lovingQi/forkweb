@@ -14,6 +14,9 @@ export function buildRuleEvents(lines: ParsedLogLine[]): TimelineEvent[] {
     if (line.message.includes('JARVIS-G START')) {
       events.push(toEvent(line, `system-start-${seq++}`, 'system', 'system', 'info', '系统启动', line.message))
     }
+    if (isServiceStart(line.message)) {
+      events.push(toEvent(line, `service-start-${seq++}`, 'service_start', 'service_start', 'info', serviceStartTitle(line.message), line.message))
+    }
     if (line.message.includes('connect succeed')) {
       events.push(toEvent(line, `connect-${seq++}`, 'connect', 'connect', 'info', '设备连接成功', line.message))
     }
@@ -30,6 +33,17 @@ function isImportantWarning(message: string): boolean {
     message.includes('nullptr') ||
     message.includes('configure error')
   )
+}
+
+function isServiceStart(message: string): boolean {
+  return /(\bweb\b|\bhttp\b|\bserver\b|\bservice\b|服务|端口|listen|listening|started|start succeed|start success)/i.test(message)
+    && !message.includes('JARVIS-G START')
+}
+
+function serviceStartTitle(message: string): string {
+  if (/web/i.test(message)) return 'Web 启动'
+  if (/http|server|listen|listening|端口/i.test(message)) return '服务监听启动'
+  return '服务启动'
 }
 
 function toEvent(

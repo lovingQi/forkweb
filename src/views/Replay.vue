@@ -11,6 +11,9 @@
         <el-form-item label="地图文件">
           <el-input v-model="replay.mapFile" class="path-input" placeholder="自动匹配失败时填写" />
         </el-form-item>
+        <el-form-item label="诊断包">
+          <el-input v-model="packagePath" class="path-input" placeholder="大包可填本地 zip 路径" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="replay.loading" @click="load">加载诊断</el-button>
           <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
@@ -18,6 +21,7 @@
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
           <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
           <el-button @click="triggerPackageImport">导入诊断包</el-button>
+          <el-button :disabled="!packagePath" @click="importPackagePath">路径导入</el-button>
           <el-button @click="openAliasManager">地图别名</el-button>
           <el-button @click="openCacheDialog">缓存 {{ cacheText }}</el-button>
           <el-button type="warning" plain @click="clearCache">清理缓存</el-button>
@@ -132,6 +136,7 @@
                     :title="marker.title"
                     @click.stop="jump(marker.timeMs)"
                   >{{ marker.count > 1 ? marker.count : '' }}</button>
+                  <span v-if="hiddenMarkerCount" class="marker-overflow">+{{ hiddenMarkerCount }}</span>
                 </div>
                 <span class="time-text">{{ totalReplayTime }}</span>
               </div>
@@ -193,11 +198,11 @@
     />
 
     <el-card shadow="never" class="tabs-card">
-      <el-tabs>
-        <el-tab-pane label="时间线">
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="时间线" name="timeline">
           <div class="filter-row">
             <el-select v-model="replay.eventQuery.category" clearable placeholder="事件类型" class="filter-item">
-              <el-option v-for="type in eventTypes" :key="type" :value="type" :label="type" />
+              <el-option v-for="type in eventTypes" :key="type" :value="type" :label="categoryLabel(type)" />
             </el-select>
             <el-select v-model="replay.eventQuery.level" clearable placeholder="严重度" class="filter-item">
               <el-option value="error" label="错误" />
@@ -245,12 +250,14 @@
             </el-table-column>
             <el-table-column prop="timestamp" label="时间" width="180" />
             <el-table-column prop="level" label="级别" width="80" />
-            <el-table-column prop="category" label="类型" width="120" />
+            <el-table-column label="类型" width="120">
+              <template #default="{ row }">{{ categoryLabel(row.category || row.type) }}</template>
+            </el-table-column>
             <el-table-column prop="title" label="标题" width="180" />
             <el-table-column prop="detail" label="详情" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="错误码中心">
+        <el-tab-pane label="错误码中心" name="errors">
           <div class="filter-row">
             <el-input v-model="replay.errorQuery.code" placeholder="错误码" class="filter-item" />
             <el-input v-model="replay.errorQuery.module" placeholder="模块" class="filter-item" />
@@ -284,6 +291,7 @@
             <el-table-column prop="code" label="错误码" width="110" />
             <el-table-column prop="source" label="来源" width="170" />
             <el-table-column prop="kind" label="类型" width="110" />
+            <el-table-column prop="taskId" label="任务" width="120" />
             <el-table-column prop="definition.description" label="说明" show-overflow-tooltip />
             <el-table-column label="操作" width="130">
               <template #default="{ row }">
@@ -292,7 +300,7 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="任务视角">
+        <el-tab-pane label="任务视角" name="tasks">
           <el-table :data="replay.tasks" height="320" size="small" @row-click="selectTask">
             <el-table-column prop="id" label="任务" width="160" />
             <el-table-column prop="startTime" label="开始" width="180" />
@@ -300,12 +308,20 @@
             <el-table-column prop="status" label="状态" width="120" />
             <el-table-column prop="lastFinishedTaskId" label="完成任务" width="120" />
             <el-table-column prop="lastFinishedTaskSuccess" label="成功" width="80" />
+            <el-table-column prop="routeSummary" label="路线摘要" width="180" show-overflow-tooltip />
             <el-table-column prop="unfinishedPath" label="未完成路径" show-overflow-tooltip />
             <el-table-column prop="failureReasonCandidates" label="失败候选" show-overflow-tooltip />
             <el-table-column prop="errors" label="错误" show-overflow-tooltip />
+            <el-table-column label="日志" width="120">
+              <template #default="{ row }">
+                <el-button size="small" link :disabled="!row.failureLine && !row.startMs" @click.stop="showTaskFailureContext(row)">
+                  失败上下文
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="原始日志/过滤">
+        <el-tab-pane label="原始日志/过滤" name="logs">
           <div class="filter-row">
             <el-select v-model="replay.logFilter.level" clearable placeholder="级别" class="filter-item">
               <el-option value="E" label="E" />
@@ -361,8 +377,9 @@
             <el-tag v-for="fold in replay.folded" :key="fold.id" type="info" class="fold-tag" @click="openFoldDetail(fold)">
               {{ fold.label }} x{{ fold.count }}
             </el-tag>
+            <el-tag v-if="highlightedLogKey" type="warning">已高亮关联日志</el-tag>
           </div>
-          <el-table :data="replay.logs" height="260" size="small">
+          <el-table :data="replay.logs" height="260" size="small" :row-class-name="logRowClassName">
             <el-table-column prop="timestamp" label="时间" width="180" />
             <el-table-column prop="level" label="级别" width="70" />
             <el-table-column prop="module" label="模块" width="130" />
@@ -491,9 +508,12 @@ import { useRobotStore } from '@/stores/robot'
 const replay = useReplayStore()
 const robot = useRobotStore()
 const progressValue = ref(0)
+const activeTab = ref('timeline')
 const selectedTaskId = ref('')
 const selectedReplayPoint = ref<any>(null)
 const selectedFold = ref<any>(null)
+const highlightedLogKey = ref('')
+const packagePath = ref('')
 const foldDialogVisible = ref(false)
 const aliasDialogVisible = ref(false)
 const packageInfoVisible = ref(false)
@@ -567,11 +587,13 @@ const trajectory = computed(() =>
     .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
 )
 const eventTypes = computed(() => Array.from(new Set(replay.events.map((it) => it.category || it.type).filter(Boolean))))
-const progressMarkers = computed(() =>
+const progressMarkerResult = computed(() =>
   aggregateMarkers(replay.events
     .filter((event) => event.level === 'error' || event.type === 'task' || ['lost', 'estop', 'loc_score'].includes(event.category))
   )
 )
+const progressMarkers = computed(() => progressMarkerResult.value.markers)
+const hiddenMarkerCount = computed(() => progressMarkerResult.value.hiddenCount)
 const filteredEvents = computed(() =>
   replay.events
     .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
@@ -723,6 +745,8 @@ async function refreshEvents() {
 
 async function selectTimelineEvent(row: any) {
   jump(row.timeMs)
+  activeTab.value = 'logs'
+  highlightedLogKey.value = row.line ? logKey(row.line) : ''
   replay.logFilter.aroundTimeMs = row.timeMs
   replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
   replay.logFilter.offset = 0
@@ -736,6 +760,19 @@ async function selectTask(row: any) {
   await replay.refreshLogs()
   await replay.refreshErrorCodes()
   jump(row.startMs)
+}
+
+async function showTaskFailureContext(row: any) {
+  const line = row.failureLine || row.startEvidence
+  const timeMs = Number(line?.timeMs || row.startMs)
+  if (!Number.isFinite(timeMs)) return
+  jump(timeMs)
+  activeTab.value = 'logs'
+  highlightedLogKey.value = line ? logKey(line) : ''
+  replay.logFilter.aroundTimeMs = timeMs
+  replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
+  replay.logFilter.offset = 0
+  await replay.refreshLogs()
 }
 
 async function clearTaskSelection() {
@@ -752,6 +789,8 @@ async function refreshErrorCodes() {
 
 async function showErrorLogContext(row: any) {
   jump(row.timeMs)
+  activeTab.value = 'logs'
+  highlightedLogKey.value = row.line ? logKey(row.line) : ''
   replay.logFilter.aroundTimeMs = row.timeMs
   replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
   replay.logFilter.offset = 0
@@ -763,6 +802,19 @@ async function loadCurrentTimeLogs() {
   replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
   replay.logFilter.offset = 0
   await replay.refreshLogs()
+}
+
+async function importPackagePath() {
+  try {
+    const res = await replay.importPackageByPath(packagePath.value)
+    robot.map = await getReplayMap()
+    robot.connectWs('replay')
+    syncProgressValue()
+    packageInfoVisible.value = true
+    ElMessage.success(`诊断包已导入：${res.package?.manifest?.robotName || packagePath.value}`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
 }
 
 async function copyLogContext() {
@@ -873,7 +925,7 @@ function aggregateMarkers(events: any[]) {
     list.push(event)
     buckets.set(bucket, list)
   }
-  return Array.from(buckets.entries()).map(([bucket, list]) => {
+  const markers = Array.from(buckets.entries()).map(([bucket, list]) => {
     const primary = list.find((event) => event.level === 'error') || list[0]
     return {
       id: `marker-${bucket}-${primary.id}`,
@@ -884,6 +936,38 @@ function aggregateMarkers(events: any[]) {
       count: list.length
     }
   })
+  const sorted = markers.sort((a, b) => a.timeMs - b.timeMs)
+  const visible = sorted.slice(0, 200)
+  return {
+    markers: visible,
+    hiddenCount: Math.max(0, sorted.length - visible.length)
+  }
+}
+
+function logRowClassName({ row }: { row: any }) {
+  return highlightedLogKey.value && logKey(row) === highlightedLogKey.value ? 'highlight-log-row' : ''
+}
+
+function logKey(line: any) {
+  return line ? `${line.file}:${line.line}` : ''
+}
+
+function categoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    system: '系统',
+    service_start: '服务启动',
+    connect: '连接',
+    config: '配置',
+    map: '地图',
+    task: '任务',
+    error_code: '错误码',
+    status: '状态',
+    lost: '丢失',
+    estop: '急停',
+    loc_score: '定位分',
+    log: '日志'
+  }
+  return labels[category] || category || '-'
 }
 
 async function onPlay() {
@@ -1187,6 +1271,14 @@ onBeforeUnmount(() => {
 .progress-marker.info {
   background: #2563eb;
 }
+.marker-overflow {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  color: #92400e;
+  font-size: 11px;
+  line-height: 1;
+}
 .time-text {
   color: #6b7280;
   font-size: 12px;
@@ -1238,6 +1330,12 @@ onBeforeUnmount(() => {
 .fold-row {
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+.fold-tag {
+  cursor: pointer;
+}
+:deep(.highlight-log-row) {
+  --el-table-tr-bg-color: #fff7ed;
 }
 .fold-tag {
   cursor: pointer;

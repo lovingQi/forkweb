@@ -82,6 +82,11 @@ export async function importReplayPackage(payload: { fileName: string; content: 
   return data
 }
 
+export async function importReplayPackageByPath(payload: { path: string }) {
+  const { data } = await replayHttp.post('/replay/package/import-path', payload)
+  return data
+}
+
 export async function getReplayCache() {
   const { data } = await replayHttp.get('/replay/cache')
   return data

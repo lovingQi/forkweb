@@ -13,6 +13,7 @@ import {
   getReplaySession,
   getReplayTasks,
   importReplayPackage,
+  importReplayPackageByPath,
   importReplayMapAliases,
   deleteReplayMapAlias,
   saveReplayMapAlias,
@@ -274,6 +275,17 @@ export const useReplayStore = defineStore('replay', {
 
     async importPackage(fileName: string, content: string) {
       const res = await importReplayPackage({ fileName, content })
+      this.importedPackage = res.package
+      if (res.package?.logDir) this.logDir = res.package.logDir
+      if (res.package?.mapDir) this.mapDir = res.package.mapDir
+      if (res.package?.mapFile) this.mapFile = res.package.mapFile
+      await this.refreshAll()
+      this.loaded = true
+      return res
+    },
+
+    async importPackageByPath(packagePath: string) {
+      const res = await importReplayPackageByPath({ path: packagePath })
       this.importedPackage = res.package
       if (res.package?.logDir) this.logDir = res.package.logDir
       if (res.package?.mapDir) this.mapDir = res.package.mapDir

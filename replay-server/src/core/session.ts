@@ -137,8 +137,11 @@ export class ReplaySession {
         occurrences.push(...parseErrorOccurrences(frame.rawLine, definitions, frame.currentTaskId))
       }
     }
-    const events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
-    const tasks = buildTaskSegments(mergedFrames, rawLines, events)
+    let events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
+    let tasks = buildTaskSegments(mergedFrames, rawLines, events)
+    assignOccurrenceTaskIds(occurrences, tasks)
+    events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
+    tasks = buildTaskSegments(mergedFrames, rawLines, events)
     const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
     const rootCauses = buildRootCauses({
       events,
@@ -540,4 +543,13 @@ function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[]
     if (b.realCount !== a.realCount) return b.realCount - a.realCount
     return b.count - a.count
   })
+}
+
+function assignOccurrenceTaskIds(occurrences: ErrorOccurrence[], tasks: ReturnType<typeof buildTaskSegments>) {
+  if (tasks.length === 0) return
+  for (const occurrence of occurrences) {
+    if (occurrence.taskId && occurrence.taskId !== 'Null' && occurrence.taskId !== 'null') continue
+    const task = tasks.find((it) => occurrence.timeMs >= it.startMs && occurrence.timeMs <= it.endMs)
+    if (task) occurrence.taskId = task.id
+  }
 }

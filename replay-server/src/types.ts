@@ -100,9 +100,12 @@ export interface TaskSegment {
   errors: string[]
   relatedEvents?: TimelineEvent[]
   failureReasonCandidates?: string[]
+  routeSummary?: string
   startEvidence?: ParsedLogLine
   endEvidence?: ParsedLogLine
   trajectoryFrameRange?: [number, number]
+  failureLine?: ParsedLogLine
+  failureContextCount?: number
   beforeFailureLines?: ParsedLogLine[]
   afterFailureLines?: ParsedLogLine[]
   frames: number

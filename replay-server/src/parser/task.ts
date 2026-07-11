@@ -82,6 +82,10 @@ function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: Ti
     if (relatedLines.some((line) => /unfinished_path|new_unfinished_path/i.test(line.message))) {
       task.failureReasonCandidates.push('unfinished_path')
     }
+    const routeLine = relatedLines.find((line) => /current_routes/i.test(line.message))
+    if (routeLine) {
+      task.routeSummary = summarizeRoute(routeLine.message)
+    }
     for (const line of relatedLines) {
       for (const code of line.message.matchAll(/ERROR\d{4}/g)) {
         if (!task.errors.includes(code[0])) task.errors.push(code[0])
@@ -90,8 +94,21 @@ function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: Ti
     const failureLine = relatedLines.find((line) => /ERROR\d{4}|false|unfinished_path/i.test(line.message))
     if (failureLine) {
       const idx = rawLines.indexOf(failureLine)
+      task.failureLine = failureLine
       task.beforeFailureLines = rawLines.slice(Math.max(0, idx - 20), idx)
       task.afterFailureLines = rawLines.slice(idx + 1, Math.min(rawLines.length, idx + 21))
+      task.failureContextCount = task.beforeFailureLines.length + 1 + task.afterFailureLines.length
     }
   }
+}
+
+function summarizeRoute(message: string): string {
+  const currentRoutesIndex = message.search(/current_routes/i)
+  const text = currentRoutesIndex >= 0 ? message.slice(currentRoutesIndex) : message
+  const routeIds = Array.from(text.matchAll(/(?:route|path|id|task_id)["':=\s]+([A-Za-z0-9_.-]+)/gi))
+    .map((match) => match[1])
+    .filter(Boolean)
+  const uniqueRouteIds = Array.from(new Set(routeIds)).slice(0, 8)
+  if (uniqueRouteIds.length) return `routes: ${uniqueRouteIds.join(', ')}`
+  return text.length > 180 ? `${text.slice(0, 180)}...` : text
 }
