@@ -50,6 +50,10 @@ export interface ErrorCodeDefinition {
   toRms?: boolean
   toScreen?: boolean
   toWarn?: boolean
+  source?: 'log' | 'source' | 'unknown'
+  sourceFile?: string
+  sourceLine?: number
+  dictionaryConfidence?: number
   raw?: Record<string, unknown>
   firstLine?: ParsedLogLine
 }
@@ -95,6 +99,12 @@ export interface TaskSegment {
   newUnfinishedPath?: unknown
   errors: string[]
   relatedEvents?: TimelineEvent[]
+  failureReasonCandidates?: string[]
+  startEvidence?: ParsedLogLine
+  endEvidence?: ParsedLogLine
+  trajectoryFrameRange?: [number, number]
+  beforeFailureLines?: ParsedLogLine[]
+  afterFailureLines?: ParsedLogLine[]
   frames: number
 }
 
@@ -112,9 +122,11 @@ export interface MapMatchInfo {
   requestedMapFile?: string
   detectedMapName?: string
   selectedMapFile?: string
-  matchStrategy: 'manual' | 'detected_exact' | 'detected_contains' | 'fallback_first_json' | 'missing'
+  matchStrategy: 'manual' | 'alias' | 'detected_exact' | 'detected_contains' | 'fallback_first_json' | 'missing'
   confidence: number
   warnings: string[]
+  aliasMatched?: boolean
+  aliasSource?: string
 }
 
 export interface RootCauseCandidate {
@@ -130,6 +142,7 @@ export interface RootCauseCandidate {
 export interface OverviewSummary {
   loaded: boolean
   logDir: string
+  logFiles: string[]
   mapPath: string
   files: number
   lines: number

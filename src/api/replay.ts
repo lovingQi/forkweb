@@ -48,6 +48,41 @@ export async function getReplayTasks() {
   return data.tasks || []
 }
 
+export async function getReplayMapAliases() {
+  const { data } = await replayHttp.get('/replay/map-aliases')
+  return data.aliases || []
+}
+
+export async function saveReplayMapAlias(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/map-aliases', payload)
+  return data
+}
+
+export async function deleteReplayMapAlias(id: string) {
+  const { data } = await replayHttp.delete(`/replay/map-aliases/${encodeURIComponent(id)}`)
+  return data
+}
+
+export async function sendRootCauseFeedback(id: string, payload: { verdict: 'useful' | 'false_positive'; note?: string }) {
+  const { data } = await replayHttp.post(`/replay/root-causes/${encodeURIComponent(id)}/feedback`, payload)
+  return data
+}
+
+export async function importReplayPackage(payload: { fileName: string; content: string }) {
+  const { data } = await replayHttp.post('/replay/package/import', payload)
+  return data
+}
+
+export async function getReplayCache() {
+  const { data } = await replayHttp.get('/replay/cache')
+  return data
+}
+
+export async function clearReplayCache() {
+  const { data } = await replayHttp.delete('/replay/cache')
+  return data
+}
+
 export async function getReplayMap() {
   const { data } = await replayHttp.get('/map')
   return data
@@ -73,4 +108,8 @@ export async function seekReplay(payload: number | { timeMs?: number; frameIndex
 
 export function replayReportUrl(kind: 'md' | 'json') {
   return `${config.replayApiBase}/replay/report.${kind}`
+}
+
+export function replayPackageUrl() {
+  return `${config.replayApiBase}/replay/package`
 }

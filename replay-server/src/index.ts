@@ -1,9 +1,16 @@
 import cors from 'cors'
 import express from 'express'
+import fs from 'fs/promises'
 import http from 'http'
+import os from 'os'
+import path from 'path'
 import { WebSocketServer } from 'ws'
+import { clearReplayCache, getCacheSummary } from './core/cache'
+import { exportDiagnosticPackage, importDiagnosticPackage } from './core/diagnosticPackage'
 import { isNoiseLine } from './core/noise'
+import { deleteMapAlias, readMapAliases, upsertMapAlias } from './core/mapAlias'
 import { buildJsonReport, buildMarkdownReport } from './core/report'
+import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
 
 const app = express()
@@ -13,7 +20,7 @@ const host = process.env.REPLAY_HOST || '127.0.0.1'
 const session = new ReplaySession()
 
 app.use(cors())
-app.use(express.json({ limit: '8mb' }))
+app.use(express.json({ limit: '80mb' }))
 
 app.post('/api/replay/session', async (req, res) => {
   try {
@@ -67,8 +74,53 @@ app.get('/api/replay/error-codes', (_req, res) => {
   })
 })
 
-app.get('/api/replay/tasks', (_req, res) => {
-  res.json({ tasks: session.data.tasks })
+app.get('/api/replay/tasks', (req, res) => {
+  const taskId = req.query.taskId ? String(req.query.taskId) : ''
+  const includeContext = req.query.includeContext === 'true'
+  const tasks = session.data.tasks
+    .filter((task) => !taskId || task.id === taskId)
+    .map((task) => includeContext ? task : {
+      ...task,
+      beforeFailureLines: undefined,
+      afterFailureLines: undefined
+    })
+  res.json({ tasks })
+})
+
+app.get('/api/replay/map-aliases', async (_req, res) => {
+  res.json({ aliases: await readMapAliases() })
+})
+
+app.post('/api/replay/map-aliases', async (req, res) => {
+  const match = session.data.overview.mapMatch
+  const detectedMapName = String(req.body.detectedMapName || match.detectedMapName || '')
+  const selectedMapFile = String(req.body.selectedMapFile || match.selectedMapFile || '')
+  if (!detectedMapName || !selectedMapFile) {
+    res.status(400).json({ succeed: false, error: 'detectedMapName and selectedMapFile are required' })
+    return
+  }
+  const alias = await upsertMapAlias({
+    detectedMapName,
+    selectedMapFile,
+    robotName: req.body.robotName ? String(req.body.robotName) : session.data.overview.robotName || undefined,
+    note: req.body.note ? String(req.body.note) : undefined
+  })
+  res.json({ succeed: true, alias })
+})
+
+app.delete('/api/replay/map-aliases/:id', async (req, res) => {
+  const deleted = await deleteMapAlias(req.params.id)
+  res.json({ succeed: deleted })
+})
+
+app.post('/api/replay/root-causes/:id/feedback', async (req, res) => {
+  const verdict = req.body.verdict === 'false_positive' ? 'false_positive' : 'useful'
+  const feedback = await addRootCauseFeedback({
+    id: req.params.id,
+    verdict,
+    note: req.body.note ? String(req.body.note) : undefined
+  })
+  res.json({ succeed: true, feedback })
 })
 
 app.get('/api/replay/logs', (req, res) => {
@@ -81,6 +133,8 @@ app.get('/api/replay/logs', (req, res) => {
   const important = req.query.important ? String(req.query.important) : ''
   const startMs = Number(req.query.startMs || 0)
   const endMs = Number(req.query.endMs || 0)
+  const aroundTimeMs = Number(req.query.aroundTimeMs || 0)
+  const aroundLines = Math.min(Math.max(0, Number(req.query.aroundLines || 0)), 500)
   const offset = Math.max(0, Number(req.query.offset || 0))
   const limit = Math.min(Number(req.query.limit || 500), 5000)
   const eventLineKeys = new Set(
@@ -89,7 +143,7 @@ app.get('/api/replay/logs', (req, res) => {
       .map((event) => event.line && `${event.line.file}:${event.line.line}`)
       .filter(Boolean) as string[]
   )
-  const lines = session.data.rawLines
+  let lines = session.data.rawLines
     .filter((line) => !level || line.level === level)
     .filter((line) => !moduleName || line.module.includes(moduleName))
     .filter((line) => !keyword || line.raw.includes(keyword))
@@ -99,7 +153,22 @@ app.get('/api/replay/logs', (req, res) => {
     .filter((line) => !endMs || line.timeMs <= endMs)
     .filter((line) => !noise || (noise === 'true' ? isNoiseLine(line) : !isNoiseLine(line)))
     .filter((line) => !important || eventLineKeys.has(`${line.file}:${line.line}`))
-  res.json({ total: lines.length, offset, limit, lines: lines.slice(offset, offset + limit), folded: session.data.foldedLogs })
+  if (aroundTimeMs && aroundLines) {
+    let nearestIndex = 0
+    for (let i = 0; i < lines.length; i++) {
+      if (Math.abs(lines[i].timeMs - aroundTimeMs) < Math.abs(lines[nearestIndex].timeMs - aroundTimeMs)) nearestIndex = i
+    }
+    lines = lines.slice(Math.max(0, nearestIndex - aroundLines), Math.min(lines.length, nearestIndex + aroundLines + 1))
+  }
+  const page = lines.slice(offset, offset + limit)
+  res.json({
+    total: lines.length,
+    offset,
+    limit,
+    lines: page,
+    copyText: page.map((line) => line.raw).join('\n'),
+    folded: session.data.foldedLogs
+  })
 })
 
 app.get('/api/replay/report.md', (_req, res) => {
@@ -108,6 +177,60 @@ app.get('/api/replay/report.md', (_req, res) => {
 
 app.get('/api/replay/report.json', (_req, res) => {
   res.json(buildJsonReport(session.data))
+})
+
+app.get('/api/replay/package', async (_req, res) => {
+  try {
+    const pkg = await exportDiagnosticPackage(session.data)
+    res.download(pkg.file, pkg.name)
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/package/import', async (req, res) => {
+  const content = typeof req.body.content === 'string' ? req.body.content : ''
+  const fileName = path.basename(String(req.body.fileName || 'diagnostic-package.zip'))
+  if (!content) {
+    res.status(400).json({ succeed: false, error: 'content is required' })
+    return
+  }
+  const tempFile = path.join(os.tmpdir(), `${Date.now()}-${fileName}`)
+  try {
+    await fs.writeFile(tempFile, Buffer.from(content, 'base64'))
+    const imported = await importDiagnosticPackage(tempFile)
+    const data = await session.load({
+      logDir: imported.logDir,
+      mapDir: imported.mapDir,
+      mapFile: imported.mapFile,
+      forceReload: true
+    })
+    res.json({
+      succeed: true,
+      package: {
+        id: imported.id,
+        rootDir: imported.rootDir,
+        logDir: imported.logDir,
+        mapDir: imported.mapDir,
+        mapFile: imported.mapFile,
+        manifest: imported.manifest
+      },
+      overview: data.overview
+    })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  } finally {
+    await fs.rm(tempFile, { force: true }).catch(() => undefined)
+  }
+})
+
+app.get('/api/replay/cache', async (_req, res) => {
+  res.json(await getCacheSummary())
+})
+
+app.delete('/api/replay/cache', async (_req, res) => {
+  await clearReplayCache()
+  res.json({ succeed: true, cache: await getCacheSummary() })
 })
 
 app.post('/api/replay/control', (req, res) => {

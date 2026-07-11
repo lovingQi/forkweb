@@ -7,7 +7,8 @@ export function buildTaskSegments(
 ): TaskSegment[] {
   const tasks: TaskSegment[] = []
   let current: TaskSegment | null = null
-  for (const frame of frames) {
+  for (let index = 0; index < frames.length; index++) {
+    const frame = frames[index]
     const taskId = normalizeTaskId(frame.currentTaskId)
     if (!taskId) {
       if (current) {
@@ -26,12 +27,16 @@ export function buildTaskSegments(
         endTime: frame.timestamp,
         status: frame.status,
         errors: [],
+        startEvidence: frame.rawLine,
+        trajectoryFrameRange: [index, index],
         frames: 0
       }
       tasks.push(current)
     }
     current.endMs = frame.timeMs
     current.endTime = frame.timestamp
+    current.endEvidence = frame.rawLine
+    current.trajectoryFrameRange = [current.trajectoryFrameRange?.[0] ?? index, index]
     current.status = frame.status || current.status
     current.lastFinishedTaskId = frame.lastFinishedTaskId || current.lastFinishedTaskId
     current.lastFinishedTaskSuccess = frame.lastFinishedTaskSuccess ?? current.lastFinishedTaskSuccess
@@ -64,15 +69,29 @@ function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: Ti
     }
     const relatedLines = rawLines.filter((line) => {
       if (line.timeMs < task.startMs || line.timeMs > task.endMs) return false
-      return /current_task_error_code|unfinished_path|last_finished_task_is_success|FltTask/i.test(line.message)
+      return /current_routes|current_task_error_code|unfinished_path|new_unfinished_path|last_finished_task|FltTask/i.test(line.message)
     })
+    task.failureReasonCandidates = []
     if (relatedLines.some((line) => /last_finished_task_is_success["':=\s]+false/i.test(line.message))) {
       task.lastFinishedTaskSuccess = false
+      task.failureReasonCandidates.push('last_finished_task_is_success=false')
+    }
+    if (relatedLines.some((line) => /current_task_error_code.*ERROR\d{4}/i.test(line.message))) {
+      task.failureReasonCandidates.push('current_task_error_code')
+    }
+    if (relatedLines.some((line) => /unfinished_path|new_unfinished_path/i.test(line.message))) {
+      task.failureReasonCandidates.push('unfinished_path')
     }
     for (const line of relatedLines) {
       for (const code of line.message.matchAll(/ERROR\d{4}/g)) {
         if (!task.errors.includes(code[0])) task.errors.push(code[0])
       }
+    }
+    const failureLine = relatedLines.find((line) => /ERROR\d{4}|false|unfinished_path/i.test(line.message))
+    if (failureLine) {
+      const idx = rawLines.indexOf(failureLine)
+      task.beforeFailureLines = rawLines.slice(Math.max(0, idx - 20), idx)
+      task.afterFailureLines = rawLines.slice(idx + 1, Math.min(rawLines.length, idx + 21))
     }
   }
 }

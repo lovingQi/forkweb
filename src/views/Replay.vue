@@ -16,6 +16,11 @@
           <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('md')">Markdown</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
+          <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
+          <el-button @click="triggerPackageImport">导入诊断包</el-button>
+          <el-button @click="refreshCache">缓存 {{ cacheText }}</el-button>
+          <el-button type="warning" plain @click="clearCache">清理缓存</el-button>
+          <input ref="packageInput" class="hidden-input" type="file" accept=".zip" @change="onPackageSelected" />
         </el-form-item>
       </el-form>
     </el-card>
@@ -47,7 +52,33 @@
       </div>
       <div v-if="(replay.overview?.dataWarnings || []).length" class="warning-line">
         <span v-for="item in replay.overview.dataWarnings" :key="item">{{ item }}</span>
+        <el-button v-if="canConfirmMapAlias" size="small" type="warning" plain @click="confirmMapAlias">
+          确认使用此地图
+        </el-button>
       </div>
+    </el-card>
+
+    <el-card v-if="rootCauses.length" shadow="never" class="root-cause-band">
+      <template #header>诊断结论</template>
+      <el-collapse>
+        <el-collapse-item v-for="cause in rootCauses" :key="cause.id" :name="cause.id">
+          <template #title>
+            <span class="cause-title">{{ cause.title }}</span>
+            <el-tag size="small" :type="cause.severity === 'error' ? 'danger' : 'warning'">
+              {{ Math.round((cause.confidence || 0) * 100) }}%
+            </el-tag>
+          </template>
+          <div class="cause-body">
+            <div>{{ cause.suggestion }}</div>
+            <div class="cause-actions">
+              <el-button size="small" @click="jumpFirstEvidence(cause)">跳转证据</el-button>
+              <el-button size="small" type="success" plain @click="sendCauseFeedback(cause.id, 'useful')">有用</el-button>
+              <el-button size="small" type="warning" plain @click="sendCauseFeedback(cause.id, 'false_positive')">误报</el-button>
+            </div>
+            <pre>{{ causeEvidenceText(cause) }}</pre>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
     </el-card>
 
     <el-row :gutter="12" class="main-row">
@@ -73,6 +104,7 @@
                     <el-option :value="2" label="2x" />
                     <el-option :value="5" label="5x" />
                   </el-select>
+                  <el-checkbox v-model="smoothTrajectory" size="small">平滑轨迹</el-checkbox>
                 </div>
               </div>
               <div class="progress-row">
@@ -96,7 +128,7 @@
                     :style="{ left: marker.left }"
                     :title="marker.title"
                     @click.stop="jump(marker.timeMs)"
-                  ></button>
+                  >{{ marker.count > 1 ? marker.count : '' }}</button>
                 </div>
                 <span class="time-text">{{ totalReplayTime }}</span>
               </div>
@@ -108,6 +140,18 @@
             :event-points="eventPoints"
             @select-replay-point="onReplayPointSelect"
           />
+          <div v-if="selectedReplayPoint" class="point-popover">
+            <div class="point-popover-head">
+              <span>轨迹点详情</span>
+              <button @click="selectedReplayPoint = null">×</button>
+            </div>
+            <div>时间：{{ selectedReplayPoint.timestamp || '-' }}</div>
+            <div>位置：{{ Number(selectedReplayPoint.x).toFixed(0) }}, {{ Number(selectedReplayPoint.y).toFixed(0) }}</div>
+            <div>状态：{{ selectedReplayPoint.status || '-' }}</div>
+            <div>任务：{{ selectedReplayPoint.taskId || '-' }}</div>
+            <div>电量：{{ selectedReplayPoint.battery ?? '-' }}</div>
+            <div>定位分：{{ selectedReplayPoint.score ?? '-' }}</div>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="9" class="main-col">
@@ -137,6 +181,14 @@
       </el-col>
     </el-row>
 
+    <ReplayCharts
+      v-if="replay.frames.length"
+      class="charts-row"
+      :frames="replay.frames"
+      :errors="replay.errorOccurrences"
+      @select-time="jump"
+    />
+
     <el-card shadow="never" class="tabs-card">
       <el-tabs>
         <el-tab-pane label="时间线">
@@ -144,6 +196,7 @@
             <el-select v-model="replay.eventFilter" clearable placeholder="事件类型" class="filter-item">
               <el-option v-for="type in eventTypes" :key="type" :value="type" :label="type" />
             </el-select>
+            <el-tag v-if="selectedTaskId" closable @close="clearTaskSelection">任务 {{ selectedTaskId }}</el-tag>
           </div>
           <el-table :data="filteredEvents" height="320" size="small" @row-click="(row:any) => jump(row.timeMs)">
             <el-table-column type="expand">
@@ -165,7 +218,15 @@
           <el-table :data="replay.errorSummaries" height="160" size="small" @row-click="selectErrorSummary">
             <el-table-column prop="code" label="错误码" width="110" />
             <el-table-column prop="count" label="次数" width="70" />
+            <el-table-column prop="realCount" label="真实" width="70" />
+            <el-table-column prop="configNoticeCount" label="配置" width="70" />
             <el-table-column prop="level" label="等级" width="70" />
+            <el-table-column label="来源" width="90">
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.source || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="置信度" width="80">
+              <template #default="{ row }">{{ confidenceText(row.occurrences?.[0]?.definition?.dictionaryConfidence) }}</template>
+            </el-table-column>
             <el-table-column prop="firstTime" label="首次" width="180" />
             <el-table-column prop="lastTime" label="末次" width="180" />
             <el-table-column prop="description" label="描述" show-overflow-tooltip />
@@ -174,11 +235,12 @@
             <el-table-column prop="timestamp" label="时间" width="180" />
             <el-table-column prop="code" label="错误码" width="110" />
             <el-table-column prop="source" label="来源" width="170" />
+            <el-table-column prop="kind" label="类型" width="110" />
             <el-table-column prop="definition.description" label="说明" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="任务视角">
-          <el-table :data="replay.tasks" height="320" size="small" @row-click="(row:any) => jump(row.startMs)">
+          <el-table :data="replay.tasks" height="320" size="small" @row-click="selectTask">
             <el-table-column prop="id" label="任务" width="160" />
             <el-table-column prop="startTime" label="开始" width="180" />
             <el-table-column prop="endTime" label="结束" width="180" />
@@ -186,6 +248,7 @@
             <el-table-column prop="lastFinishedTaskId" label="完成任务" width="120" />
             <el-table-column prop="lastFinishedTaskSuccess" label="成功" width="80" />
             <el-table-column prop="unfinishedPath" label="未完成路径" show-overflow-tooltip />
+            <el-table-column prop="failureReasonCandidates" label="失败候选" show-overflow-tooltip />
             <el-table-column prop="errors" label="错误" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
@@ -201,6 +264,35 @@
             <el-input v-model="replay.logFilter.keyword" placeholder="关键词" class="filter-item" />
             <el-input v-model="replay.logFilter.errorCode" placeholder="错误码" class="filter-item" />
             <el-input v-model="replay.logFilter.taskId" placeholder="任务 ID" class="filter-item" />
+            <el-input-number
+              v-model="replay.logFilter.startMs"
+              :min="0"
+              :controls="false"
+              placeholder="开始时间戳"
+              class="number-filter"
+            />
+            <el-input-number
+              v-model="replay.logFilter.endMs"
+              :min="0"
+              :controls="false"
+              placeholder="结束时间戳"
+              class="number-filter"
+            />
+            <el-input-number
+              v-model="replay.logFilter.aroundTimeMs"
+              :min="0"
+              :controls="false"
+              placeholder="中心时间戳"
+              class="number-filter"
+            />
+            <el-input-number
+              v-model="replay.logFilter.aroundLines"
+              :min="0"
+              :max="500"
+              :controls="false"
+              placeholder="上下文行"
+              class="number-filter"
+            />
             <el-select v-model="replay.logFilter.noise" clearable placeholder="噪声" class="filter-item">
               <el-option value="true" label="只看噪声" />
               <el-option value="false" label="排除噪声" />
@@ -209,9 +301,11 @@
               <el-option value="true" label="只看关键" />
             </el-select>
             <el-button @click="replay.refreshLogs">过滤</el-button>
+            <el-button @click="loadCurrentTimeLogs">当前时间上下文</el-button>
+            <el-button :disabled="!replay.logCopyText" @click="copyLogContext">复制上下文</el-button>
           </div>
           <div class="fold-row">
-            <el-tag v-for="fold in replay.folded" :key="fold.id" type="info">
+            <el-tag v-for="fold in replay.folded" :key="fold.id" type="info" class="fold-tag" @click="openFoldDetail(fold)">
               {{ fold.label }} x{{ fold.count }}
             </el-tag>
           </div>
@@ -231,6 +325,21 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <el-dialog v-model="foldDialogVisible" title="折叠日志详情" width="720px">
+      <el-descriptions v-if="selectedFold" :column="2" size="small" border>
+        <el-descriptions-item label="类型">{{ selectedFold.label }}</el-descriptions-item>
+        <el-descriptions-item label="数量">{{ selectedFold.count }}</el-descriptions-item>
+        <el-descriptions-item label="首次">{{ selectedFold.firstTime }}</el-descriptions-item>
+        <el-descriptions-item label="末次">{{ selectedFold.lastTime }}</el-descriptions-item>
+      </el-descriptions>
+      <div v-if="selectedFold" class="fold-detail">
+        <div class="context-title">首条日志</div>
+        <pre>{{ selectedFold.firstLine?.raw || '-' }}</pre>
+        <div class="context-title">末条日志</div>
+        <pre>{{ selectedFold.lastLine?.raw || '-' }}</pre>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -238,13 +347,20 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
-import { getReplayMap, replayReportUrl } from '@/api/replay'
+import ReplayCharts from '@/components/replay/ReplayCharts.vue'
+import { getReplayMap, replayPackageUrl, replayReportUrl } from '@/api/replay'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
 const replay = useReplayStore()
 const robot = useRobotStore()
 const progressValue = ref(0)
+const selectedTaskId = ref('')
+const selectedReplayPoint = ref<any>(null)
+const selectedFold = ref<any>(null)
+const foldDialogVisible = ref(false)
+const smoothTrajectory = ref(false)
+const packageInput = ref<HTMLInputElement | null>(null)
 let progressTimer = 0
 
 const overviewItems = computed(() => {
@@ -260,6 +376,12 @@ const overviewItems = computed(() => {
 })
 
 const topIssues = computed(() => (replay.overview?.topIssues || []).slice(0, 5))
+const rootCauses = computed(() => (replay.overview?.rootCauses || []).slice(0, 3))
+const cacheText = computed(() => {
+  const cache = replay.cacheSummary
+  if (!cache) return '-'
+  return `${cache.files || 0} 个 / ${formatBytes(cache.bytes || 0)}`
+})
 const mapMatchText = computed(() => {
   const match = replay.overview?.mapMatch
   if (!match) return '-'
@@ -270,6 +392,10 @@ const mapMatchType = computed(() => {
   if (confidence >= 0.8) return 'success'
   if (confidence > 0) return 'warning'
   return 'danger'
+})
+const canConfirmMapAlias = computed(() => {
+  const match = replay.overview?.mapMatch
+  return !!match?.detectedMapName && !!match?.selectedMapFile && !match.aliasMatched && (match.confidence || 0) < 0.8
 })
 const modeOptions = [
   { label: '真实时间', value: 'realtime' },
@@ -284,22 +410,21 @@ const currentReplayTime = computed(() =>
     : formatDuration(Math.max(0, replay.currentMs - replay.startMs))
 )
 const totalReplayTime = computed(() => (replay.mode === 'frame_compact' ? '帧' : formatDuration(replay.durationMs)))
-const trajectory = computed(() => replay.frames.map((it, index) => ({ x: it.x, y: it.y, timeMs: it.timeMs, frameIndex: index })))
+const trajectory = computed(() =>
+  (smoothTrajectory.value ? smoothFrames(replay.frames) : replay.frames)
+    .map((it, index) => ({ x: it.x, y: it.y, timeMs: it.timeMs, frameIndex: index, taskId: it.taskId }))
+    .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
+)
 const eventTypes = computed(() => Array.from(new Set(replay.events.map((it) => it.category || it.type).filter(Boolean))))
 const progressMarkers = computed(() =>
-  replay.events
+  aggregateMarkers(replay.events
     .filter((event) => event.level === 'error' || event.type === 'task' || ['lost', 'estop', 'loc_score'].includes(event.category))
-    .slice(0, 200)
-    .map((event) => ({
-      id: event.id,
-      timeMs: event.timeMs,
-      level: event.level,
-      title: `${event.timestamp} ${event.title}`,
-      left: `${markerPercent(event.timeMs)}%`
-    }))
+  )
 )
 const filteredEvents = computed(() =>
-  replay.eventFilter ? replay.events.filter((it) => (it.category || it.type) === replay.eventFilter) : replay.events
+  replay.events
+    .filter((it) => !replay.eventFilter || (it.category || it.type) === replay.eventFilter)
+    .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
 )
 const currentFrame = computed(() => {
   if (replay.frames.length === 0) return null
@@ -321,8 +446,9 @@ const eventPoints = computed(() =>
     .map((frame: any) => ({ x: frame.x, y: frame.y, timeMs: frame.timeMs, frameIndex: frame.frameIndex, title: frame.title, level: frame.level }))
 )
 const selectedErrorOccurrences = computed(() => {
-  if (!replay.selectedErrorCode) return replay.errorOccurrences
-  return replay.errorOccurrences.filter((it) => it.code === replay.selectedErrorCode)
+  return replay.errorOccurrences
+    .filter((it) => !replay.selectedErrorCode || it.code === replay.selectedErrorCode)
+    .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
 })
 
 async function load(forceReload = false) {
@@ -339,12 +465,96 @@ async function load(forceReload = false) {
   }
 }
 
+async function confirmMapAlias() {
+  try {
+    await replay.saveCurrentMapAlias()
+    ElMessage.success('地图别名已保存，正在重新解析')
+    await load(true)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function refreshCache() {
+  try {
+    await replay.refreshCacheSummary()
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function clearCache() {
+  try {
+    await replay.clearCache()
+    ElMessage.success('缓存已清理')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function jumpFirstEvidence(cause: any) {
+  const event = cause.evidenceEvents?.[0]
+  const line = cause.evidenceLines?.[0]
+  if (event?.timeMs) jump(event.timeMs)
+  else if (line?.timeMs) jump(line.timeMs)
+}
+
+async function sendCauseFeedback(id: string, verdict: 'useful' | 'false_positive') {
+  try {
+    await replay.sendRootCauseFeedback(id, verdict)
+    ElMessage.success('反馈已记录')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function causeEvidenceText(cause: any) {
+  const events = (cause.evidenceEvents || []).slice(0, 3).map((event: any) => `${event.timestamp} ${event.title}: ${event.detail}`)
+  const lines = (cause.evidenceLines || []).slice(0, 3).map((line: any) => line.raw)
+  return [...events, ...lines].join('\n')
+}
+
 function jump(timeMs: number) {
   replay.seek(timeMs)
   syncProgressValue()
 }
 
+async function selectTask(row: any) {
+  selectedTaskId.value = row.id
+  replay.logFilter.taskId = row.id
+  await replay.refreshLogs()
+  jump(row.startMs)
+}
+
+async function clearTaskSelection() {
+  selectedTaskId.value = ''
+  replay.logFilter.taskId = ''
+  await replay.refreshLogs()
+}
+
+async function loadCurrentTimeLogs() {
+  replay.logFilter.aroundTimeMs = replay.currentMs
+  replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
+  replay.logFilter.offset = 0
+  await replay.refreshLogs()
+}
+
+async function copyLogContext() {
+  try {
+    await navigator.clipboard.writeText(replay.logCopyText || '')
+    ElMessage.success('日志上下文已复制')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function openFoldDetail(fold: any) {
+  selectedFold.value = fold
+  foldDialogVisible.value = true
+}
+
 async function onReplayPointSelect(point: any) {
+  selectedReplayPoint.value = nearestFrame(point.timeMs) || point
   if (Number.isFinite(Number(point.frameIndex)) && replay.mode === 'frame_compact') {
     await replay.seekFrame(Number(point.frameIndex))
   } else if (Number.isFinite(Number(point.timeMs))) {
@@ -355,6 +565,32 @@ async function onReplayPointSelect(point: any) {
 
 function openReport(kind: 'md' | 'json') {
   window.open(replayReportUrl(kind), '_blank')
+}
+
+function openPackageExport() {
+  window.open(replayPackageUrl(), '_blank')
+}
+
+function triggerPackageImport() {
+  packageInput.value?.click()
+}
+
+async function onPackageSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const content = await fileToBase64(file)
+    const res = await replay.importPackage(file.name, content)
+    robot.map = await getReplayMap()
+    robot.connectWs('replay')
+    syncProgressValue()
+    ElMessage.success(`诊断包已导入：${res.package?.manifest?.robotName || file.name}`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  } finally {
+    input.value = ''
+  }
 }
 
 function selectErrorSummary(row: any) {
@@ -388,6 +624,29 @@ function markerPercent(timeMs: number) {
     return progressMax.value > 0 ? Math.max(0, Math.min(100, (index / progressMax.value) * 100)) : 0
   }
   return replay.durationMs > 0 ? Math.max(0, Math.min(100, ((timeMs - replay.startMs) / replay.durationMs) * 100)) : 0
+}
+
+function aggregateMarkers(events: any[]) {
+  const bucketCount = Math.max(1, Math.min(120, Math.floor(progressMax.value / (replay.mode === 'frame_compact' ? 5 : 3000)) || 80))
+  const buckets = new Map<number, any[]>()
+  for (const event of events) {
+    const percent = markerPercent(event.timeMs)
+    const bucket = Math.floor((percent / 100) * bucketCount)
+    const list = buckets.get(bucket) || []
+    list.push(event)
+    buckets.set(bucket, list)
+  }
+  return Array.from(buckets.entries()).map(([bucket, list]) => {
+    const primary = list.find((event) => event.level === 'error') || list[0]
+    return {
+      id: `marker-${bucket}-${primary.id}`,
+      timeMs: primary.timeMs,
+      level: list.some((event) => event.level === 'error') ? 'error' : primary.level,
+      title: list.map((event) => `${event.timestamp} ${event.title}`).slice(0, 5).join('\n'),
+      left: `${markerPercent(primary.timeMs)}%`,
+      count: list.length
+    }
+  })
 }
 
 async function onPlay() {
@@ -442,8 +701,23 @@ function formatDuration(ms: number) {
   return `${m}:${pad(s)}`
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
+}
+
 function pad(v: number) {
   return String(v).padStart(2, '0')
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
 function matchLabel(strategy: string) {
@@ -457,6 +731,25 @@ function matchLabel(strategy: string) {
   return labels[strategy] || strategy || '-'
 }
 
+function confidenceText(value: unknown) {
+  const n = Number(value)
+  return Number.isFinite(n) ? `${Math.round(n * 100)}%` : '-'
+}
+
+function smoothFrames(frames: any[]) {
+  if (frames.length < 3) return frames
+  return frames.map((frame, index) => {
+    if (index === 0 || index === frames.length - 1) return frame
+    const prev = frames[index - 1]
+    const next = frames[index + 1]
+    return {
+      ...frame,
+      x: (prev.x + frame.x + next.x) / 3,
+      y: (prev.y + frame.y + next.y) / 3
+    }
+  })
+}
+
 onBeforeUnmount(() => {
   stopProgressTimer()
   robot.disconnectWs()
@@ -465,19 +758,27 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .replay-page {
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: visible;
 }
 .load-band,
 .info-band,
+.root-cause-band,
 .tabs-card {
   flex: none;
 }
+.root-cause-band :deep(.el-card__body) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
 .path-input {
   width: 280px;
+}
+.hidden-input {
+  display: none;
 }
 .overview-row {
   flex: none;
@@ -502,6 +803,32 @@ onBeforeUnmount(() => {
   color: #92400e;
   font-size: 12px;
 }
+.cause-title {
+  margin-right: 8px;
+  font-weight: 600;
+}
+.cause-body {
+  color: #374151;
+  font-size: 13px;
+}
+.cause-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.cause-body pre {
+  max-height: 96px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.charts-row {
+  flex: none;
+  margin-top: 2px;
+}
 .metric {
   height: 76px;
 }
@@ -519,18 +846,55 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .main-row {
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  min-height: 560px;
 }
 .main-col,
 .map-card,
 .side-card {
   height: 100%;
-  min-height: 0;
+  min-height: 560px;
 }
 .map-card :deep(.el-card__body),
 .side-card :deep(.el-card__body) {
-  height: calc(100% - 56px);
+  height: calc(100% - 112px);
+  min-height: 430px;
+}
+.map-card :deep(.el-card__body) {
+  display: flex;
+  flex-direction: column;
+}
+.map-card {
+  position: relative;
+}
+.map-card :deep(.canvas-wrap) {
+  flex: 1;
+  min-height: 430px;
+}
+.point-popover {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.7;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+}
+.point-popover-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.point-popover-head button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 .play-head,
 .card-head,
@@ -572,6 +936,10 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   background: #f59e0b;
   cursor: pointer;
+  color: #fff;
+  font-size: 9px;
+  line-height: 12px;
+  text-align: center;
 }
 .progress-marker.error {
   background: #dc2626;
@@ -627,9 +995,30 @@ onBeforeUnmount(() => {
 .filter-item {
   width: 160px;
 }
+.number-filter {
+  width: 150px;
+}
 .fold-row {
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+.fold-tag {
+  cursor: pointer;
+}
+.fold-detail {
+  margin-top: 12px;
+}
+.fold-detail pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.5;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px;
 }
 .pager {
   margin-top: 8px;

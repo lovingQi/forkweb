@@ -12,18 +12,21 @@ import type {
   ReplaySessionData
 } from '../types'
 import { buildCacheKey, readSessionCache, writeSessionCache } from './cache'
+import { loadSourceErrorDictionary } from './errorDictionary'
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
 import { parseInfoStatus } from '../parser/infoStatus'
 import { parseLogLine, sortLogLines } from '../parser/logLine'
 import { buildTaskSegments } from '../parser/task'
 import { foldNoise } from './noise'
+import { matchMapAlias, readMapAliases } from './mapAlias'
 import { buildRootCauses } from './rootCause'
 import { buildTimelineEvents, mergeFrames } from './timeline'
 
 const EMPTY_OVERVIEW: OverviewSummary = {
   loaded: false,
   logDir: '',
+  logFiles: [],
   mapPath: '',
   files: 0,
   lines: 0,
@@ -118,6 +121,11 @@ export class ReplaySession {
       }
     }
 
+    const sourceDefinitions = await loadSourceErrorDictionary()
+    for (const [code, def] of sourceDefinitions) {
+      if (!definitions.has(code)) definitions.set(code, def)
+    }
+
     const mergedFrames = mergeFrames(frames)
     const occurrences: ErrorOccurrence[] = []
     for (const line of rawLines) {
@@ -130,7 +138,7 @@ export class ReplaySession {
     }
     const events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
     const tasks = buildTaskSegments(mergedFrames, rawLines, events)
-    const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames)
+    const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
     const rootCauses = buildRootCauses({
       events,
       frames: mergedFrames,
@@ -244,11 +252,13 @@ async function loadMap(
   mapDir: string | undefined,
   mapFile: string | undefined,
   rawLines: ParsedLogLine[],
-  frames: ReplayFrame[]
+  frames: ReplayFrame[],
+  robotName: string
 ): Promise<{ name: string; data: unknown; match: MapMatchInfo }> {
   const detectedMapName = detectMapName(rawLines, frames)
   const candidates = await findMapCandidates(mapDir)
-  const selected = selectMap({ mapFile, detectedMapName, candidates })
+  const aliases = await readMapAliases()
+  const selected = selectMap({ mapFile, detectedMapName, candidates, aliases, robotName })
   if (!selected.file) {
     return {
       name: '',
@@ -312,6 +322,8 @@ function selectMap(arg: {
   mapFile?: string
   detectedMapName: string
   candidates: string[]
+  aliases: Awaited<ReturnType<typeof readMapAliases>>
+  robotName: string
 }): { file: string; match: MapMatchInfo } | { file: ''; match: MapMatchInfo } {
   const warnings: string[] = []
   if (arg.mapFile) {
@@ -329,6 +341,26 @@ function selectMap(arg: {
   }
   const detected = normalizeMapName(arg.detectedMapName)
   if (detected) {
+    const alias = matchMapAlias({
+      aliases: arg.aliases,
+      detectedMapName: arg.detectedMapName,
+      robotName: arg.robotName,
+      candidates: arg.candidates
+    })
+    if (alias) {
+      return {
+        file: alias.selectedMapFile,
+        match: {
+          detectedMapName: arg.detectedMapName,
+          selectedMapFile: alias.selectedMapFile,
+          matchStrategy: 'alias',
+          confidence: 0.98,
+          warnings,
+          aliasMatched: true,
+          aliasSource: alias.id
+        }
+      }
+    }
     const exact = arg.candidates.find((file) => normalizeMapName(path.basename(file)) === detected)
     if (exact) {
       return {
@@ -413,6 +445,7 @@ function buildOverview(arg: {
   return {
     loaded: true,
     logDir: arg.input.logDir,
+    logFiles: arg.files,
     mapPath: arg.map.name,
     files: arg.files.length,
     lines: arg.rawLines.length,

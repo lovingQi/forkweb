@@ -16,11 +16,13 @@ export function parseErrorDefinition(line: ParsedLogLine): ErrorCodeDefinition |
       toRms: boolOrUndefined(raw.to_rms),
       toScreen: boolOrUndefined(raw.to_screen),
       toWarn: boolOrUndefined(raw.to_warn),
+      source: 'log',
+      dictionaryConfidence: 1,
       raw,
       firstLine: line
     }
   } catch {
-    return { code: m[1], firstLine: line }
+    return { code: m[1], source: 'log', dictionaryConfidence: 0.6, firstLine: line }
   }
 }
 

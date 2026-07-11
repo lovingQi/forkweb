@@ -1,14 +1,20 @@
 import { defineStore } from 'pinia'
 import {
+  clearReplayCache,
   createReplaySession,
+  getReplayCache,
   getReplayErrorCodes,
   getReplayEvents,
   getReplayFrames,
   getReplayLogs,
+  getReplayMapAliases,
   getReplayOverview,
   getReplaySession,
   getReplayTasks,
+  importReplayPackage,
+  saveReplayMapAlias,
   seekReplay,
+  sendRootCauseFeedback,
   setReplayControl
 } from '@/api/replay'
 import type { ReplayMode } from '@/api/replay'
@@ -31,12 +37,18 @@ export const useReplayStore = defineStore('replay', {
     tasks: [] as any[],
     logs: [] as any[],
     folded: [] as any[],
+    logCopyText: '',
+    mapAliases: [] as any[],
+    importedPackage: null as any,
+    cacheSummary: null as any,
     logFilter: {
       level: '',
       module: '',
       keyword: '',
       startMs: 0,
       endMs: 0,
+      aroundTimeMs: 0,
+      aroundLines: 0,
       errorCode: '',
       taskId: '',
       noise: '',
@@ -95,13 +107,16 @@ export const useReplayStore = defineStore('replay', {
       this.tasks = tasks
       this.logs = logs.lines || []
       this.folded = logs.folded || []
+      this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
+      this.mapAliases = await getReplayMapAliases()
     },
 
     async refreshLogs() {
       const logs = await getReplayLogs(this.logFilter)
       this.logs = logs.lines || []
       this.folded = logs.folded || []
+      this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
     },
 
@@ -162,6 +177,43 @@ export const useReplayStore = defineStore('replay', {
         ? Number(control.currentFrameIndex)
         : this.currentFrameIndex
       if (control.mode === 'realtime' || control.mode === 'frame_compact') this.mode = control.mode
+    },
+
+    async saveCurrentMapAlias() {
+      const match = this.overview?.mapMatch || {}
+      const res = await saveReplayMapAlias({
+        detectedMapName: match.detectedMapName,
+        selectedMapFile: match.selectedMapFile,
+        robotName: this.overview?.robotName
+      })
+      this.mapAliases = await getReplayMapAliases()
+      return res
+    },
+
+    async sendRootCauseFeedback(id: string, verdict: 'useful' | 'false_positive') {
+      return sendRootCauseFeedback(id, { verdict })
+    },
+
+    async importPackage(fileName: string, content: string) {
+      const res = await importReplayPackage({ fileName, content })
+      this.importedPackage = res.package
+      if (res.package?.logDir) this.logDir = res.package.logDir
+      if (res.package?.mapDir) this.mapDir = res.package.mapDir
+      if (res.package?.mapFile) this.mapFile = res.package.mapFile
+      await this.refreshAll()
+      this.loaded = true
+      return res
+    },
+
+    async refreshCacheSummary() {
+      this.cacheSummary = await getReplayCache()
+      return this.cacheSummary
+    },
+
+    async clearCache() {
+      const res = await clearReplayCache()
+      this.cacheSummary = res.cache
+      return res
     }
   }
 })
