@@ -11,7 +11,7 @@ import type {
   ReplayFrame,
   ReplaySessionData
 } from '../types'
-import { buildCacheKey, readSessionCache, writeSessionCache } from './cache'
+import { buildCacheKey, cleanupReplayCache, readSessionCache, writeSessionCache } from './cache'
 import { loadSourceErrorDictionary } from './errorDictionary'
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
@@ -83,6 +83,7 @@ export class ReplaySession {
   }
 
   async load(input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean }): Promise<ReplaySessionData> {
+    await cleanupReplayCache()
     const files = await findLogFiles(input.logDir)
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
     if (!input.forceReload) {

@@ -6,6 +6,16 @@ import type {
 } from '../types'
 import { buildRuleEvents } from './rules'
 
+export interface TimelineQuery {
+  startMs?: number
+  endMs?: number
+  level?: string
+  category?: string
+  mode?: 'all' | 'real_fault' | 'config_notice' | 'noise'
+  sort?: 'time' | 'severity'
+  dedupe?: boolean
+}
+
 export function mergeFrames(frames: ReplayFrame[]): ReplayFrame[] {
   const sorted = [...frames].sort((a, b) => a.timeMs - b.timeMs)
   const merged: ReplayFrame[] = []
@@ -52,6 +62,34 @@ export function buildTimelineEvents(
   events.push(...buildStateChangeEvents(frames))
   events.push(...buildLowScoreEvents(frames))
   return events.sort((a, b) => a.timeMs - b.timeMs)
+}
+
+export function filterTimelineEvents(events: TimelineEvent[], query: TimelineQuery): TimelineEvent[] {
+  let result = [...events]
+    .filter((event) => !query.startMs || event.timeMs >= query.startMs)
+    .filter((event) => !query.endMs || event.timeMs <= query.endMs)
+    .filter((event) => !query.level || event.level === query.level)
+    .filter((event) => !query.category || (event.category || event.type) === query.category)
+    .filter((event) => eventMatchesMode(event, query.mode || 'all'))
+  if (query.dedupe) result = dedupeTimelineEvents(result)
+  if (query.sort === 'severity') {
+    result.sort((a, b) => severityRank(b.level) - severityRank(a.level) || a.timeMs - b.timeMs)
+  } else {
+    result.sort((a, b) => a.timeMs - b.timeMs)
+  }
+  return result
+}
+
+export function dedupeTimelineEvents(events: TimelineEvent[]): TimelineEvent[] {
+  const result: TimelineEvent[] = []
+  for (const event of events) {
+    const last = result[result.length - 1]
+    if (last && timelineDedupeKey(last) === timelineDedupeKey(event) && Math.abs(event.timeMs - last.timeMs) <= 3000) {
+      continue
+    }
+    result.push(event)
+  }
+  return result
 }
 
 function buildStateChangeEvents(frames: ReplayFrame[]): TimelineEvent[] {
@@ -135,4 +173,22 @@ function cleanFrame(frame: ReplayFrame): ReplayFrame {
     if (frame[key] === undefined) delete frame[key]
   }
   return frame
+}
+
+function eventMatchesMode(event: TimelineEvent, mode: TimelineQuery['mode']): boolean {
+  if (!mode || mode === 'all') return true
+  if (mode === 'real_fault') return event.level === 'error' || event.category === 'error_code'
+  if (mode === 'config_notice') return event.category === 'config'
+  if (mode === 'noise') return event.category === 'log' && event.level !== 'error'
+  return true
+}
+
+function severityRank(level: TimelineEvent['level']): number {
+  if (level === 'error') return 3
+  if (level === 'warning') return 2
+  return 1
+}
+
+function timelineDedupeKey(event: TimelineEvent): string {
+  return [event.type, event.category || '', event.level, event.title, event.code || '', event.module || ''].join('|')
 }

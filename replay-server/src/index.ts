@@ -7,11 +7,19 @@ import path from 'path'
 import { WebSocketServer } from 'ws'
 import { clearReplayCache, getCacheSummary } from './core/cache'
 import { exportDiagnosticPackage, importDiagnosticPackage } from './core/diagnosticPackage'
-import { isNoiseLine } from './core/noise'
-import { deleteMapAlias, readMapAliases, upsertMapAlias } from './core/mapAlias'
+import { isNoiseLine, noiseRuleId } from './core/noise'
+import {
+  deleteMapAlias,
+  exportMapAliasesPayload,
+  findMapAliasConflicts,
+  importMapAliases,
+  readMapAliases,
+  upsertMapAlias
+} from './core/mapAlias'
 import { buildJsonReport, buildMarkdownReport } from './core/report'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
+import { filterTimelineEvents } from './core/timeline'
 
 const app = express()
 const server = http.createServer(app)
@@ -44,8 +52,23 @@ app.get('/api/replay/overview', (_req, res) => {
   res.json(session.data.overview)
 })
 
-app.get('/api/replay/events', (_req, res) => {
-  res.json({ events: session.data.events })
+app.get('/api/replay/events', (req, res) => {
+  const startMs = Number(req.query.startMs || 0)
+  const endMs = Number(req.query.endMs || 0)
+  const mode = ['real_fault', 'config_notice', 'noise'].includes(String(req.query.mode))
+    ? String(req.query.mode) as 'real_fault' | 'config_notice' | 'noise'
+    : 'all'
+  const sort = req.query.sort === 'severity' ? 'severity' : 'time'
+  const events = filterTimelineEvents(session.data.events, {
+    startMs,
+    endMs,
+    level: req.query.level ? String(req.query.level) : '',
+    category: req.query.category ? String(req.query.category) : '',
+    mode,
+    sort,
+    dedupe: req.query.dedupe === 'true'
+  })
+  res.json({ events })
 })
 
 app.get('/api/replay/frames', (_req, res) => {
@@ -66,11 +89,35 @@ app.get('/api/replay/frames', (_req, res) => {
   })
 })
 
-app.get('/api/replay/error-codes', (_req, res) => {
+app.get('/api/replay/error-codes', (req, res) => {
+  const kind = req.query.kind ? String(req.query.kind) : ''
+  const level = req.query.level ? Number(req.query.level) : NaN
+  const moduleName = req.query.module ? String(req.query.module) : ''
+  const code = req.query.code ? String(req.query.code).toUpperCase() : ''
+  const taskId = req.query.taskId ? String(req.query.taskId) : ''
+  const occurrences = session.data.errorOccurrences
+    .filter((it) => !kind || it.kind === kind)
+    .filter((it) => !Number.isFinite(level) || it.definition?.level === level)
+    .filter((it) => !moduleName || it.line.module.includes(moduleName))
+    .filter((it) => !code || it.code.includes(code))
+    .filter((it) => !taskId || it.taskId === taskId)
+  const occurrenceCodes = new Set(occurrences.map((it) => it.code))
+  const definitions = session.data.errorDefinitions
+    .filter((it) => !code || it.code.includes(code))
+    .filter((it) => !Number.isFinite(level) || it.level === level)
+    .filter((it) => occurrenceCodes.size === 0 ? true : occurrenceCodes.has(it.code))
+  const summaries = session.data.errorSummaries
+    .filter((it) => !code || it.code.includes(code))
+    .filter((it) => !Number.isFinite(level) || it.level === level)
+    .filter((it) => occurrenceCodes.size === 0 ? true : occurrenceCodes.has(it.code))
+    .map((summary) => ({
+      ...summary,
+      occurrences: summary.occurrences.filter((it) => occurrences.includes(it))
+    }))
   res.json({
-    definitions: session.data.errorDefinitions,
-    occurrences: session.data.errorOccurrences,
-    summaries: session.data.errorSummaries
+    definitions,
+    occurrences,
+    summaries
   })
 })
 
@@ -88,7 +135,8 @@ app.get('/api/replay/tasks', (req, res) => {
 })
 
 app.get('/api/replay/map-aliases', async (_req, res) => {
-  res.json({ aliases: await readMapAliases() })
+  const aliases = await readMapAliases()
+  res.json({ aliases, conflicts: findMapAliasConflicts(aliases) })
 })
 
 app.post('/api/replay/map-aliases', async (req, res) => {
@@ -111,6 +159,19 @@ app.post('/api/replay/map-aliases', async (req, res) => {
 app.delete('/api/replay/map-aliases/:id', async (req, res) => {
   const deleted = await deleteMapAlias(req.params.id)
   res.json({ succeed: deleted })
+})
+
+app.get('/api/replay/map-aliases/export', async (_req, res) => {
+  const payload = exportMapAliasesPayload(await readMapAliases())
+  res.setHeader('Content-Disposition', 'attachment; filename="map-alias.json"')
+  res.json(payload)
+})
+
+app.post('/api/replay/map-aliases/import', async (req, res) => {
+  const aliases = Array.isArray(req.body.aliases) ? req.body.aliases : []
+  const overwrite = !!req.body.overwrite
+  const result = await importMapAliases({ aliases, overwrite })
+  res.json({ succeed: true, ...result })
 })
 
 app.post('/api/replay/root-causes/:id/feedback', async (req, res) => {
@@ -171,6 +232,21 @@ app.get('/api/replay/logs', (req, res) => {
   })
 })
 
+app.get('/api/replay/folded-logs/:id/lines', (req, res) => {
+  const offset = Math.max(0, Number(req.query.offset || 0))
+  const limit = Math.min(Number(req.query.limit || 200), 1000)
+  const lines = session.data.rawLines.filter((line) => noiseRuleId(line) === req.params.id)
+  const page = lines.slice(offset, offset + limit)
+  res.json({
+    id: req.params.id,
+    total: lines.length,
+    offset,
+    limit,
+    lines: page,
+    copyText: page.map((line) => line.raw).join('\n')
+  })
+})
+
 app.get('/api/replay/report.md', (_req, res) => {
   res.type('text/markdown; charset=utf-8').send(buildMarkdownReport(session.data))
 })
@@ -213,7 +289,10 @@ app.post('/api/replay/package/import', async (req, res) => {
         logDir: imported.logDir,
         mapDir: imported.mapDir,
         mapFile: imported.mapFile,
-        manifest: imported.manifest
+        manifest: imported.manifest,
+        mapAliases: imported.mapAliases,
+        aliasConflicts: imported.aliasConflicts,
+        rootCauseFeedback: imported.rootCauseFeedback
       },
       overview: data.overview
     })
@@ -228,8 +307,8 @@ app.get('/api/replay/cache', async (_req, res) => {
   res.json(await getCacheSummary())
 })
 
-app.delete('/api/replay/cache', async (_req, res) => {
-  await clearReplayCache()
+app.delete('/api/replay/cache', async (req, res) => {
+  await clearReplayCache(req.query.bucket ? String(req.query.bucket) : undefined)
   res.json({ succeed: true, cache: await getCacheSummary() })
 })
 

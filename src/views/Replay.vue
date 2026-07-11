@@ -18,9 +18,11 @@
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
           <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
           <el-button @click="triggerPackageImport">导入诊断包</el-button>
-          <el-button @click="refreshCache">缓存 {{ cacheText }}</el-button>
+          <el-button @click="openAliasManager">地图别名</el-button>
+          <el-button @click="openCacheDialog">缓存 {{ cacheText }}</el-button>
           <el-button type="warning" plain @click="clearCache">清理缓存</el-button>
           <input ref="packageInput" class="hidden-input" type="file" accept=".zip" @change="onPackageSelected" />
+          <input ref="aliasInput" class="hidden-input" type="file" accept=".json" @change="onAliasFileSelected" />
         </el-form-item>
       </el-form>
     </el-card>
@@ -55,6 +57,7 @@
         <el-button v-if="canConfirmMapAlias" size="small" type="warning" plain @click="confirmMapAlias">
           确认使用此地图
         </el-button>
+        <el-button size="small" plain @click="openAliasManager">管理地图别名</el-button>
       </div>
     </el-card>
 
@@ -193,12 +196,45 @@
       <el-tabs>
         <el-tab-pane label="时间线">
           <div class="filter-row">
-            <el-select v-model="replay.eventFilter" clearable placeholder="事件类型" class="filter-item">
+            <el-select v-model="replay.eventQuery.category" clearable placeholder="事件类型" class="filter-item">
               <el-option v-for="type in eventTypes" :key="type" :value="type" :label="type" />
             </el-select>
+            <el-select v-model="replay.eventQuery.level" clearable placeholder="严重度" class="filter-item">
+              <el-option value="error" label="错误" />
+              <el-option value="warning" label="警告" />
+              <el-option value="info" label="信息" />
+            </el-select>
+            <el-segmented
+              v-model="replay.eventQuery.mode"
+              size="small"
+              :options="eventModeOptions"
+              @change="refreshEvents"
+            />
+            <el-segmented
+              v-model="replay.eventQuery.sort"
+              size="small"
+              :options="eventSortOptions"
+              @change="refreshEvents"
+            />
+            <el-input-number
+              v-model="replay.eventQuery.startMs"
+              :min="0"
+              :controls="false"
+              placeholder="开始时间戳"
+              class="number-filter"
+            />
+            <el-input-number
+              v-model="replay.eventQuery.endMs"
+              :min="0"
+              :controls="false"
+              placeholder="结束时间戳"
+              class="number-filter"
+            />
+            <el-checkbox v-model="replay.eventQuery.dedupe" size="small" @change="refreshEvents">合并重复</el-checkbox>
+            <el-button size="small" @click="refreshEvents">筛选</el-button>
             <el-tag v-if="selectedTaskId" closable @close="clearTaskSelection">任务 {{ selectedTaskId }}</el-tag>
           </div>
-          <el-table :data="filteredEvents" height="320" size="small" @row-click="(row:any) => jump(row.timeMs)">
+          <el-table :data="filteredEvents" height="320" size="small" @row-click="selectTimelineEvent">
             <el-table-column type="expand">
               <template #default="{ row }">
                 <div class="context-box">
@@ -215,6 +251,18 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="错误码中心">
+          <div class="filter-row">
+            <el-input v-model="replay.errorQuery.code" placeholder="错误码" class="filter-item" />
+            <el-input v-model="replay.errorQuery.module" placeholder="模块" class="filter-item" />
+            <el-input v-model="replay.errorQuery.level" placeholder="等级" class="filter-item" />
+            <el-select v-model="replay.errorQuery.kind" clearable placeholder="类型" class="filter-item">
+              <el-option value="real_fault" label="真实故障" />
+              <el-option value="config_notice" label="配置提醒" />
+              <el-option value="definition" label="定义" />
+              <el-option value="unknown" label="未知" />
+            </el-select>
+            <el-button size="small" @click="refreshErrorCodes">筛选</el-button>
+          </div>
           <el-table :data="replay.errorSummaries" height="160" size="small" @row-click="selectErrorSummary">
             <el-table-column prop="code" label="错误码" width="110" />
             <el-table-column prop="count" label="次数" width="70" />
@@ -237,6 +285,11 @@
             <el-table-column prop="source" label="来源" width="170" />
             <el-table-column prop="kind" label="类型" width="110" />
             <el-table-column prop="definition.description" label="说明" show-overflow-tooltip />
+            <el-table-column label="操作" width="130">
+              <template #default="{ row }">
+                <el-button size="small" link @click.stop="showErrorLogContext(row)">查看日志上下文</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="任务视角">
@@ -334,11 +387,94 @@
         <el-descriptions-item label="末次">{{ selectedFold.lastTime }}</el-descriptions-item>
       </el-descriptions>
       <div v-if="selectedFold" class="fold-detail">
-        <div class="context-title">首条日志</div>
-        <pre>{{ selectedFold.firstLine?.raw || '-' }}</pre>
-        <div class="context-title">末条日志</div>
-        <pre>{{ selectedFold.lastLine?.raw || '-' }}</pre>
+        <div class="dialog-toolbar">
+          <el-button size="small" :disabled="!replay.foldedDetail.copyText" @click="copyFoldedDetail">复制当前页</el-button>
+        </div>
+        <el-table :data="replay.foldedDetail.lines" height="320" size="small">
+          <el-table-column prop="timestamp" label="时间" width="180" />
+          <el-table-column prop="level" label="级别" width="70" />
+          <el-table-column prop="module" label="模块" width="130" />
+          <el-table-column prop="message" label="内容" show-overflow-tooltip />
+        </el-table>
+        <el-pagination
+          class="pager"
+          layout="prev, pager, next, total"
+          :total="replay.foldedDetail.total"
+          :page-size="replay.foldedDetail.limit"
+          @current-change="replay.changeFoldedDetailPage"
+        />
       </div>
+    </el-dialog>
+
+    <el-dialog v-model="aliasDialogVisible" title="地图别名管理" width="900px">
+      <div class="dialog-toolbar">
+        <el-button size="small" @click="openAliasExport">导出别名</el-button>
+        <el-button size="small" @click="triggerAliasImport">导入别名</el-button>
+        <el-checkbox v-model="aliasImportOverwrite" size="small">覆盖同名别名</el-checkbox>
+        <el-tag v-if="replay.mapAliasConflicts.length" type="danger" size="small">
+          冲突 {{ replay.mapAliasConflicts.length }}
+        </el-tag>
+      </div>
+      <el-alert
+        v-if="replay.mapAliasConflicts.length"
+        type="warning"
+        :closable="false"
+        title="存在同一车辆/地图名指向不同地图文件的别名，请保留现场确认过的关系。"
+        class="dialog-alert"
+      />
+      <el-table :data="replay.mapAliases" height="360" size="small">
+        <el-table-column prop="detectedMapName" label="日志地图名" width="150" />
+        <el-table-column prop="robotName" label="车辆" width="120" />
+        <el-table-column prop="selectedMapFile" label="本地地图文件" show-overflow-tooltip />
+        <el-table-column prop="updatedAt" label="更新时间" width="180" />
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" type="danger" link @click="deleteAlias(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <el-dialog v-model="packageInfoVisible" title="诊断包信息" width="720px">
+      <el-descriptions v-if="replay.importedPackage" :column="2" size="small" border>
+        <el-descriptions-item label="包 ID">{{ replay.importedPackage.id }}</el-descriptions-item>
+        <el-descriptions-item label="车辆">{{ replay.importedPackage.manifest?.robotName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="生成时间">{{ replay.importedPackage.manifest?.createdAt || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="日志数量">{{ replay.importedPackage.manifest?.logFiles?.length || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="地图文件">{{ replay.importedPackage.mapFile || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="包内别名">{{ replay.importedPackage.mapAliases?.length || 0 }}</el-descriptions-item>
+      </el-descriptions>
+      <el-alert
+        v-if="(replay.importedPackage?.aliasConflicts || []).length"
+        type="warning"
+        :closable="false"
+        title="诊断包内地图别名与本地配置存在冲突，请到地图别名管理中确认后再覆盖导入。"
+        class="dialog-alert"
+      />
+      <div class="dialog-toolbar">
+        <el-button size="small" @click="openAliasManager">打开地图别名管理</el-button>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="cacheDialogVisible" title="缓存详情" width="720px">
+      <el-descriptions v-if="replay.cacheSummary" :column="3" size="small" border>
+        <el-descriptions-item label="版本">{{ replay.cacheSummary.version }}</el-descriptions-item>
+        <el-descriptions-item label="文件数">{{ replay.cacheSummary.files }}</el-descriptions-item>
+        <el-descriptions-item label="大小">{{ formatBytes(replay.cacheSummary.bytes || 0) }}</el-descriptions-item>
+      </el-descriptions>
+      <el-table :data="replay.cacheSummary?.buckets || []" height="280" size="small" class="dialog-table">
+        <el-table-column prop="label" label="类型" width="150" />
+        <el-table-column prop="files" label="文件" width="90" />
+        <el-table-column label="大小" width="120">
+          <template #default="{ row }">{{ formatBytes(row.bytes || 0) }}</template>
+        </el-table-column>
+        <el-table-column prop="dir" label="目录" show-overflow-tooltip />
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button size="small" type="warning" link @click="clearCache(row.key)">清理</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
   </div>
 </template>
@@ -348,7 +484,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
 import ReplayCharts from '@/components/replay/ReplayCharts.vue'
-import { getReplayMap, replayPackageUrl, replayReportUrl } from '@/api/replay'
+import { getReplayMap, replayMapAliasesExportUrl, replayPackageUrl, replayReportUrl } from '@/api/replay'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
@@ -359,8 +495,13 @@ const selectedTaskId = ref('')
 const selectedReplayPoint = ref<any>(null)
 const selectedFold = ref<any>(null)
 const foldDialogVisible = ref(false)
+const aliasDialogVisible = ref(false)
+const packageInfoVisible = ref(false)
+const cacheDialogVisible = ref(false)
+const aliasImportOverwrite = ref(false)
 const smoothTrajectory = ref(false)
 const packageInput = ref<HTMLInputElement | null>(null)
+const aliasInput = ref<HTMLInputElement | null>(null)
 let progressTimer = 0
 
 const overviewItems = computed(() => {
@@ -401,6 +542,16 @@ const modeOptions = [
   { label: '真实时间', value: 'realtime' },
   { label: '按状态帧', value: 'frame_compact' }
 ]
+const eventModeOptions = [
+  { label: '全部', value: 'all' },
+  { label: '真实故障', value: 'real_fault' },
+  { label: '配置提醒', value: 'config_notice' },
+  { label: '噪声', value: 'noise' }
+]
+const eventSortOptions = [
+  { label: '按时间', value: 'time' },
+  { label: '按严重度', value: 'severity' }
+]
 const progressMax = computed(() =>
   replay.mode === 'frame_compact' ? Math.max(0, replay.frames.length - 1) : Math.max(0, replay.durationMs)
 )
@@ -423,7 +574,6 @@ const progressMarkers = computed(() =>
 )
 const filteredEvents = computed(() =>
   replay.events
-    .filter((it) => !replay.eventFilter || (it.category || it.type) === replay.eventFilter)
     .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
 )
 const currentFrame = computed(() => {
@@ -475,6 +625,49 @@ async function confirmMapAlias() {
   }
 }
 
+async function openAliasManager() {
+  try {
+    await replay.refreshMapAliases()
+    aliasDialogVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function deleteAlias(id: string) {
+  try {
+    await replay.deleteMapAlias(id)
+    ElMessage.success('地图别名已删除')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function openAliasExport() {
+  window.open(replayMapAliasesExportUrl(), '_blank')
+}
+
+function triggerAliasImport() {
+  aliasInput.value?.click()
+}
+
+async function onAliasFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const payload = JSON.parse(text)
+    const aliases = Array.isArray(payload) ? payload : payload.aliases
+    const res = await replay.importMapAliases(Array.isArray(aliases) ? aliases : [], aliasImportOverwrite.value)
+    ElMessage.success(`别名导入完成：新增 ${res.imported || 0}，更新 ${res.updated || 0}，跳过 ${res.skipped || 0}`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  } finally {
+    input.value = ''
+  }
+}
+
 async function refreshCache() {
   try {
     await replay.refreshCacheSummary()
@@ -483,9 +676,14 @@ async function refreshCache() {
   }
 }
 
-async function clearCache() {
+async function openCacheDialog() {
+  await refreshCache()
+  cacheDialogVisible.value = true
+}
+
+async function clearCache(bucket?: string) {
   try {
-    await replay.clearCache()
+    await replay.clearCache(bucket)
     ElMessage.success('缓存已清理')
   } catch (e: any) {
     ElMessage.error(e && e.message ? e.message : String(e))
@@ -519,16 +717,44 @@ function jump(timeMs: number) {
   syncProgressValue()
 }
 
+async function refreshEvents() {
+  await replay.refreshEvents()
+}
+
+async function selectTimelineEvent(row: any) {
+  jump(row.timeMs)
+  replay.logFilter.aroundTimeMs = row.timeMs
+  replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
+  replay.logFilter.offset = 0
+  await replay.refreshLogs()
+}
+
 async function selectTask(row: any) {
   selectedTaskId.value = row.id
   replay.logFilter.taskId = row.id
+  replay.errorQuery.taskId = row.id
   await replay.refreshLogs()
+  await replay.refreshErrorCodes()
   jump(row.startMs)
 }
 
 async function clearTaskSelection() {
   selectedTaskId.value = ''
   replay.logFilter.taskId = ''
+  replay.errorQuery.taskId = ''
+  await replay.refreshLogs()
+  await replay.refreshErrorCodes()
+}
+
+async function refreshErrorCodes() {
+  await replay.refreshErrorCodes()
+}
+
+async function showErrorLogContext(row: any) {
+  jump(row.timeMs)
+  replay.logFilter.aroundTimeMs = row.timeMs
+  replay.logFilter.aroundLines = replay.logFilter.aroundLines || 20
+  replay.logFilter.offset = 0
   await replay.refreshLogs()
 }
 
@@ -548,9 +774,19 @@ async function copyLogContext() {
   }
 }
 
-function openFoldDetail(fold: any) {
+async function openFoldDetail(fold: any) {
   selectedFold.value = fold
   foldDialogVisible.value = true
+  await replay.loadFoldedDetail(fold.id, 0)
+}
+
+async function copyFoldedDetail() {
+  try {
+    await navigator.clipboard.writeText(replay.foldedDetail.copyText || '')
+    ElMessage.success('折叠日志已复制')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
 }
 
 async function onReplayPointSelect(point: any) {
@@ -585,6 +821,7 @@ async function onPackageSelected(event: Event) {
     robot.map = await getReplayMap()
     robot.connectWs('replay')
     syncProgressValue()
+    packageInfoVisible.value = true
     ElMessage.success(`诊断包已导入：${res.package?.manifest?.robotName || file.name}`)
   } catch (e: any) {
     ElMessage.error(e && e.message ? e.message : String(e))
@@ -1019,6 +1256,18 @@ onBeforeUnmount(() => {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 8px;
+}
+.dialog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dialog-alert {
+  margin-bottom: 10px;
+}
+.dialog-table {
+  margin-top: 10px;
 }
 .pager {
   margin-top: 8px;

@@ -1,6 +1,6 @@
 import type { FoldedLogGroup, ParsedLogLine } from '../types'
 
-const RULES = [
+export const NOISE_RULES = [
   { id: 'sent_speed', label: '底盘速度发送', contains: 'sent: toSendV:' },
   { id: 'task_calc', label: '任务 ID 周期计算', contains: 'start calc current task id in FltTask' },
   { id: 'unfinished_null', label: '空未完成路径', contains: 'unfinshed path' },
@@ -16,7 +16,7 @@ const RULES = [
 export function foldNoise(lines: ParsedLogLine[]): FoldedLogGroup[] {
   const groups = new Map<string, FoldedLogGroup>()
   for (const line of lines) {
-    const rule = RULES.find((it) => line.message.includes(it.contains))
+    const rule = noiseRuleForLine(line)
     if (!rule) continue
     const group = groups.get(rule.id)
     if (!group) {
@@ -39,9 +39,13 @@ export function foldNoise(lines: ParsedLogLine[]): FoldedLogGroup[] {
 }
 
 export function isNoiseLine(line: ParsedLogLine): boolean {
-  return RULES.some((it) => line.message.includes(it.contains))
+  return !!noiseRuleForLine(line)
 }
 
 export function noiseRuleId(line: ParsedLogLine): string {
-  return RULES.find((it) => line.message.includes(it.contains))?.id || ''
+  return noiseRuleForLine(line)?.id || ''
+}
+
+export function noiseRuleForLine(line: ParsedLogLine): (typeof NOISE_RULES)[number] | null {
+  return NOISE_RULES.find((it) => line.message.includes(it.contains)) || null
 }

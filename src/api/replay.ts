@@ -28,8 +28,8 @@ export async function getReplaySession() {
   return data
 }
 
-export async function getReplayEvents() {
-  const { data } = await replayHttp.get('/replay/events')
+export async function getReplayEvents(params?: Record<string, any>) {
+  const { data } = await replayHttp.get('/replay/events', { params })
   return data.events || []
 }
 
@@ -38,8 +38,8 @@ export async function getReplayFrames() {
   return data.frames || []
 }
 
-export async function getReplayErrorCodes() {
-  const { data } = await replayHttp.get('/replay/error-codes')
+export async function getReplayErrorCodes(params?: Record<string, any>) {
+  const { data } = await replayHttp.get('/replay/error-codes', { params })
   return data
 }
 
@@ -50,7 +50,7 @@ export async function getReplayTasks() {
 
 export async function getReplayMapAliases() {
   const { data } = await replayHttp.get('/replay/map-aliases')
-  return data.aliases || []
+  return data
 }
 
 export async function saveReplayMapAlias(payload: Record<string, any>) {
@@ -61,6 +61,15 @@ export async function saveReplayMapAlias(payload: Record<string, any>) {
 export async function deleteReplayMapAlias(id: string) {
   const { data } = await replayHttp.delete(`/replay/map-aliases/${encodeURIComponent(id)}`)
   return data
+}
+
+export async function importReplayMapAliases(payload: { aliases: any[]; overwrite?: boolean }) {
+  const { data } = await replayHttp.post('/replay/map-aliases/import', payload)
+  return data
+}
+
+export function replayMapAliasesExportUrl() {
+  return `${config.replayApiBase}/replay/map-aliases/export`
 }
 
 export async function sendRootCauseFeedback(id: string, payload: { verdict: 'useful' | 'false_positive'; note?: string }) {
@@ -78,8 +87,8 @@ export async function getReplayCache() {
   return data
 }
 
-export async function clearReplayCache() {
-  const { data } = await replayHttp.delete('/replay/cache')
+export async function clearReplayCache(bucket?: string) {
+  const { data } = await replayHttp.delete('/replay/cache', { params: bucket ? { bucket } : undefined })
   return data
 }
 
@@ -90,6 +99,11 @@ export async function getReplayMap() {
 
 export async function getReplayLogs(params: Record<string, any>) {
   const { data } = await replayHttp.get('/replay/logs', { params })
+  return data
+}
+
+export async function getReplayFoldedLogLines(id: string, params?: Record<string, any>) {
+  const { data } = await replayHttp.get(`/replay/folded-logs/${encodeURIComponent(id)}/lines`, { params })
   return data
 }
 

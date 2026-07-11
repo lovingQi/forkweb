@@ -6,12 +6,15 @@ import {
   getReplayErrorCodes,
   getReplayEvents,
   getReplayFrames,
+  getReplayFoldedLogLines,
   getReplayLogs,
   getReplayMapAliases,
   getReplayOverview,
   getReplaySession,
   getReplayTasks,
   importReplayPackage,
+  importReplayMapAliases,
+  deleteReplayMapAlias,
   saveReplayMapAlias,
   seekReplay,
   sendRootCauseFeedback,
@@ -29,16 +32,41 @@ export const useReplayStore = defineStore('replay', {
     overview: null as any,
     events: [] as any[],
     eventFilter: '',
+    eventQuery: {
+      startMs: 0,
+      endMs: 0,
+      level: '',
+      category: '',
+      mode: 'all',
+      sort: 'time',
+      dedupe: false
+    },
     frames: [] as any[],
     errorDefinitions: [] as any[],
     errorOccurrences: [] as any[],
     errorSummaries: [] as any[],
     selectedErrorCode: '',
+    errorQuery: {
+      kind: '',
+      level: '',
+      module: '',
+      code: '',
+      taskId: ''
+    },
     tasks: [] as any[],
     logs: [] as any[],
     folded: [] as any[],
+    foldedDetail: {
+      id: '',
+      lines: [] as any[],
+      copyText: '',
+      total: 0,
+      offset: 0,
+      limit: 200
+    },
     logCopyText: '',
     mapAliases: [] as any[],
+    mapAliasConflicts: [] as any[],
     importedPackage: null as any,
     cacheSummary: null as any,
     logFilter: {
@@ -88,9 +116,9 @@ export const useReplayStore = defineStore('replay', {
     async refreshAll() {
       const [overview, events, frames, errors, tasks, logs] = await Promise.all([
         getReplayOverview(),
-        getReplayEvents(),
+        getReplayEvents(this.eventQuery),
         getReplayFrames(),
-        getReplayErrorCodes(),
+        getReplayErrorCodes(this.errorQuery),
         getReplayTasks(),
         getReplayLogs(this.logFilter)
       ])
@@ -109,7 +137,7 @@ export const useReplayStore = defineStore('replay', {
       this.folded = logs.folded || []
       this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
-      this.mapAliases = await getReplayMapAliases()
+      await this.refreshMapAliases()
     },
 
     async refreshLogs() {
@@ -118,6 +146,36 @@ export const useReplayStore = defineStore('replay', {
       this.folded = logs.folded || []
       this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
+    },
+
+    async refreshEvents() {
+      this.events = await getReplayEvents(this.eventQuery)
+    },
+
+    async refreshErrorCodes() {
+      const errors = await getReplayErrorCodes(this.errorQuery)
+      this.errorDefinitions = errors.definitions || []
+      this.errorOccurrences = errors.occurrences || []
+      this.errorSummaries = errors.summaries || []
+    },
+
+    async loadFoldedDetail(id: string, offset = 0) {
+      const res = await getReplayFoldedLogLines(id, { offset, limit: this.foldedDetail.limit })
+      this.foldedDetail = {
+        id,
+        lines: res.lines || [],
+        copyText: res.copyText || '',
+        total: res.total || 0,
+        offset: res.offset || 0,
+        limit: res.limit || this.foldedDetail.limit
+      }
+      return res
+    },
+
+    async changeFoldedDetailPage(page: number) {
+      if (!this.foldedDetail.id) return
+      const offset = Math.max(0, (page - 1) * this.foldedDetail.limit)
+      await this.loadFoldedDetail(this.foldedDetail.id, offset)
     },
 
     async changeLogPage(page: number) {
@@ -186,7 +244,27 @@ export const useReplayStore = defineStore('replay', {
         selectedMapFile: match.selectedMapFile,
         robotName: this.overview?.robotName
       })
-      this.mapAliases = await getReplayMapAliases()
+      await this.refreshMapAliases()
+      return res
+    },
+
+    async refreshMapAliases() {
+      const res = await getReplayMapAliases()
+      this.mapAliases = res.aliases || []
+      this.mapAliasConflicts = res.conflicts || []
+      return res
+    },
+
+    async deleteMapAlias(id: string) {
+      const res = await deleteReplayMapAlias(id)
+      await this.refreshMapAliases()
+      return res
+    },
+
+    async importMapAliases(aliases: any[], overwrite = false) {
+      const res = await importReplayMapAliases({ aliases, overwrite })
+      this.mapAliases = res.aliases || []
+      this.mapAliasConflicts = res.conflicts || []
       return res
     },
 
@@ -210,8 +288,8 @@ export const useReplayStore = defineStore('replay', {
       return this.cacheSummary
     },
 
-    async clearCache() {
-      const res = await clearReplayCache()
+    async clearCache(bucket?: string) {
+      const res = await clearReplayCache(bucket)
       this.cacheSummary = res.cache
       return res
     }

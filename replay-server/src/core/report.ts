@@ -20,6 +20,12 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
     `- 关键告警: ${o.warningCount}`,
     `- 地图匹配: ${matchLabel(o.mapMatch.matchStrategy)} ${Math.round(o.mapMatch.confidence * 100)}%`,
     '',
+    '## 文件索引',
+    '',
+    `- 日志文件数: ${o.logFiles.length}`,
+    ...o.logFiles.map((file) => `- 日志: ${file}`),
+    `- 地图: ${o.mapMatch.selectedMapFile || o.mapPath || '-'}`,
+    '',
     '## 诊断结论',
     ''
   ]
@@ -28,6 +34,12 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
   }
   for (const cause of o.rootCauses) {
     lines.push(`- [${cause.severity}] ${cause.title}，置信度 ${Math.round(cause.confidence * 100)}%。${cause.suggestion}`)
+    for (const event of (cause.evidenceEvents || []).slice(0, 3)) {
+      lines.push(`  - 事件证据: ${event.timestamp} ${event.title}: ${event.detail}`)
+    }
+    for (const line of (cause.evidenceLines || []).slice(0, 3)) {
+      lines.push(`  - 日志证据: ${line.raw}`)
+    }
   }
   lines.push('', '## 地图匹配', '')
   lines.push(`- 策略: ${matchLabel(o.mapMatch.matchStrategy)}`)
@@ -41,6 +53,10 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
   for (const issue of o.topIssues) {
     lines.push(`- ${issue.timestamp} ${issue.title}: ${issue.detail}`)
   }
+  lines.push('', '## 关键时间线摘要', '')
+  for (const event of data.events.filter((it) => it.level === 'error' || it.level === 'warning').slice(0, 50)) {
+    lines.push(`- ${event.timestamp} [${event.level}] ${event.title}: ${event.detail}`)
+  }
   lines.push('', '## 真实故障错误码', '')
   for (const occurrence of data.errorOccurrences.filter((it) => it.kind === 'real_fault').slice(0, 50)) {
     lines.push(
@@ -52,6 +68,9 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
     lines.push(`- ${occurrence.timestamp} ${occurrence.code} ${occurrence.definition?.description || occurrence.source}`)
   }
   lines.push('', '## 任务视角', '')
+  if (data.tasks.length === 0) {
+    lines.push('- 未解析到有效任务段。')
+  }
   for (const task of data.tasks) {
     lines.push(
       `- ${task.id}: ${task.startTime} ~ ${task.endTime}, 状态 ${task.status || '-'}, 成功 ${task.lastFinishedTaskSuccess ?? '-'}, 错误 ${task.errors.join(',') || '-'}`
@@ -66,15 +85,36 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
 export function buildJsonReport(data: ReplaySessionData): unknown {
   return {
     overview: data.overview,
+    diagnosticFiles: {
+      logDir: data.overview.logDir,
+      logFiles: data.overview.logFiles,
+      mapPath: data.overview.mapMatch.selectedMapFile || data.overview.mapPath
+    },
     topIssues: data.overview.topIssues,
     mapMatch: data.overview.mapMatch,
     rootCauses: data.overview.rootCauses,
+    evidenceSnippets: data.overview.rootCauses.map((cause) => ({
+      id: cause.id,
+      title: cause.title,
+      events: cause.evidenceEvents.slice(0, 5),
+      lines: cause.evidenceLines.slice(0, 5)
+    })),
     dataWarnings: data.overview.dataWarnings,
     errorCodes: data.errorDefinitions,
     errorOccurrences: data.errorOccurrences,
     realErrorOccurrences: data.errorOccurrences.filter((it) => it.kind === 'real_fault'),
     configNotices: data.errorOccurrences.filter((it) => it.kind === 'config_notice'),
     tasks: data.tasks,
+    taskSummary: data.tasks.map((task) => ({
+      id: task.id,
+      startTime: task.startTime,
+      endTime: task.endTime,
+      status: task.status,
+      success: task.lastFinishedTaskSuccess,
+      errors: task.errors,
+      failureReasonCandidates: task.failureReasonCandidates
+    })),
+    keyTimeline: data.events.filter((it) => it.level === 'error' || it.level === 'warning').slice(0, 100),
     foldedLogs: data.foldedLogs
   }
 }

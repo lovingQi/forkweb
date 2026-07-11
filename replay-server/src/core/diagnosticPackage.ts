@@ -4,6 +4,9 @@ import fs from 'fs/promises'
 import path from 'path'
 import { promisify } from 'util'
 import type { ReplaySessionData } from '../types'
+import { exportMapAliasesPayload, findMapAliasConflicts, readMapAliases, type MapAlias, type MapAliasConflict } from './mapAlias'
+import { buildJsonReport, buildMarkdownReport } from './report'
+import { readRootCauseFeedback, type RootCauseFeedback } from './rootCauseFeedback'
 
 const execFileAsync = promisify(execFile)
 const PACKAGE_DIR = path.resolve(process.cwd(), 'replay-server/.cache/packages')
@@ -27,6 +30,12 @@ export interface DiagnosticPackageManifest {
     taskCount: number
     errorCount: number
   }
+  extras?: {
+    reportMarkdown: string
+    reportJson: string
+    mapAliases: string
+    rootCauseFeedback: string
+  }
 }
 
 export interface ImportedDiagnosticPackage {
@@ -36,6 +45,9 @@ export interface ImportedDiagnosticPackage {
   mapDir?: string
   mapFile?: string
   manifest: DiagnosticPackageManifest
+  mapAliases: MapAlias[]
+  aliasConflicts: MapAliasConflict[]
+  rootCauseFeedback: RootCauseFeedback[]
 }
 
 export async function exportDiagnosticPackage(data: ReplaySessionData): Promise<{ file: string; name: string; manifest: DiagnosticPackageManifest }> {
@@ -43,9 +55,13 @@ export async function exportDiagnosticPackage(data: ReplaySessionData): Promise<
   const rootDir = path.join(PACKAGE_DIR, id)
   const logDir = path.join(rootDir, 'logs')
   const mapDir = path.join(rootDir, 'maps')
+  const reportsDir = path.join(rootDir, 'reports')
+  const configDir = path.join(rootDir, 'config')
   await fs.rm(rootDir, { recursive: true, force: true })
   await fs.mkdir(logDir, { recursive: true })
   await fs.mkdir(mapDir, { recursive: true })
+  await fs.mkdir(reportsDir, { recursive: true })
+  await fs.mkdir(configDir, { recursive: true })
 
   const copiedLogs: string[] = []
   for (const file of data.overview.logFiles || []) {
@@ -61,6 +77,15 @@ export async function exportDiagnosticPackage(data: ReplaySessionData): Promise<
     await fs.copyFile(selectedMapFile, target)
     copiedMap = path.relative(rootDir, target)
   }
+
+  const reportMarkdown = 'reports/report.md'
+  const reportJson = 'reports/report.json'
+  const mapAliasesFile = 'config/map-alias.json'
+  const rootCauseFeedbackFile = 'config/root-cause-feedback.json'
+  await fs.writeFile(path.join(rootDir, reportMarkdown), buildMarkdownReport(data), 'utf8')
+  await fs.writeFile(path.join(rootDir, reportJson), `${JSON.stringify(buildJsonReport(data), null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(rootDir, mapAliasesFile), `${JSON.stringify(exportMapAliasesPayload(await readMapAliases()), null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(rootDir, rootCauseFeedbackFile), `${JSON.stringify(await readRootCauseFeedback(), null, 2)}\n`, 'utf8')
 
   const manifest: DiagnosticPackageManifest = {
     version: 1,
@@ -78,6 +103,12 @@ export async function exportDiagnosticPackage(data: ReplaySessionData): Promise<
       frameCount: data.overview.frameCount,
       taskCount: data.overview.taskCount,
       errorCount: data.overview.errorCount
+    },
+    extras: {
+      reportMarkdown,
+      reportJson,
+      mapAliases: mapAliasesFile,
+      rootCauseFeedback: rootCauseFeedbackFile
     }
   }
   await fs.writeFile(path.join(rootDir, MANIFEST_NAME), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
@@ -100,9 +131,45 @@ export async function importDiagnosticPackage(zipFile: string): Promise<Imported
   const logDir = path.join(rootDir, 'logs')
   const mapFile = manifest.mapFile ? path.join(rootDir, manifest.mapFile) : undefined
   const mapDir = mapFile ? path.dirname(mapFile) : undefined
-  return { id, rootDir, logDir, mapDir, mapFile, manifest }
+  const mapAliases = await readPackageMapAliases(rootDir, manifest)
+  const rootCauseFeedback = await readPackageRootCauseFeedback(rootDir, manifest)
+  return {
+    id,
+    rootDir,
+    logDir,
+    mapDir,
+    mapFile,
+    manifest,
+    mapAliases,
+    aliasConflicts: findMapAliasConflicts([...(await readMapAliases()), ...mapAliases]),
+    rootCauseFeedback
+  }
 }
 
 function packageId(): string {
   return `diagnostic-${Date.now()}-${randomUUID().slice(0, 8)}`
+}
+
+async function readPackageMapAliases(rootDir: string, manifest: DiagnosticPackageManifest): Promise<MapAlias[]> {
+  const relative = manifest.extras?.mapAliases
+  if (!relative) return []
+  try {
+    const text = await fs.readFile(path.join(rootDir, relative), 'utf8')
+    const data = JSON.parse(text)
+    return Array.isArray(data.aliases) ? data.aliases : []
+  } catch {
+    return []
+  }
+}
+
+async function readPackageRootCauseFeedback(rootDir: string, manifest: DiagnosticPackageManifest): Promise<RootCauseFeedback[]> {
+  const relative = manifest.extras?.rootCauseFeedback
+  if (!relative) return []
+  try {
+    const text = await fs.readFile(path.join(rootDir, relative), 'utf8')
+    const data = JSON.parse(text)
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
 }
