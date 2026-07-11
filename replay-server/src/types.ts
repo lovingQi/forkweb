@@ -24,6 +24,10 @@ export interface ReplayFrame {
   battery?: number
   score?: number
   currentTaskId?: string
+  lastFinishedTaskId?: string
+  lastFinishedTaskSuccess?: boolean
+  unfinishedPath?: unknown
+  newUnfinishedPath?: unknown
   errors?: string
   forkHeight?: number
   loaded?: boolean
@@ -63,6 +67,7 @@ export interface TimelineEvent {
   timestamp: string
   timeMs: number
   type: string
+  category?: string
   level: 'info' | 'warning' | 'error'
   title: string
   detail: string
@@ -70,6 +75,8 @@ export interface TimelineEvent {
   code?: string
   taskId?: string
   line?: ParsedLogLine
+  contextBefore?: ParsedLogLine[]
+  contextAfter?: ParsedLogLine[]
 }
 
 export interface TaskSegment {
@@ -79,7 +86,12 @@ export interface TaskSegment {
   startTime: string
   endTime: string
   status?: string
+  lastFinishedTaskId?: string
+  lastFinishedTaskSuccess?: boolean
+  unfinishedPath?: unknown
+  newUnfinishedPath?: unknown
   errors: string[]
+  relatedEvents?: TimelineEvent[]
   frames: number
 }
 
@@ -101,6 +113,15 @@ export interface OverviewSummary {
   lines: number
   startTime: string
   endTime: string
+  startMs: number
+  endMs: number
+  durationMs: number
+  hasMap: boolean
+  hasFrames: boolean
+  hasTasks: boolean
+  hasErrorDefinitions: boolean
+  errorLogCount: number
+  warningLogCount: number
   robotName: string
   version: string
   branch: string
@@ -113,6 +134,21 @@ export interface OverviewSummary {
   topIssues: TimelineEvent[]
 }
 
+export interface ErrorCodeSummary {
+  code: string
+  description?: string
+  screenText?: string
+  level?: number
+  count: number
+  firstTime: string
+  lastTime: string
+  firstMs: number
+  lastMs: number
+  modules: string[]
+  taskIds: string[]
+  occurrences: ErrorOccurrence[]
+}
+
 export interface ReplaySessionData {
   overview: OverviewSummary
   map: { name: string; data: unknown }
@@ -120,6 +156,7 @@ export interface ReplaySessionData {
   events: TimelineEvent[]
   errorDefinitions: ErrorCodeDefinition[]
   errorOccurrences: ErrorOccurrence[]
+  errorSummaries: ErrorCodeSummary[]
   tasks: TaskSegment[]
   foldedLogs: FoldedLogGroup[]
   rawLines: ParsedLogLine[]

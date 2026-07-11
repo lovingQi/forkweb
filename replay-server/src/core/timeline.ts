@@ -33,6 +33,7 @@ export function buildTimelineEvents(
       timestamp: occurrence.timestamp,
       timeMs: occurrence.timeMs,
       type: 'error_code',
+      category: 'error_code',
       level: 'error',
       title: `错误码 ${occurrence.code}`,
       detail:
@@ -46,6 +47,7 @@ export function buildTimelineEvents(
     })
   }
   events.push(...buildStateChangeEvents(frames))
+  events.push(...buildLowScoreEvents(frames))
   return events.sort((a, b) => a.timeMs - b.timeMs)
 }
 
@@ -62,7 +64,8 @@ function buildStateChangeEvents(frames: ReplayFrame[]): TimelineEvent[] {
         timestamp: frame.timestamp,
         timeMs: frame.timeMs,
         type: 'status',
-        level: status.toLowerCase().includes('lost') ? 'warning' : 'info',
+        category: statusCategory(status),
+        level: status.toLowerCase().includes('lost') || status.toLowerCase().includes('estop') ? 'warning' : 'info',
         title: '状态变化',
         detail: status,
         taskId: frame.currentTaskId,
@@ -77,6 +80,7 @@ function buildStateChangeEvents(frames: ReplayFrame[]): TimelineEvent[] {
         timestamp: frame.timestamp,
         timeMs: frame.timeMs,
         type: 'task',
+        category: 'task',
         level: 'info',
         title: '任务变化',
         detail: task,
@@ -87,6 +91,40 @@ function buildStateChangeEvents(frames: ReplayFrame[]): TimelineEvent[] {
     }
   }
   return events
+}
+
+function buildLowScoreEvents(frames: ReplayFrame[]): TimelineEvent[] {
+  const events: TimelineEvent[] = []
+  let active = false
+  let seq = 0
+  for (const frame of frames) {
+    const score = frame.score
+    if (score === undefined) continue
+    if (score < 60 && !active) {
+      active = true
+      events.push({
+        id: `loc-score-${seq++}`,
+        timestamp: frame.timestamp,
+        timeMs: frame.timeMs,
+        type: 'loc_score',
+        category: 'loc_score',
+        level: 'warning',
+        title: '定位分过低',
+        detail: `score=${score}`,
+        taskId: frame.currentTaskId,
+        line: frame.rawLine
+      })
+    }
+    if (score >= 60) active = false
+  }
+  return events
+}
+
+function statusCategory(status: string): string {
+  const s = status.toLowerCase()
+  if (s.includes('lost')) return 'lost'
+  if (s.includes('estop')) return 'estop'
+  return 'status'
 }
 
 function cleanFrame(frame: ReplayFrame): ReplayFrame {

@@ -2,6 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import http from 'http'
 import { WebSocketServer } from 'ws'
+import { isNoiseLine } from './core/noise'
 import { buildJsonReport, buildMarkdownReport } from './core/report'
 import { ReplaySession } from './core/session'
 
@@ -39,10 +40,29 @@ app.get('/api/replay/events', (_req, res) => {
   res.json({ events: session.data.events })
 })
 
+app.get('/api/replay/frames', (_req, res) => {
+  res.json({
+    frames: session.data.frames.map((frame) => ({
+      timeMs: frame.timeMs,
+      timestamp: frame.timestamp,
+      x: frame.x,
+      y: frame.y,
+      theta: frame.theta,
+      status: frame.status,
+      taskId: frame.currentTaskId,
+      errors: frame.errors,
+      battery: frame.battery,
+      score: frame.score,
+      forkHeight: frame.forkHeight
+    }))
+  })
+})
+
 app.get('/api/replay/error-codes', (_req, res) => {
   res.json({
     definitions: session.data.errorDefinitions,
-    occurrences: session.data.errorOccurrences
+    occurrences: session.data.errorOccurrences,
+    summaries: session.data.errorSummaries
   })
 })
 
@@ -54,13 +74,31 @@ app.get('/api/replay/logs', (req, res) => {
   const level = req.query.level ? String(req.query.level) : ''
   const moduleName = req.query.module ? String(req.query.module) : ''
   const keyword = req.query.keyword ? String(req.query.keyword) : ''
+  const errorCode = req.query.errorCode ? String(req.query.errorCode) : ''
+  const taskId = req.query.taskId ? String(req.query.taskId) : ''
+  const noise = req.query.noise ? String(req.query.noise) : ''
+  const important = req.query.important ? String(req.query.important) : ''
+  const startMs = Number(req.query.startMs || 0)
+  const endMs = Number(req.query.endMs || 0)
+  const offset = Math.max(0, Number(req.query.offset || 0))
   const limit = Math.min(Number(req.query.limit || 500), 5000)
+  const eventLineKeys = new Set(
+    session.data.events
+      .filter((event) => !important || event.level === 'error' || event.level === 'warning')
+      .map((event) => event.line && `${event.line.file}:${event.line.line}`)
+      .filter(Boolean) as string[]
+  )
   const lines = session.data.rawLines
     .filter((line) => !level || line.level === level)
     .filter((line) => !moduleName || line.module.includes(moduleName))
     .filter((line) => !keyword || line.raw.includes(keyword))
-    .slice(0, limit)
-  res.json({ lines, folded: session.data.foldedLogs })
+    .filter((line) => !errorCode || line.raw.includes(errorCode))
+    .filter((line) => !taskId || line.raw.includes(taskId))
+    .filter((line) => !startMs || line.timeMs >= startMs)
+    .filter((line) => !endMs || line.timeMs <= endMs)
+    .filter((line) => !noise || (noise === 'true' ? isNoiseLine(line) : !isNoiseLine(line)))
+    .filter((line) => !important || eventLineKeys.has(`${line.file}:${line.line}`))
+  res.json({ total: lines.length, offset, limit, lines: lines.slice(offset, offset + limit), folded: session.data.foldedLogs })
 })
 
 app.get('/api/replay/report.md', (_req, res) => {

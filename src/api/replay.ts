@@ -22,9 +22,19 @@ export async function getReplayOverview() {
   return data
 }
 
+export async function getReplaySession() {
+  const { data } = await replayHttp.get('/replay/session')
+  return data
+}
+
 export async function getReplayEvents() {
   const { data } = await replayHttp.get('/replay/events')
   return data.events || []
+}
+
+export async function getReplayFrames() {
+  const { data } = await replayHttp.get('/replay/frames')
+  return data.frames || []
 }
 
 export async function getReplayErrorCodes() {
@@ -35,6 +45,11 @@ export async function getReplayErrorCodes() {
 export async function getReplayTasks() {
   const { data } = await replayHttp.get('/replay/tasks')
   return data.tasks || []
+}
+
+export async function getReplayMap() {
+  const { data } = await replayHttp.get('/map')
+  return data
 }
 
 export async function getReplayLogs(params: Record<string, any>) {

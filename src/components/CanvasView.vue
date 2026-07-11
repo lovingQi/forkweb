@@ -29,10 +29,15 @@ import { ElMessage } from 'element-plus'
 import { useRobotStore, type Point } from '@/stores/robot'
 import { control } from '@/api/http'
 
-const props = withDefaults(defineProps<{ showMap?: boolean; showAvoidBox?: boolean }>(), {
-  showMap: true,
-  showAvoidBox: false
-})
+const props = withDefaults(
+  defineProps<{ showMap?: boolean; showAvoidBox?: boolean; trajectory?: Point[]; eventPoints?: Point[] }>(),
+  {
+    showMap: true,
+    showAvoidBox: false,
+    trajectory: () => [],
+    eventPoints: () => []
+  }
+)
 
 const store = useRobotStore()
 
@@ -436,6 +441,33 @@ function drawPath() {
   ctx.stroke()
 }
 
+function drawReplayOverlays() {
+  if (!ctx) return
+  if (props.trajectory.length > 1) {
+    ctx.strokeStyle = 'rgba(34,197,94,0.8)'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    props.trajectory.forEach((p, i) => {
+      const s = worldToScreen(p)
+      if (i === 0) ctx!.moveTo(s.x, s.y)
+      else ctx!.lineTo(s.x, s.y)
+    })
+    ctx.stroke()
+  }
+  if (props.eventPoints.length > 0) {
+    ctx.fillStyle = '#ef4444'
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1
+    for (const p of props.eventPoints) {
+      const s = worldToScreen(p)
+      ctx.beginPath()
+      ctx.arc(s.x, s.y, 4, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+    }
+  }
+}
+
 function drawClearances() {
   if (!ctx || store.clearances.length < 2) return
   ctx.strokeStyle = '#f59e0b'
@@ -554,6 +586,7 @@ function render() {
   if (ctx && cv.value) {
     drawGrid()
     drawMap()
+    drawReplayOverlays()
     drawPath()
     drawClearances()
     drawAvoidBox()

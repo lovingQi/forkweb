@@ -3,6 +3,7 @@ import path from 'path'
 import type {
   ErrorCodeDefinition,
   ErrorOccurrence,
+  ErrorCodeSummary,
   OverviewSummary,
   ParsedLogLine,
   ReplayControlState,
@@ -25,6 +26,15 @@ const EMPTY_OVERVIEW: OverviewSummary = {
   lines: 0,
   startTime: '',
   endTime: '',
+  startMs: 0,
+  endMs: 0,
+  durationMs: 0,
+  hasMap: false,
+  hasFrames: false,
+  hasTasks: false,
+  hasErrorDefinitions: false,
+  errorLogCount: 0,
+  warningLogCount: 0,
   robotName: '',
   version: '',
   branch: '',
@@ -45,6 +55,7 @@ export class ReplaySession {
     events: [],
     errorDefinitions: [],
     errorOccurrences: [],
+    errorSummaries: [],
     tasks: [],
     foldedLogs: [],
     rawLines: []
@@ -95,7 +106,8 @@ export class ReplaySession {
       }
     }
     const tasks = buildTaskSegments(mergedFrames)
-    const events = buildTimelineEvents(rawLines, mergedFrames, occurrences)
+    const events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
+    const errorSummaries = buildErrorSummaries(occurrences)
     const map = await loadMap(input.mapDir, input.mapFile)
     const overview = buildOverview({
       input,
@@ -118,6 +130,7 @@ export class ReplaySession {
       events,
       errorDefinitions: Array.from(definitions.values()),
       errorOccurrences: occurrences,
+      errorSummaries,
       tasks,
       foldedLogs: foldNoise(rawLines),
       rawLines
@@ -208,6 +221,15 @@ function buildOverview(arg: {
     lines: arg.rawLines.length,
     startTime: start?.timestamp || '',
     endTime: end?.timestamp || '',
+    startMs: start?.timeMs || 0,
+    endMs: end?.timeMs || 0,
+    durationMs: start && end ? Math.max(0, end.timeMs - start.timeMs) : 0,
+    hasMap: !!arg.map.data,
+    hasFrames: arg.frames.length > 0,
+    hasTasks: arg.tasks.length > 0,
+    hasErrorDefinitions: arg.definitions.size > 0,
+    errorLogCount: arg.rawLines.filter((it) => it.level === 'E').length,
+    warningLogCount: arg.rawLines.filter((it) => it.level === 'W').length,
     robotName: arg.robotName || arg.frames.find((it) => it.name)?.name || '',
     version: arg.version,
     branch: arg.branch,
@@ -219,4 +241,62 @@ function buildOverview(arg: {
     warningCount: warnings.length,
     topIssues: [...errors, ...warnings].slice(0, 20)
   }
+}
+
+function withContext<T extends { line?: ParsedLogLine; contextBefore?: ParsedLogLine[]; contextAfter?: ParsedLogLine[] }>(
+  events: T[],
+  lines: ParsedLogLine[]
+): T[] {
+  const byKey = new Map<string, number>()
+  lines.forEach((line, index) => byKey.set(`${line.file}:${line.line}`, index))
+  for (const event of events) {
+    if (!event.line) continue
+    const idx = byKey.get(`${event.line.file}:${event.line.line}`)
+    if (idx === undefined) continue
+    event.contextBefore = lines.slice(Math.max(0, idx - 20), idx)
+    event.contextAfter = lines.slice(idx + 1, Math.min(lines.length, idx + 21))
+  }
+  return events
+}
+
+function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[] {
+  const groups = new Map<string, ErrorCodeSummary>()
+  for (const occurrence of occurrences) {
+    const def = occurrence.definition
+    let summary = groups.get(occurrence.code)
+    if (!summary) {
+      summary = {
+        code: occurrence.code,
+        description: def?.description,
+        screenText: def?.screenText,
+        level: def?.level,
+        count: 0,
+        firstTime: occurrence.timestamp,
+        lastTime: occurrence.timestamp,
+        firstMs: occurrence.timeMs,
+        lastMs: occurrence.timeMs,
+        modules: [],
+        taskIds: [],
+        occurrences: []
+      }
+      groups.set(occurrence.code, summary)
+    }
+    summary.count += 1
+    summary.occurrences.push(occurrence)
+    if (occurrence.timeMs < summary.firstMs) {
+      summary.firstMs = occurrence.timeMs
+      summary.firstTime = occurrence.timestamp
+    }
+    if (occurrence.timeMs > summary.lastMs) {
+      summary.lastMs = occurrence.timeMs
+      summary.lastTime = occurrence.timestamp
+    }
+    if (occurrence.line.module && !summary.modules.includes(occurrence.line.module)) {
+      summary.modules.push(occurrence.line.module)
+    }
+    if (occurrence.taskId && !summary.taskIds.includes(occurrence.taskId)) {
+      summary.taskIds.push(occurrence.taskId)
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count)
 }

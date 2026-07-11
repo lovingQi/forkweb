@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRobotStore } from '@/stores/robot'
 
@@ -55,9 +55,24 @@ const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => (route.meta.title as string) || '叉车单机监控')
 
 onMounted(() => {
+  if (route.path === '/replay') return
   store.loadInitial()
   store.connectWs()
 })
+
+watch(
+  () => route.path,
+  (path, oldPath) => {
+    if (path === '/replay') {
+      store.disconnectWs()
+      return
+    }
+    if (oldPath === '/replay') {
+      store.loadInitial()
+      store.connectWs()
+    }
+  }
+)
 
 onBeforeUnmount(() => {
   store.disconnectWs()

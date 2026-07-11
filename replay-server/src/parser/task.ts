@@ -29,6 +29,10 @@ export function buildTaskSegments(frames: ReplayFrame[]): TaskSegment[] {
     current.endMs = frame.timeMs
     current.endTime = frame.timestamp
     current.status = frame.status || current.status
+    current.lastFinishedTaskId = frame.lastFinishedTaskId || current.lastFinishedTaskId
+    current.lastFinishedTaskSuccess = frame.lastFinishedTaskSuccess ?? current.lastFinishedTaskSuccess
+    current.unfinishedPath = frame.unfinishedPath ?? current.unfinishedPath
+    current.newUnfinishedPath = frame.newUnfinishedPath ?? current.newUnfinishedPath
     current.frames += 1
     if (frame.errors) {
       for (const code of frame.errors.matchAll(/ERROR\d{4}/g)) {
