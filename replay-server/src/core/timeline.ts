@@ -28,14 +28,17 @@ export function buildTimelineEvents(
   const events = buildRuleEvents(lines)
   let seq = 0
   for (const occurrence of occurrences) {
+    if (occurrence.kind === 'definition') continue
+    const isConfigNotice = occurrence.kind === 'config_notice'
+    const isRealFault = occurrence.kind === 'real_fault'
     events.push({
       id: `error-code-${seq++}`,
       timestamp: occurrence.timestamp,
       timeMs: occurrence.timeMs,
       type: 'error_code',
-      category: 'error_code',
-      level: 'error',
-      title: `错误码 ${occurrence.code}`,
+      category: isConfigNotice ? 'config' : 'error_code',
+      level: isRealFault ? 'error' : 'warning',
+      title: isConfigNotice ? `错误码配置提醒 ${occurrence.code}` : `错误码 ${occurrence.code}`,
       detail:
         occurrence.definition?.description ||
         occurrence.definition?.screenText ||

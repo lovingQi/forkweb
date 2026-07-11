@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="replay.loading" @click="load">加载诊断</el-button>
+          <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('md')">Markdown</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
         </el-form-item>
@@ -39,8 +40,13 @@
         <el-tag :type="replay.overview?.hasFrames ? 'success' : 'danger'">回放帧{{ replay.overview?.hasFrames ? '可用' : '缺失' }}</el-tag>
         <el-tag :type="replay.overview?.hasTasks ? 'success' : 'warning'">任务 ID {{ replay.overview?.hasTasks ? '可用' : '缺失' }}</el-tag>
         <el-tag :type="replay.overview?.hasErrorDefinitions ? 'success' : 'warning'">错误码定义{{ replay.overview?.hasErrorDefinitions ? '可用' : '缺失' }}</el-tag>
+        <el-tag :type="mapMatchType">地图匹配 {{ mapMatchText }}</el-tag>
+        <el-tag :type="(replay.overview?.dataWarnings || []).length ? 'warning' : 'success'">数据提醒 {{ (replay.overview?.dataWarnings || []).length }}</el-tag>
         <el-tag type="info">[E] {{ replay.overview?.errorLogCount || 0 }}</el-tag>
         <el-tag type="info">[W] {{ replay.overview?.warningLogCount || 0 }}</el-tag>
+      </div>
+      <div v-if="(replay.overview?.dataWarnings || []).length" class="warning-line">
+        <span v-for="item in replay.overview.dataWarnings" :key="item">{{ item }}</span>
       </div>
     </el-card>
 
@@ -54,6 +60,13 @@
                 <div class="play-tools">
                   <el-button size="small" :disabled="!replay.loaded" @click="onPlay">播放</el-button>
                   <el-button size="small" :disabled="!replay.loaded" @click="onPause">暂停</el-button>
+                  <el-segmented
+                    v-model="replay.mode"
+                    size="small"
+                    :options="modeOptions"
+                    :disabled="!replay.loaded"
+                    @change="onModeChange"
+                  />
                   <el-select v-model="replay.speed" size="small" class="speed-select" @change="replay.setSpeed">
                     <el-option :value="0.5" label="0.5x" />
                     <el-option :value="1" label="1x" />
@@ -64,21 +77,37 @@
               </div>
               <div class="progress-row">
                 <span class="time-text">{{ currentReplayTime }}</span>
-                <el-slider
-                  v-model="progressValue"
-                  :min="0"
-                  :max="progressMax"
-                  :step="100"
-                  :disabled="!replay.loaded"
-                  :show-tooltip="false"
-                  class="progress-slider"
-                  @change="onProgressChange"
-                />
+                <div class="progress-wrap">
+                  <el-slider
+                    v-model="progressValue"
+                    :min="0"
+                    :max="progressMax"
+                    :step="replay.mode === 'frame_compact' ? 1 : 100"
+                    :disabled="!replay.loaded"
+                    :show-tooltip="false"
+                    class="progress-slider"
+                    @change="onProgressChange"
+                  />
+                  <button
+                    v-for="marker in progressMarkers"
+                    :key="marker.id"
+                    class="progress-marker"
+                    :class="marker.level"
+                    :style="{ left: marker.left }"
+                    :title="marker.title"
+                    @click.stop="jump(marker.timeMs)"
+                  ></button>
+                </div>
                 <span class="time-text">{{ totalReplayTime }}</span>
               </div>
             </div>
           </template>
-          <CanvasView :show-map="true" :trajectory="trajectory" :event-points="eventPoints" />
+          <CanvasView
+            :show-map="true"
+            :trajectory="trajectory"
+            :event-points="eventPoints"
+            @select-replay-point="onReplayPointSelect"
+          />
         </el-card>
       </el-col>
       <el-col :span="9" class="main-col">
@@ -231,11 +260,44 @@ const overviewItems = computed(() => {
 })
 
 const topIssues = computed(() => (replay.overview?.topIssues || []).slice(0, 5))
-const progressMax = computed(() => Math.max(0, replay.durationMs))
-const currentReplayTime = computed(() => formatDuration(Math.max(0, replay.currentMs - replay.startMs)))
-const totalReplayTime = computed(() => formatDuration(replay.durationMs))
-const trajectory = computed(() => replay.frames.map((it) => ({ x: it.x, y: it.y })))
+const mapMatchText = computed(() => {
+  const match = replay.overview?.mapMatch
+  if (!match) return '-'
+  return `${matchLabel(match.matchStrategy)} ${Math.round((match.confidence || 0) * 100)}%`
+})
+const mapMatchType = computed(() => {
+  const confidence = replay.overview?.mapMatch?.confidence || 0
+  if (confidence >= 0.8) return 'success'
+  if (confidence > 0) return 'warning'
+  return 'danger'
+})
+const modeOptions = [
+  { label: '真实时间', value: 'realtime' },
+  { label: '按状态帧', value: 'frame_compact' }
+]
+const progressMax = computed(() =>
+  replay.mode === 'frame_compact' ? Math.max(0, replay.frames.length - 1) : Math.max(0, replay.durationMs)
+)
+const currentReplayTime = computed(() =>
+  replay.mode === 'frame_compact'
+    ? `${Math.min(replay.currentFrameIndex + 1, replay.frames.length)}/${replay.frames.length || 0}`
+    : formatDuration(Math.max(0, replay.currentMs - replay.startMs))
+)
+const totalReplayTime = computed(() => (replay.mode === 'frame_compact' ? '帧' : formatDuration(replay.durationMs)))
+const trajectory = computed(() => replay.frames.map((it, index) => ({ x: it.x, y: it.y, timeMs: it.timeMs, frameIndex: index })))
 const eventTypes = computed(() => Array.from(new Set(replay.events.map((it) => it.category || it.type).filter(Boolean))))
+const progressMarkers = computed(() =>
+  replay.events
+    .filter((event) => event.level === 'error' || event.type === 'task' || ['lost', 'estop', 'loc_score'].includes(event.category))
+    .slice(0, 200)
+    .map((event) => ({
+      id: event.id,
+      timeMs: event.timeMs,
+      level: event.level,
+      title: `${event.timestamp} ${event.title}`,
+      left: `${markerPercent(event.timeMs)}%`
+    }))
+)
 const filteredEvents = computed(() =>
   replay.eventFilter ? replay.events.filter((it) => (it.category || it.type) === replay.eventFilter) : replay.events
 )
@@ -251,22 +313,25 @@ const currentFrame = computed(() => {
 const eventPoints = computed(() =>
   replay.events
     .filter((it) => it.level === 'error' || it.type === 'task')
-    .map((event) => nearestFrame(event.timeMs))
+    .map((event) => {
+      const frame = nearestFrame(event.timeMs) as any
+      return frame ? { ...frame, title: event.title, level: event.level } : null
+    })
     .filter(Boolean)
-    .map((frame: any) => ({ x: frame.x, y: frame.y }))
+    .map((frame: any) => ({ x: frame.x, y: frame.y, timeMs: frame.timeMs, frameIndex: frame.frameIndex, title: frame.title, level: frame.level }))
 )
 const selectedErrorOccurrences = computed(() => {
   if (!replay.selectedErrorCode) return replay.errorOccurrences
   return replay.errorOccurrences.filter((it) => it.code === replay.selectedErrorCode)
 })
 
-async function load() {
+async function load(forceReload = false) {
   try {
     robot.disconnectWs()
-    await replay.loadSession()
+    await replay.loadSession(forceReload)
     robot.map = await getReplayMap()
     robot.connectWs('replay')
-    progressValue.value = Math.max(0, replay.currentMs - replay.startMs)
+    syncProgressValue()
     startProgressTimer()
     ElMessage.success('日志诊断已加载')
   } catch (e: any) {
@@ -276,7 +341,16 @@ async function load() {
 
 function jump(timeMs: number) {
   replay.seek(timeMs)
-  progressValue.value = Math.max(0, timeMs - replay.startMs)
+  syncProgressValue()
+}
+
+async function onReplayPointSelect(point: any) {
+  if (Number.isFinite(Number(point.frameIndex)) && replay.mode === 'frame_compact') {
+    await replay.seekFrame(Number(point.frameIndex))
+  } else if (Number.isFinite(Number(point.timeMs))) {
+    await replay.seek(Number(point.timeMs))
+  }
+  syncProgressValue()
 }
 
 function openReport(kind: 'md' | 'json') {
@@ -298,12 +372,22 @@ function contextText(row: any) {
 
 function nearestFrame(timeMs: number) {
   if (replay.frames.length === 0) return null
-  let best = replay.frames[0]
-  for (const frame of replay.frames) {
-    if (Math.abs(frame.timeMs - timeMs) < Math.abs(best.timeMs - timeMs)) best = frame
+  let best = { ...replay.frames[0], frameIndex: 0 }
+  for (let i = 0; i < replay.frames.length; i++) {
+    const frame = replay.frames[i]
+    if (Math.abs(frame.timeMs - timeMs) < Math.abs(best.timeMs - timeMs)) best = { ...frame, frameIndex: i }
     if (frame.timeMs > timeMs) break
   }
   return best
+}
+
+function markerPercent(timeMs: number) {
+  if (replay.mode === 'frame_compact') {
+    const frame = nearestFrame(timeMs) as any
+    const index = frame?.frameIndex ?? replay.frames.findIndex((it) => it.timeMs === frame?.timeMs)
+    return progressMax.value > 0 ? Math.max(0, Math.min(100, (index / progressMax.value) * 100)) : 0
+  }
+  return replay.durationMs > 0 ? Math.max(0, Math.min(100, ((timeMs - replay.startMs) / replay.durationMs) * 100)) : 0
 }
 
 async function onPlay() {
@@ -318,17 +402,28 @@ async function onPause() {
 
 async function onProgressChange(value: number | number[]) {
   const offset = Array.isArray(value) ? value[0] : value
-  await replay.seek(replay.startMs + offset)
+  if (replay.mode === 'frame_compact') await replay.seekFrame(offset)
+  else await replay.seek(replay.startMs + offset)
   progressValue.value = offset
+}
+
+async function onModeChange(value: string | number | boolean) {
+  await replay.setMode(value === 'frame_compact' ? 'frame_compact' : 'realtime')
+  syncProgressValue()
 }
 
 function startProgressTimer() {
   stopProgressTimer()
   progressTimer = window.setInterval(async () => {
     await replay.refreshSession()
-    progressValue.value = Math.max(0, replay.currentMs - replay.startMs)
+    syncProgressValue()
     if (!replay.playing) stopProgressTimer()
   }, 500)
+}
+
+function syncProgressValue() {
+  progressValue.value =
+    replay.mode === 'frame_compact' ? replay.currentFrameIndex : Math.max(0, replay.currentMs - replay.startMs)
 }
 
 function stopProgressTimer() {
@@ -349,6 +444,17 @@ function formatDuration(ms: number) {
 
 function pad(v: number) {
   return String(v).padStart(2, '0')
+}
+
+function matchLabel(strategy: string) {
+  const labels: Record<string, string> = {
+    manual: '手动',
+    detected_exact: '精确',
+    detected_contains: '近似',
+    fallback_first_json: '回退',
+    missing: '缺失'
+  }
+  return labels[strategy] || strategy || '-'
 }
 
 onBeforeUnmount(() => {
@@ -387,6 +493,14 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
   color: #374151;
   font-size: 13px;
+}
+.warning-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: #92400e;
+  font-size: 12px;
 }
 .metric {
   height: 76px;
@@ -442,6 +556,31 @@ onBeforeUnmount(() => {
 }
 .progress-slider {
   width: 100%;
+}
+.progress-wrap {
+  position: relative;
+  min-width: 0;
+}
+.progress-marker {
+  position: absolute;
+  top: 18px;
+  width: 6px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  transform: translateX(-50%);
+  background: #f59e0b;
+  cursor: pointer;
+}
+.progress-marker.error {
+  background: #dc2626;
+}
+.progress-marker.warning {
+  background: #f59e0b;
+}
+.progress-marker.info {
+  background: #2563eb;
 }
 .time-text {
   color: #6b7280;

@@ -1,4 +1,6 @@
 export type LogLevel = 'D' | 'I' | 'W' | 'E' | 'UNKNOWN'
+export type ErrorOccurrenceKind = 'real_fault' | 'config_notice' | 'definition' | 'unknown'
+export type ReplayMode = 'realtime' | 'frame_compact'
 
 export interface ParsedLogLine {
   file: string
@@ -57,6 +59,7 @@ export interface ErrorOccurrence {
   timestamp: string
   timeMs: number
   source: string
+  kind: ErrorOccurrenceKind
   taskId?: string
   line: ParsedLogLine
   definition?: ErrorCodeDefinition
@@ -105,6 +108,25 @@ export interface FoldedLogGroup {
   lastLine: ParsedLogLine
 }
 
+export interface MapMatchInfo {
+  requestedMapFile?: string
+  detectedMapName?: string
+  selectedMapFile?: string
+  matchStrategy: 'manual' | 'detected_exact' | 'detected_contains' | 'fallback_first_json' | 'missing'
+  confidence: number
+  warnings: string[]
+}
+
+export interface RootCauseCandidate {
+  id: string
+  title: string
+  confidence: number
+  severity: 'info' | 'warning' | 'error'
+  evidenceEvents: TimelineEvent[]
+  evidenceLines: ParsedLogLine[]
+  suggestion: string
+}
+
 export interface OverviewSummary {
   loaded: boolean
   logDir: string
@@ -132,6 +154,9 @@ export interface OverviewSummary {
   errorCount: number
   warningCount: number
   topIssues: TimelineEvent[]
+  mapMatch: MapMatchInfo
+  rootCauses: RootCauseCandidate[]
+  dataWarnings: string[]
 }
 
 export interface ErrorCodeSummary {
@@ -140,6 +165,8 @@ export interface ErrorCodeSummary {
   screenText?: string
   level?: number
   count: number
+  realCount: number
+  configNoticeCount: number
   firstTime: string
   lastTime: string
   firstMs: number
@@ -166,4 +193,6 @@ export interface ReplayControlState {
   playing: boolean
   speed: number
   currentMs: number
+  currentFrameIndex: number
+  mode: ReplayMode
 }

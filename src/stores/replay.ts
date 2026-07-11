@@ -11,6 +11,7 @@ import {
   seekReplay,
   setReplayControl
 } from '@/api/replay'
+import type { ReplayMode } from '@/api/replay'
 
 export const useReplayStore = defineStore('replay', {
   state: () => ({
@@ -46,21 +47,24 @@ export const useReplayStore = defineStore('replay', {
     logTotal: 0,
     playing: false,
     speed: 1,
+    mode: 'realtime' as ReplayMode,
     selectedTimeMs: 0,
     currentMs: 0,
+    currentFrameIndex: 0,
     startMs: 0,
     endMs: 0,
     durationMs: 0
   }),
 
   actions: {
-    async loadSession() {
+    async loadSession(forceReload = false) {
       this.loading = true
       try {
         await createReplaySession({
           logDir: this.logDir,
           mapDir: this.mapDir || undefined,
-          mapFile: this.mapFile || undefined
+          mapFile: this.mapFile || undefined,
+          forceReload
         })
         await this.refreshAll()
         this.loaded = true
@@ -107,15 +111,13 @@ export const useReplayStore = defineStore('replay', {
     },
 
     async play() {
-      const res = await setReplayControl({ playing: true, speed: this.speed })
-      this.playing = !!res.control?.playing
-      this.currentMs = res.control?.currentMs || this.currentMs
+      const res = await setReplayControl({ playing: true, speed: this.speed, mode: this.mode })
+      this.applyControl(res.control)
     },
 
     async pause() {
       const res = await setReplayControl({ playing: false })
-      this.playing = !!res.control?.playing
-      this.currentMs = res.control?.currentMs || this.currentMs
+      this.applyControl(res.control)
     },
 
     async setSpeed(speed: number) {
@@ -123,22 +125,43 @@ export const useReplayStore = defineStore('replay', {
       await setReplayControl({ speed })
     },
 
+    async setMode(mode: ReplayMode) {
+      this.mode = mode
+      const res = await setReplayControl({ mode })
+      this.applyControl(res.control)
+    },
+
     async seek(timeMs: number) {
       this.selectedTimeMs = timeMs
       this.currentMs = timeMs
       const res = await seekReplay(timeMs)
-      this.currentMs = res.control?.currentMs || timeMs
+      this.applyControl(res.control)
+    },
+
+    async seekFrame(frameIndex: number) {
+      this.currentFrameIndex = frameIndex
+      const res = await seekReplay({ frameIndex })
+      this.applyControl(res.control)
     },
 
     async refreshSession() {
       const res = await getReplaySession()
-      this.playing = !!res.control?.playing
-      this.currentMs = res.control?.currentMs || this.currentMs
+      this.applyControl(res.control)
       if (res.overview) {
         this.startMs = res.overview.startMs || this.startMs
         this.endMs = res.overview.endMs || this.endMs
         this.durationMs = res.overview.durationMs || this.durationMs
       }
+    },
+
+    applyControl(control: any) {
+      if (!control) return
+      this.playing = !!control.playing
+      this.currentMs = control.currentMs || this.currentMs
+      this.currentFrameIndex = Number.isFinite(Number(control.currentFrameIndex))
+        ? Number(control.currentFrameIndex)
+        : this.currentFrameIndex
+      if (control.mode === 'realtime' || control.mode === 'frame_compact') this.mode = control.mode
     }
   }
 })

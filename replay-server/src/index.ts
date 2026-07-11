@@ -20,7 +20,8 @@ app.post('/api/replay/session', async (req, res) => {
     const data = await session.load({
       logDir: String(req.body.logDir || ''),
       mapDir: req.body.mapDir ? String(req.body.mapDir) : undefined,
-      mapFile: req.body.mapFile ? String(req.body.mapFile) : undefined
+      mapFile: req.body.mapFile ? String(req.body.mapFile) : undefined,
+      forceReload: !!req.body.forceReload
     })
     res.json({ succeed: true, overview: data.overview })
   } catch (e) {
@@ -112,12 +113,15 @@ app.get('/api/replay/report.json', (_req, res) => {
 app.post('/api/replay/control', (req, res) => {
   if (typeof req.body.playing === 'boolean') session.control.playing = req.body.playing
   if (Number.isFinite(Number(req.body.speed))) session.control.speed = Number(req.body.speed)
+  if (req.body.mode === 'realtime' || req.body.mode === 'frame_compact') session.control.mode = req.body.mode
   res.json({ succeed: true, control: session.control })
 })
 
 app.post('/api/replay/seek', (req, res) => {
   const target = Number(req.body.timeMs)
-  if (Number.isFinite(target)) session.control.currentMs = target
+  const frameIndex = Number(req.body.frameIndex)
+  if (Number.isFinite(frameIndex)) session.seekByFrameIndex(frameIndex)
+  else if (Number.isFinite(target)) session.seekByTime(target)
   res.json({ succeed: true, control: session.control, frame: session.getCurrentFrame() })
 })
 
@@ -164,11 +168,23 @@ server.listen(port, host, () => {
 
 function tickPlayback() {
   if (!session.control.playing || session.data.frames.length === 0) return
+  if (session.control.mode === 'frame_compact') {
+    session.control.currentFrameIndex += Math.max(1, Math.round(session.control.speed))
+    if (session.control.currentFrameIndex >= session.data.frames.length - 1) {
+      session.control.currentFrameIndex = session.data.frames.length - 1
+      session.control.playing = false
+    }
+    session.seekByFrameIndex(session.control.currentFrameIndex)
+    return
+  }
   session.control.currentMs += 200 * session.control.speed
   const last = session.data.frames[session.data.frames.length - 1]
   if (session.control.currentMs > last.timeMs) {
     session.control.currentMs = last.timeMs
+    session.control.currentFrameIndex = session.data.frames.length - 1
     session.control.playing = false
+  } else {
+    session.seekByTime(session.control.currentMs)
   }
 }
 

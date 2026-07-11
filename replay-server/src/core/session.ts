@@ -4,18 +4,21 @@ import type {
   ErrorCodeDefinition,
   ErrorOccurrence,
   ErrorCodeSummary,
+  MapMatchInfo,
   OverviewSummary,
   ParsedLogLine,
   ReplayControlState,
   ReplayFrame,
   ReplaySessionData
 } from '../types'
+import { buildCacheKey, readSessionCache, writeSessionCache } from './cache'
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
 import { parseInfoStatus } from '../parser/infoStatus'
 import { parseLogLine, sortLogLines } from '../parser/logLine'
 import { buildTaskSegments } from '../parser/task'
 import { foldNoise } from './noise'
+import { buildRootCauses } from './rootCause'
 import { buildTimelineEvents, mergeFrames } from './timeline'
 
 const EMPTY_OVERVIEW: OverviewSummary = {
@@ -44,7 +47,14 @@ const EMPTY_OVERVIEW: OverviewSummary = {
   errorCodeCount: 0,
   errorCount: 0,
   warningCount: 0,
-  topIssues: []
+  topIssues: [],
+  mapMatch: {
+    matchStrategy: 'missing',
+    confidence: 0,
+    warnings: []
+  },
+  rootCauses: [],
+  dataWarnings: []
 }
 
 export class ReplaySession {
@@ -64,11 +74,24 @@ export class ReplaySession {
   control: ReplayControlState = {
     playing: false,
     speed: 1,
-    currentMs: 0
+    currentMs: 0,
+    currentFrameIndex: 0,
+    mode: 'realtime'
   }
 
-  async load(input: { logDir: string; mapDir?: string; mapFile?: string }): Promise<ReplaySessionData> {
+  async load(input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean }): Promise<ReplaySessionData> {
     const files = await findLogFiles(input.logDir)
+    const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
+    if (!input.forceReload) {
+      const cached = await readSessionCache(cacheKey)
+      if (cached) {
+        this.data = cached
+        this.control.currentMs = cached.frames[0]?.timeMs || cached.rawLines[0]?.timeMs || 0
+        this.control.currentFrameIndex = 0
+        this.control.playing = false
+        return this.data
+      }
+    }
     const rawLines = await readLogFiles(files)
     const definitions = new Map<string, ErrorCodeDefinition>()
     const frames: ReplayFrame[] = []
@@ -105,10 +128,18 @@ export class ReplaySession {
         occurrences.push(...parseErrorOccurrences(frame.rawLine, definitions, frame.currentTaskId))
       }
     }
-    const tasks = buildTaskSegments(mergedFrames)
     const events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
+    const tasks = buildTaskSegments(mergedFrames, rawLines, events)
+    const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames)
+    const rootCauses = buildRootCauses({
+      events,
+      frames: mergedFrames,
+      occurrences,
+      tasks,
+      rawLines,
+      mapMatch: map.match
+    })
     const errorSummaries = buildErrorSummaries(occurrences)
-    const map = await loadMap(input.mapDir, input.mapFile)
     const overview = buildOverview({
       input,
       files,
@@ -121,7 +152,8 @@ export class ReplaySession {
       map,
       robotName,
       version,
-      branch
+      branch,
+      rootCauses
     })
     this.data = {
       overview,
@@ -136,11 +168,14 @@ export class ReplaySession {
       rawLines
     }
     this.control.currentMs = mergedFrames[0]?.timeMs || rawLines[0]?.timeMs || 0
+    this.control.currentFrameIndex = 0
     this.control.playing = false
+    await writeSessionCache(cacheKey, this.data)
     return this.data
   }
 
   getCurrentFrame(): ReplayFrame | null {
+    if (this.control.mode === 'frame_compact') return this.getCurrentFrameByIndex()
     const frames = this.data.frames
     if (frames.length === 0) return null
     let lo = 0
@@ -151,6 +186,36 @@ export class ReplaySession {
       else hi = mid - 1
     }
     return frames[lo]
+  }
+
+  getCurrentFrameByIndex(): ReplayFrame | null {
+    const frames = this.data.frames
+    if (frames.length === 0) return null
+    const index = Math.max(0, Math.min(frames.length - 1, Math.floor(this.control.currentFrameIndex || 0)))
+    const frame = frames[index]
+    this.control.currentFrameIndex = index
+    this.control.currentMs = frame.timeMs
+    return frame
+  }
+
+  seekByTime(timeMs: number): ReplayFrame | null {
+    this.control.currentMs = timeMs
+    const frame = this.getFrameAtTime(timeMs)
+    if (frame) this.control.currentFrameIndex = this.data.frames.indexOf(frame)
+    return frame
+  }
+
+  seekByFrameIndex(frameIndex: number): ReplayFrame | null {
+    this.control.currentFrameIndex = Math.max(0, Math.min(this.data.frames.length - 1, Math.floor(frameIndex)))
+    return this.getCurrentFrameByIndex()
+  }
+
+  private getFrameAtTime(timeMs: number): ReplayFrame | null {
+    const mode = this.control.mode
+    this.control.mode = 'realtime'
+    const frame = this.getCurrentFrame()
+    this.control.mode = mode
+    return frame
   }
 }
 
@@ -175,24 +240,151 @@ async function readLogFiles(files: string[]): Promise<ParsedLogLine[]> {
   return parsed.sort(sortLogLines)
 }
 
-async function loadMap(mapDir?: string, mapFile?: string): Promise<{ name: string; data: unknown }> {
-  const candidates: string[] = []
-  if (mapFile) candidates.push(mapFile)
-  if (mapDir) {
-    const entries = await fs.readdir(mapDir, { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.json')) candidates.push(path.join(mapDir, entry.name))
+async function loadMap(
+  mapDir: string | undefined,
+  mapFile: string | undefined,
+  rawLines: ParsedLogLine[],
+  frames: ReplayFrame[]
+): Promise<{ name: string; data: unknown; match: MapMatchInfo }> {
+  const detectedMapName = detectMapName(rawLines, frames)
+  const candidates = await findMapCandidates(mapDir)
+  const selected = selectMap({ mapFile, detectedMapName, candidates })
+  if (!selected.file) {
+    return {
+      name: '',
+      data: null,
+      match: selected.match
     }
   }
-  for (const file of candidates) {
-    try {
-      const text = await fs.readFile(file, 'utf8')
-      return { name: path.basename(file), data: JSON.parse(text) }
-    } catch {
-      continue
+  try {
+    const text = await fs.readFile(selected.file, 'utf8')
+    return {
+      name: path.basename(selected.file),
+      data: JSON.parse(text),
+      match: {
+        ...selected.match,
+        selectedMapFile: selected.file
+      }
+    }
+  } catch {
+    return {
+      name: '',
+      data: null,
+      match: {
+        ...selected.match,
+        selectedMapFile: selected.file,
+        matchStrategy: 'missing',
+        confidence: 0,
+        warnings: [...selected.match.warnings, `地图文件读取失败: ${selected.file}`]
+      }
     }
   }
-  return { name: '', data: null }
+}
+
+function detectMapName(rawLines: ParsedLogLine[], frames: ReplayFrame[]): string {
+  const patterns = [
+    /MapUmcl:\s*load map\s+\S+\/([A-Za-z0-9_.-]+\.json)/i,
+    /UpdateParamsConfig:\s*map\b.*"name"\s*:\s*"([A-Za-z0-9_.-]+\.json)"/i,
+    /map[_ -]?name["':=\s]+([A-Za-z0-9_.-]+\.json)/i,
+    /load(?:ed)? map[^A-Za-z0-9_.-]+([A-Za-z0-9_.-]+\.json)/i
+  ]
+  for (const line of rawLines) {
+    if (!/map|地图/i.test(line.message)) continue
+    for (const pattern of patterns) {
+      const match = line.message.match(pattern)
+      if (match?.[1]) return path.basename(match[1])
+    }
+  }
+  const namedFrame = frames.find((frame) => frame.name && frame.name.endsWith('.json'))
+  return namedFrame?.name || ''
+}
+
+async function findMapCandidates(mapDir?: string): Promise<string[]> {
+  if (!mapDir) return []
+  const entries = await fs.readdir(mapDir, { withFileTypes: true }).catch(() => [])
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => path.join(mapDir, entry.name))
+    .sort()
+}
+
+function selectMap(arg: {
+  mapFile?: string
+  detectedMapName: string
+  candidates: string[]
+}): { file: string; match: MapMatchInfo } | { file: ''; match: MapMatchInfo } {
+  const warnings: string[] = []
+  if (arg.mapFile) {
+    return {
+      file: arg.mapFile,
+      match: {
+        requestedMapFile: arg.mapFile,
+        detectedMapName: arg.detectedMapName || undefined,
+        selectedMapFile: arg.mapFile,
+        matchStrategy: 'manual',
+        confidence: 1,
+        warnings
+      }
+    }
+  }
+  const detected = normalizeMapName(arg.detectedMapName)
+  if (detected) {
+    const exact = arg.candidates.find((file) => normalizeMapName(path.basename(file)) === detected)
+    if (exact) {
+      return {
+        file: exact,
+        match: {
+          detectedMapName: arg.detectedMapName,
+          selectedMapFile: exact,
+          matchStrategy: 'detected_exact',
+          confidence: 0.95,
+          warnings
+        }
+      }
+    }
+    const contains = arg.candidates.find((file) => {
+      const name = normalizeMapName(path.basename(file))
+      return name.includes(detected) || detected.includes(name)
+    })
+    if (contains) {
+      return {
+        file: contains,
+        match: {
+          detectedMapName: arg.detectedMapName,
+          selectedMapFile: contains,
+          matchStrategy: 'detected_contains',
+          confidence: 0.75,
+          warnings: [`未找到完全同名地图，使用近似匹配: ${path.basename(contains)}`]
+        }
+      }
+    }
+    warnings.push(`日志中疑似地图 ${arg.detectedMapName}，但地图目录未找到匹配文件`)
+  }
+  if (arg.candidates[0]) {
+    return {
+      file: arg.candidates[0],
+      match: {
+        detectedMapName: arg.detectedMapName || undefined,
+        selectedMapFile: arg.candidates[0],
+        matchStrategy: 'fallback_first_json',
+        confidence: 0.45,
+        warnings: [...warnings, `未能精确匹配地图，回退使用第一个 JSON: ${path.basename(arg.candidates[0])}`]
+      }
+    }
+  }
+  return {
+    file: '',
+    match: {
+      detectedMapName: arg.detectedMapName || undefined,
+      matchStrategy: 'missing',
+      confidence: 0,
+      warnings: [...warnings, '未找到可用地图文件']
+    }
+  }
+}
+
+function normalizeMapName(name: string): string {
+  return path.basename(name || '').replace(/\.json$/i, '').toLowerCase()
 }
 
 function buildOverview(arg: {
@@ -204,15 +396,20 @@ function buildOverview(arg: {
   occurrences: ErrorOccurrence[]
   events: ReturnType<typeof buildTimelineEvents>
   tasks: ReturnType<typeof buildTaskSegments>
-  map: { name: string; data: unknown }
+  map: { name: string; data: unknown; match: MapMatchInfo }
   robotName: string
   version: string
   branch: string
+  rootCauses: ReturnType<typeof buildRootCauses>
 }): OverviewSummary {
   const start = arg.rawLines[0]
   const end = arg.rawLines[arg.rawLines.length - 1]
   const errors = arg.events.filter((it) => it.level === 'error')
   const warnings = arg.events.filter((it) => it.level === 'warning')
+  const dataWarnings = [...arg.map.match.warnings]
+  if (arg.frames.length > 0 && arg.tasks.length === 0) {
+    dataWarnings.push('日志中未发现有效 current_task_id，任务视角需要使用包含真实任务 ID 的日志继续验证')
+  }
   return {
     loaded: true,
     logDir: arg.input.logDir,
@@ -239,7 +436,10 @@ function buildOverview(arg: {
     errorCodeCount: arg.definitions.size,
     errorCount: errors.length,
     warningCount: warnings.length,
-    topIssues: [...errors, ...warnings].slice(0, 20)
+    topIssues: [...errors, ...warnings].slice(0, 20),
+    mapMatch: arg.map.match,
+    rootCauses: arg.rootCauses,
+    dataWarnings
   }
 }
 
@@ -271,6 +471,8 @@ function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[]
         screenText: def?.screenText,
         level: def?.level,
         count: 0,
+        realCount: 0,
+        configNoticeCount: 0,
         firstTime: occurrence.timestamp,
         lastTime: occurrence.timestamp,
         firstMs: occurrence.timeMs,
@@ -282,6 +484,8 @@ function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[]
       groups.set(occurrence.code, summary)
     }
     summary.count += 1
+    if (occurrence.kind === 'real_fault') summary.realCount += 1
+    if (occurrence.kind === 'config_notice') summary.configNoticeCount += 1
     summary.occurrences.push(occurrence)
     if (occurrence.timeMs < summary.firstMs) {
       summary.firstMs = occurrence.timeMs
@@ -298,5 +502,8 @@ function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[]
       summary.taskIds.push(occurrence.taskId)
     }
   }
-  return Array.from(groups.values()).sort((a, b) => b.count - a.count)
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.realCount !== a.realCount) return b.realCount - a.realCount
+    return b.count - a.count
+  })
 }

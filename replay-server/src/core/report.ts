@@ -18,24 +18,47 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
     `- 错误码: ${o.errorCodeCount}`,
     `- 错误事件: ${o.errorCount}`,
     `- 关键告警: ${o.warningCount}`,
+    `- 地图匹配: ${matchLabel(o.mapMatch.matchStrategy)} ${Math.round(o.mapMatch.confidence * 100)}%`,
     '',
-    '## Top 问题',
+    '## 诊断结论',
     ''
   ]
+  if (o.rootCauses.length === 0) {
+    lines.push('- 暂无明确根因候选。')
+  }
+  for (const cause of o.rootCauses) {
+    lines.push(`- [${cause.severity}] ${cause.title}，置信度 ${Math.round(cause.confidence * 100)}%。${cause.suggestion}`)
+  }
+  lines.push('', '## 地图匹配', '')
+  lines.push(`- 策略: ${matchLabel(o.mapMatch.matchStrategy)}`)
+  lines.push(`- 检测地图: ${o.mapMatch.detectedMapName || '-'}`)
+  lines.push(`- 选择地图: ${o.mapMatch.selectedMapFile || o.mapPath || '-'}`)
+  lines.push(`- 置信度: ${Math.round(o.mapMatch.confidence * 100)}%`)
+  for (const warning of o.dataWarnings) {
+    lines.push(`- 提醒: ${warning}`)
+  }
+  lines.push('', '## Top 问题', '')
   for (const issue of o.topIssues) {
     lines.push(`- ${issue.timestamp} ${issue.title}: ${issue.detail}`)
   }
-  lines.push('', '## 错误码', '')
-  for (const occurrence of data.errorOccurrences.slice(0, 50)) {
+  lines.push('', '## 真实故障错误码', '')
+  for (const occurrence of data.errorOccurrences.filter((it) => it.kind === 'real_fault').slice(0, 50)) {
     lines.push(
       `- ${occurrence.timestamp} ${occurrence.code} ${occurrence.definition?.description || occurrence.source}`
     )
   }
+  lines.push('', '## 配置提醒错误码', '')
+  for (const occurrence of data.errorOccurrences.filter((it) => it.kind === 'config_notice').slice(0, 50)) {
+    lines.push(`- ${occurrence.timestamp} ${occurrence.code} ${occurrence.definition?.description || occurrence.source}`)
+  }
   lines.push('', '## 任务视角', '')
   for (const task of data.tasks) {
     lines.push(
-      `- ${task.id}: ${task.startTime} ~ ${task.endTime}, 状态 ${task.status || '-'}, 错误 ${task.errors.join(',') || '-'}`
+      `- ${task.id}: ${task.startTime} ~ ${task.endTime}, 状态 ${task.status || '-'}, 成功 ${task.lastFinishedTaskSuccess ?? '-'}, 错误 ${task.errors.join(',') || '-'}`
     )
+    for (const event of (task.relatedEvents || []).slice(0, 3)) {
+      lines.push(`  - ${event.timestamp} ${event.title}: ${event.detail}`)
+    }
   }
   return `${lines.join('\n')}\n`
 }
@@ -44,9 +67,25 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
   return {
     overview: data.overview,
     topIssues: data.overview.topIssues,
+    mapMatch: data.overview.mapMatch,
+    rootCauses: data.overview.rootCauses,
+    dataWarnings: data.overview.dataWarnings,
     errorCodes: data.errorDefinitions,
     errorOccurrences: data.errorOccurrences,
+    realErrorOccurrences: data.errorOccurrences.filter((it) => it.kind === 'real_fault'),
+    configNotices: data.errorOccurrences.filter((it) => it.kind === 'config_notice'),
     tasks: data.tasks,
     foldedLogs: data.foldedLogs
   }
+}
+
+function matchLabel(strategy: string): string {
+  const labels: Record<string, string> = {
+    manual: '手动指定',
+    detected_exact: '日志同名匹配',
+    detected_contains: '日志近似匹配',
+    fallback_first_json: '回退第一个 JSON',
+    missing: '未找到地图'
+  }
+  return labels[strategy] || strategy || '-'
 }

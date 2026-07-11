@@ -29,8 +29,16 @@ import { ElMessage } from 'element-plus'
 import { useRobotStore, type Point } from '@/stores/robot'
 import { control } from '@/api/http'
 
+export interface ReplayPoint extends Point {
+  timeMs?: number
+  frameIndex?: number
+  timestamp?: string
+  title?: string
+  level?: string
+}
+
 const props = withDefaults(
-  defineProps<{ showMap?: boolean; showAvoidBox?: boolean; trajectory?: Point[]; eventPoints?: Point[] }>(),
+  defineProps<{ showMap?: boolean; showAvoidBox?: boolean; trajectory?: ReplayPoint[]; eventPoints?: ReplayPoint[] }>(),
   {
     showMap: true,
     showAvoidBox: false,
@@ -38,6 +46,7 @@ const props = withDefaults(
     eventPoints: () => []
   }
 )
+const emit = defineEmits<{ (e: 'select-replay-point', point: ReplayPoint): void }>()
 
 const store = useRobotStore()
 
@@ -263,10 +272,30 @@ function onWheel(e: WheelEvent) {
 function onDown(e: MouseEvent) {
   if (e.button === 2) return // 右键不触发拖动
   hideCtxMenu()
+  const replayPoint = hitTestReplayPoint(e.offsetX, e.offsetY)
+  if (replayPoint) {
+    emit('select-replay-point', replayPoint)
+    return
+  }
   userInteracted = true
   dragging = true
   lastX = e.clientX
   lastY = e.clientY
+}
+
+function hitTestReplayPoint(px: number, py: number): ReplayPoint | null {
+  const candidates = [...props.eventPoints, ...props.trajectory]
+  let best = 10
+  let hit: ReplayPoint | null = null
+  for (const point of candidates) {
+    const s = worldToScreen(point)
+    const d = Math.hypot(s.x - px, s.y - py)
+    if (d <= best) {
+      best = d
+      hit = point
+    }
+  }
+  return hit
 }
 
 function onMove(e: MouseEvent) {

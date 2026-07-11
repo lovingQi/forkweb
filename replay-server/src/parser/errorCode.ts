@@ -1,4 +1,4 @@
-import type { ErrorCodeDefinition, ErrorOccurrence, ParsedLogLine } from '../types'
+import type { ErrorCodeDefinition, ErrorOccurrence, ErrorOccurrenceKind, ParsedLogLine } from '../types'
 
 const DEF_RE = /error_name,error_str=(ERROR\d{4}),(\{.*\})/
 const CODE_RE = /(ERROR\d{4})/g
@@ -41,6 +41,7 @@ export function parseErrorOccurrences(
       timestamp: line.timestamp,
       timeMs: line.timeMs,
       source: classifySource(line.message),
+      kind: classifyKind(line.message),
       taskId,
       line,
       definition: definitions.get(code)
@@ -50,10 +51,29 @@ export function parseErrorOccurrences(
 }
 
 function classifySource(message: string): string {
+  if (isConfigNotice(message)) return 'config_notice'
   if (message.includes('current_task_error_code')) return 'current_task_error_code'
   if (message.includes('current_code')) return 'current_code'
   if (message.includes('"errors"')) return 'status_errors'
   return 'log_text'
+}
+
+function classifyKind(message: string): ErrorOccurrenceKind {
+  if (/error_name,error_str=ERROR\d{4}/.test(message)) return 'definition'
+  if (isConfigNotice(message)) return 'config_notice'
+  if (
+    message.includes('current_task_error_code') ||
+    message.includes('current_code') ||
+    message.includes('"errors"') ||
+    message.includes('RmstoSendArg')
+  ) {
+    return 'real_fault'
+  }
+  return 'unknown'
+}
+
+function isConfigNotice(message: string): boolean {
+  return /GrmFault: configure error for device error_code code ERROR\d{4}/.test(message)
 }
 
 function stringOrUndefined(v: unknown): string | undefined {

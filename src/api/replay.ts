@@ -10,6 +10,7 @@ export interface ReplaySessionInput {
   logDir: string
   mapDir?: string
   mapFile?: string
+  forceReload?: boolean
 }
 
 export async function createReplaySession(input: ReplaySessionInput) {
@@ -57,13 +58,16 @@ export async function getReplayLogs(params: Record<string, any>) {
   return data
 }
 
-export async function setReplayControl(payload: Record<string, any>) {
+export type ReplayMode = 'realtime' | 'frame_compact'
+
+export async function setReplayControl(payload: { playing?: boolean; speed?: number; mode?: ReplayMode }) {
   const { data } = await replayHttp.post('/replay/control', payload)
   return data
 }
 
-export async function seekReplay(timeMs: number) {
-  const { data } = await replayHttp.post('/replay/seek', { timeMs })
+export async function seekReplay(payload: number | { timeMs?: number; frameIndex?: number }) {
+  const body = typeof payload === 'number' ? { timeMs: payload } : payload
+  const { data } = await replayHttp.post('/replay/seek', body)
   return data
 }
 
