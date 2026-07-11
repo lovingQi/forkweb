@@ -80,9 +80,9 @@ export class RobotWs {
   private high: WsChannel
   private low: WsChannel
 
-  constructor(onMessage: MessageHandler, onStatus?: StatusHandler) {
-    this.high = new WsChannel(`${config.wsBase}/high`, onMessage, onStatus)
-    this.low = new WsChannel(`${config.wsBase}/low`, onMessage)
+  constructor(onMessage: MessageHandler, onStatus?: StatusHandler, wsBase = config.wsBase) {
+    this.high = new WsChannel(`${wsBase}/high`, onMessage, onStatus)
+    this.low = new WsChannel(`${wsBase}/low`, onMessage)
   }
 
   connect() {

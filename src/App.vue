@@ -19,6 +19,10 @@
           <el-icon><Operation /></el-icon>
           <span>控制面板</span>
         </el-menu-item>
+        <el-menu-item index="/replay">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>日志诊断</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 

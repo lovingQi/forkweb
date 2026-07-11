@@ -6,5 +6,7 @@
 // 容器部署时该文件可由 docker-entrypoint.sh 按环境变量重写。
 window.__APP_CONFIG__ = {
   apiBase: '/api',
-  wsBase: '/ws'
+  wsBase: '/ws',
+  replayApiBase: 'http://127.0.0.1:18080/api',
+  replayWsBase: 'ws://127.0.0.1:18080/ws'
 }

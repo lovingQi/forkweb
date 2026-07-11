@@ -1,6 +1,8 @@
 export interface AppConfig {
   apiBase: string
   wsBase: string
+  replayApiBase: string
+  replayWsBase: string
 }
 
 declare global {
@@ -22,5 +24,7 @@ const injected = window.__APP_CONFIG__ || {}
 
 export const config: AppConfig = {
   apiBase: injected.apiBase || '/api',
-  wsBase: resolveWsBase(injected.wsBase)
+  wsBase: resolveWsBase(injected.wsBase),
+  replayApiBase: injected.replayApiBase || 'http://127.0.0.1:18080/api',
+  replayWsBase: resolveWsBase(injected.replayWsBase || 'ws://127.0.0.1:18080/ws')
 }

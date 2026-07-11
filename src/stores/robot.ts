@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { RobotWs } from '@/api/ws'
 import { getState, getMap, getParamsInfo } from '@/api/http'
+import { config } from '@/config'
 
 export interface Point {
   x: number
@@ -31,6 +32,7 @@ function parsePointsString(s?: string): Point[] {
 }
 
 let wsClient: RobotWs | null = null
+type WsTarget = 'live' | 'replay'
 
 export const useRobotStore = defineStore('robot', {
   state: () => ({
@@ -131,8 +133,19 @@ export const useRobotStore = defineStore('robot', {
       }
     },
 
-    connectWs() {
+    connectWs(target: WsTarget = 'live') {
       if (wsClient) return
+      if (target === 'replay') {
+        wsClient = new RobotWs(
+          (msg) => this.applyMessage(msg),
+          (connected) => {
+            this.connected = connected
+          },
+          config.replayWsBase
+        )
+        wsClient.connect()
+        return
+      }
       wsClient = new RobotWs(
         (msg) => this.applyMessage(msg),
         (connected) => {

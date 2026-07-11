@@ -24,6 +24,12 @@ const routes = [
     name: 'control',
     component: () => import('@/views/ControlPanel.vue'),
     meta: { title: '控制面板' }
+  },
+  {
+    path: '/replay',
+    name: 'replay',
+    component: () => import('@/views/Replay.vue'),
+    meta: { title: '日志诊断' }
   }
 ]
 
