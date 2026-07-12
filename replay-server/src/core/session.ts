@@ -22,6 +22,10 @@ import { foldNoise } from './noise'
 import { matchMapAlias, readMapAliases } from './mapAlias'
 import { buildRootCauses } from './rootCause'
 import { buildTimelineEvents, mergeFrames } from './timeline'
+import { readLogIndex, writeLogIndex, fileFingerprint } from './logIndex'
+import { shouldReplaceDefinition } from './errorDictionarySources'
+import { readBookmarks } from './bookmarks'
+import { readCaseMeta } from './caseMeta'
 
 const EMPTY_OVERVIEW: OverviewSummary = {
   loaded: false,
@@ -57,7 +61,18 @@ const EMPTY_OVERVIEW: OverviewSummary = {
     warnings: []
   },
   rootCauses: [],
-  dataWarnings: []
+  dataWarnings: [],
+  healthScore: 0,
+  logQualityScore: 0,
+  recommendedFocusTimes: [],
+  parseStats: {
+    loadMs: 0,
+    parseMs: 0,
+    mapLoadMs: 0,
+    totalMs: 0,
+    cacheHit: false,
+    source: ''
+  }
 }
 
 export class ReplaySession {
@@ -71,7 +86,9 @@ export class ReplaySession {
     errorSummaries: [],
     tasks: [],
     foldedLogs: [],
-    rawLines: []
+    rawLines: [],
+    bookmarks: [],
+    caseMeta: {}
   }
 
   control: ReplayControlState = {
@@ -83,6 +100,7 @@ export class ReplaySession {
   }
 
   async load(input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean }): Promise<ReplaySessionData> {
+    const loadStart = Date.now()
     await cleanupReplayCache()
     const files = await findLogFiles(input.logDir)
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
@@ -93,10 +111,20 @@ export class ReplaySession {
         this.control.currentMs = cached.frames[0]?.timeMs || cached.rawLines[0]?.timeMs || 0
         this.control.currentFrameIndex = 0
         this.control.playing = false
+        this.data.overview.parseStats = {
+          loadMs: 0,
+          parseMs: 0,
+          mapLoadMs: 0,
+          totalMs: Date.now() - loadStart,
+          cacheHit: true,
+          source: 'session_cache'
+        }
         return this.data
       }
     }
-    const rawLines = await readLogFiles(files)
+    const parseStart = Date.now()
+    const indexed = await readLogFilesWithIndex(files)
+    const rawLines = indexed.rawLines
     const definitions = new Map<string, ErrorCodeDefinition>()
     const frames: ReplayFrame[] = []
     let currentTaskId = ''
@@ -104,9 +132,10 @@ export class ReplaySession {
     let version = ''
     let branch = ''
 
+    for (const def of indexed.definitions) definitions.set(def.code, def)
     for (const line of rawLines) {
       const def = parseErrorDefinition(line)
-      if (def) definitions.set(def.code, def)
+      if (def && shouldReplaceDefinition(definitions.get(def.code), def)) definitions.set(def.code, def)
       const flt = parseFltStatus(line)
       const info = parseInfoStatus(line)
       const frame = flt || info
@@ -124,11 +153,11 @@ export class ReplaySession {
 
     const sourceDefinitions = await loadSourceErrorDictionary()
     for (const [code, def] of sourceDefinitions) {
-      if (!definitions.has(code)) definitions.set(code, def)
+      if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
     }
 
     const mergedFrames = mergeFrames(frames)
-    const occurrences: ErrorOccurrence[] = []
+    const occurrences: ErrorOccurrence[] = [...indexed.occurrences]
     for (const line of rawLines) {
       occurrences.push(...parseErrorOccurrences(line, definitions, currentTaskId))
     }
@@ -142,7 +171,9 @@ export class ReplaySession {
     assignOccurrenceTaskIds(occurrences, tasks)
     events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
     tasks = buildTaskSegments(mergedFrames, rawLines, events)
+    const mapStart = Date.now()
     const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
+    const mapLoadMs = Date.now() - mapStart
     const rootCauses = buildRootCauses({
       events,
       frames: mergedFrames,
@@ -167,6 +198,14 @@ export class ReplaySession {
       branch,
       rootCauses
     })
+    overview.parseStats = {
+      loadMs: parseStart - loadStart,
+      parseMs: mapStart - parseStart,
+      mapLoadMs,
+      totalMs: Date.now() - loadStart,
+      cacheHit: false,
+      source: indexed.cacheHits > 0 ? `log_index:${indexed.cacheHits}/${files.length}` : 'full_parse'
+    }
     this.data = {
       overview,
       map,
@@ -177,7 +216,9 @@ export class ReplaySession {
       errorSummaries,
       tasks,
       foldedLogs: foldNoise(rawLines),
-      rawLines
+      rawLines,
+      bookmarks: await readBookmarks(),
+      caseMeta: await readCaseMeta()
     }
     this.control.currentMs = mergedFrames[0]?.timeMs || rawLines[0]?.timeMs || 0
     this.control.currentFrameIndex = 0
@@ -250,6 +291,71 @@ async function readLogFiles(files: string[]): Promise<ParsedLogLine[]> {
     }
   }
   return parsed.sort(sortLogLines)
+}
+
+async function readLogFilesWithIndex(files: string[]): Promise<{
+  rawLines: ParsedLogLine[]
+  frames: ReplayFrame[]
+  definitions: ErrorCodeDefinition[]
+  occurrences: ErrorOccurrence[]
+  cacheHits: number
+}> {
+  const rawLines: ParsedLogLine[] = []
+  const frames: ReplayFrame[] = []
+  const definitions: ErrorCodeDefinition[] = []
+  const occurrences: ErrorOccurrence[] = []
+  let cacheHits = 0
+  for (const file of files) {
+    const cached = await readLogIndex(file)
+    if (cached) {
+      cacheHits += 1
+      appendAll(rawLines, cached.rawLines)
+      appendAll(frames, cached.frames)
+      appendAll(definitions, cached.definitions)
+      appendAll(occurrences, cached.occurrences)
+      continue
+    }
+    const fileLines: ParsedLogLine[] = []
+    const fileFrames: ReplayFrame[] = []
+    const fileDefinitions: ErrorCodeDefinition[] = []
+    const text = await fs.readFile(file, 'utf8')
+    const rows = text.split(/\r?\n/)
+    const definitionMap = new Map<string, ErrorCodeDefinition>()
+    for (let i = 0; i < rows.length; i++) {
+      const line = parseLogLine(rows[i], file, i + 1)
+      if (!line) continue
+      fileLines.push(line)
+      const def = parseErrorDefinition(line)
+      if (def) {
+        definitionMap.set(def.code, def)
+        fileDefinitions.push(def)
+      }
+      const frame = parseFltStatus(line) || parseInfoStatus(line)
+      if (frame) fileFrames.push(frame)
+    }
+    appendAll(rawLines, fileLines)
+    appendAll(frames, fileFrames)
+    appendAll(definitions, fileDefinitions)
+    await writeLogIndex({
+      fingerprint: await fileFingerprint(file),
+      file,
+      rawLines: fileLines,
+      frames: fileFrames,
+      definitions: fileDefinitions,
+      occurrences: []
+    }).catch(() => undefined)
+  }
+  return {
+    rawLines: rawLines.sort(sortLogLines),
+    frames,
+    definitions,
+    occurrences,
+    cacheHits
+  }
+}
+
+function appendAll<T>(target: T[], items: T[]) {
+  for (const item of items) target.push(item)
 }
 
 async function loadMap(
@@ -446,6 +552,27 @@ function buildOverview(arg: {
   if (arg.frames.length > 0 && arg.tasks.length === 0) {
     dataWarnings.push('日志中未发现有效 current_task_id，任务视角需要使用包含真实任务 ID 的日志继续验证')
   }
+  const recommendedFocusTimes = [...errors, ...warnings].slice(0, 8).map((event) => ({
+    timeMs: event.timeMs,
+    timestamp: event.timestamp,
+    title: event.title,
+    reason: event.detail,
+    level: event.level
+  }))
+  const healthScore = scoreBooleans([
+    !!arg.map.data,
+    arg.frames.length > 0,
+    arg.definitions.size > 0,
+    arg.map.match.confidence >= 0.8,
+    arg.rawLines.length > 0
+  ])
+  const logQualityScore = scoreBooleans([
+    arg.rawLines.length > 0,
+    arg.rawLines.some((it) => it.level === 'E' || it.level === 'W'),
+    arg.frames.length > 0,
+    arg.tasks.length > 0,
+    arg.occurrences.length > 0
+  ])
   return {
     loaded: true,
     logDir: arg.input.logDir,
@@ -476,8 +603,24 @@ function buildOverview(arg: {
     topIssues: [...errors, ...warnings].slice(0, 20),
     mapMatch: arg.map.match,
     rootCauses: arg.rootCauses,
-    dataWarnings
+    dataWarnings,
+    healthScore,
+    logQualityScore,
+    recommendedFocusTimes,
+    parseStats: {
+      loadMs: 0,
+      parseMs: 0,
+      mapLoadMs: 0,
+      totalMs: 0,
+      cacheHit: false,
+      source: 'pending'
+    }
   }
+}
+
+function scoreBooleans(items: boolean[]): number {
+  if (items.length === 0) return 0
+  return Math.round((items.filter(Boolean).length / items.length) * 100)
 }
 
 function withContext<T extends { line?: ParsedLogLine; contextBefore?: ParsedLogLine[]; contextAfter?: ParsedLogLine[] }>(

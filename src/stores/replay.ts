@@ -1,9 +1,17 @@
 import { defineStore } from 'pinia'
 import {
+  addReplayBookmark,
   clearReplayCache,
+  compareReplayPackages,
   createReplaySession,
+  createReplaySessionJob,
+  deleteReplayBookmark,
+  exportReplayPackageOptions,
   getReplayCache,
+  getReplayBookmarks,
+  getReplayCaseMeta,
   getReplayErrorCodes,
+  getReplayEventMarkers,
   getReplayEvents,
   getReplayFrames,
   getReplayFoldedLogLines,
@@ -11,12 +19,14 @@ import {
   getReplayMapAliases,
   getReplayOverview,
   getReplaySession,
+  getReplaySessionJob,
   getReplayTasks,
   importReplayPackage,
   importReplayPackageByPath,
   importReplayMapAliases,
   deleteReplayMapAlias,
   saveReplayMapAlias,
+  saveReplayCaseMeta,
   seekReplay,
   sendRootCauseFeedback,
   setReplayControl
@@ -32,6 +42,8 @@ export const useReplayStore = defineStore('replay', {
     loaded: false,
     overview: null as any,
     events: [] as any[],
+    eventMarkers: [] as any[],
+    eventTotal: 0,
     eventFilter: '',
     eventQuery: {
       startMs: 0,
@@ -40,7 +52,9 @@ export const useReplayStore = defineStore('replay', {
       category: '',
       mode: 'all',
       sort: 'time',
-      dedupe: false
+      dedupe: false,
+      offset: 0,
+      limit: 1000
     },
     frames: [] as any[],
     errorDefinitions: [] as any[],
@@ -52,10 +66,14 @@ export const useReplayStore = defineStore('replay', {
       level: '',
       module: '',
       code: '',
-      taskId: ''
+      taskId: '',
+      occurrenceOffset: 0,
+      occurrenceLimit: 1000
     },
+    errorOccurrenceTotal: 0,
     tasks: [] as any[],
     logs: [] as any[],
+    logKeywordMatches: [] as string[],
     folded: [] as any[],
     foldedDetail: {
       id: '',
@@ -74,10 +92,12 @@ export const useReplayStore = defineStore('replay', {
       level: '',
       module: '',
       keyword: '',
+      keywords: '',
       startMs: 0,
       endMs: 0,
       aroundTimeMs: 0,
       aroundLines: 0,
+      aroundSeconds: 0,
       errorCode: '',
       taskId: '',
       noise: '',
@@ -89,12 +109,21 @@ export const useReplayStore = defineStore('replay', {
     playing: false,
     speed: 1,
     mode: 'realtime' as ReplayMode,
+    loopEnabled: false,
+    loopStartMs: 0,
+    loopEndMs: 0,
+    autoPauseOnIssue: false,
     selectedTimeMs: 0,
     currentMs: 0,
     currentFrameIndex: 0,
     startMs: 0,
     endMs: 0,
-    durationMs: 0
+    durationMs: 0,
+    bookmarks: [] as any[],
+    caseMeta: {} as any,
+    sessionJob: null as any,
+    packageComparison: null as any,
+    lastExportedPackage: null as any
   }),
 
   actions: {
@@ -114,30 +143,68 @@ export const useReplayStore = defineStore('replay', {
       }
     },
 
+    async loadSessionAsync(forceReload = false) {
+      this.loading = true
+      const created = await createReplaySessionJob({
+        logDir: this.logDir,
+        mapDir: this.mapDir || undefined,
+        mapFile: this.mapFile || undefined,
+        forceReload
+      })
+      this.sessionJob = created.job
+      return this.pollSessionJob(created.job.id)
+    },
+
+    async pollSessionJob(id: string) {
+      for (;;) {
+        const res = await getReplaySessionJob(id)
+        this.sessionJob = res.job
+        if (res.job?.status === 'done') {
+          await this.refreshAll()
+          this.loaded = true
+          this.loading = false
+          return res.job
+        }
+        if (res.job?.status === 'error') {
+          this.loading = false
+          throw new Error(res.job.error || '解析失败')
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    },
+
     async refreshAll() {
-      const [overview, events, frames, errors, tasks, logs] = await Promise.all([
+      const [overview, eventRes, frames, errors, tasks, logs, bookmarks, caseMeta] = await Promise.all([
         getReplayOverview(),
         getReplayEvents(this.eventQuery),
         getReplayFrames(),
         getReplayErrorCodes(this.errorQuery),
         getReplayTasks(),
-        getReplayLogs(this.logFilter)
+        getReplayLogs(this.logFilter),
+        getReplayBookmarks(),
+        getReplayCaseMeta()
       ])
       this.overview = overview
       this.startMs = overview.startMs || 0
       this.endMs = overview.endMs || 0
       this.durationMs = overview.durationMs || 0
       if (!this.currentMs) this.currentMs = this.startMs
-      this.events = events
+      this.events = eventRes.events || []
+      this.eventTotal = eventRes.total || this.events.length
       this.frames = frames
       this.errorDefinitions = errors.definitions || []
       this.errorOccurrences = errors.occurrences || []
       this.errorSummaries = errors.summaries || []
+      this.errorOccurrenceTotal = errors.occurrenceTotal || this.errorOccurrences.length
       this.tasks = tasks
       this.logs = logs.lines || []
       this.folded = logs.folded || []
+      this.logKeywordMatches = logs.keywordMatches || []
       this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
+      this.bookmarks = bookmarks || []
+      this.caseMeta = caseMeta || {}
+      await this.refreshEventMarkers()
       await this.refreshMapAliases()
     },
 
@@ -145,12 +212,24 @@ export const useReplayStore = defineStore('replay', {
       const logs = await getReplayLogs(this.logFilter)
       this.logs = logs.lines || []
       this.folded = logs.folded || []
+      this.logKeywordMatches = logs.keywordMatches || []
       this.logCopyText = logs.copyText || ''
       this.logTotal = logs.total || this.logs.length
     },
 
     async refreshEvents() {
-      this.events = await getReplayEvents(this.eventQuery)
+      const res = await getReplayEvents(this.eventQuery)
+      this.events = res.events || []
+      this.eventTotal = res.total || this.events.length
+      await this.refreshEventMarkers()
+    },
+
+    async refreshEventMarkers() {
+      this.eventMarkers = await getReplayEventMarkers({
+        startMs: this.startMs,
+        endMs: this.endMs,
+        bucketMs: Math.max(1000, Math.floor((this.durationMs || 60000) / 120))
+      })
     },
 
     async refreshErrorCodes() {
@@ -158,6 +237,7 @@ export const useReplayStore = defineStore('replay', {
       this.errorDefinitions = errors.definitions || []
       this.errorOccurrences = errors.occurrences || []
       this.errorSummaries = errors.summaries || []
+      this.errorOccurrenceTotal = errors.occurrenceTotal || this.errorOccurrences.length
     },
 
     async loadFoldedDetail(id: string, offset = 0) {
@@ -184,8 +264,26 @@ export const useReplayStore = defineStore('replay', {
       await this.refreshLogs()
     },
 
+    async changeEventPage(page: number) {
+      this.eventQuery.offset = Math.max(0, (page - 1) * this.eventQuery.limit)
+      await this.refreshEvents()
+    },
+
+    async changeErrorOccurrencePage(page: number) {
+      this.errorQuery.occurrenceOffset = Math.max(0, (page - 1) * this.errorQuery.occurrenceLimit)
+      await this.refreshErrorCodes()
+    },
+
     async play() {
-      const res = await setReplayControl({ playing: true, speed: this.speed, mode: this.mode })
+      const res = await setReplayControl({
+        playing: true,
+        speed: this.speed,
+        mode: this.mode,
+        loopEnabled: this.loopEnabled,
+        loopStartMs: this.loopStartMs || undefined,
+        loopEndMs: this.loopEndMs || undefined,
+        autoPauseOnIssue: this.autoPauseOnIssue
+      })
       this.applyControl(res.control)
     },
 
@@ -196,12 +294,23 @@ export const useReplayStore = defineStore('replay', {
 
     async setSpeed(speed: number) {
       this.speed = speed
-      await setReplayControl({ speed })
+      const res = await setReplayControl({ speed })
+      this.applyControl(res.control)
     },
 
     async setMode(mode: ReplayMode) {
       this.mode = mode
       const res = await setReplayControl({ mode })
+      this.applyControl(res.control)
+    },
+
+    async updateControlOptions() {
+      const res = await setReplayControl({
+        loopEnabled: this.loopEnabled,
+        loopStartMs: this.loopStartMs || undefined,
+        loopEndMs: this.loopEndMs || undefined,
+        autoPauseOnIssue: this.autoPauseOnIssue
+      })
       this.applyControl(res.control)
     },
 
@@ -236,6 +345,10 @@ export const useReplayStore = defineStore('replay', {
         ? Number(control.currentFrameIndex)
         : this.currentFrameIndex
       if (control.mode === 'realtime' || control.mode === 'frame_compact') this.mode = control.mode
+      this.loopEnabled = !!control.loopEnabled
+      this.loopStartMs = Number(control.loopStartMs || 0)
+      this.loopEndMs = Number(control.loopEndMs || 0)
+      this.autoPauseOnIssue = !!control.autoPauseOnIssue
     },
 
     async saveCurrentMapAlias() {
@@ -304,6 +417,46 @@ export const useReplayStore = defineStore('replay', {
       const res = await clearReplayCache(bucket)
       this.cacheSummary = res.cache
       return res
+    },
+
+    async refreshBookmarks() {
+      this.bookmarks = await getReplayBookmarks()
+      return this.bookmarks
+    },
+
+    async addBookmark(payload: Record<string, any>) {
+      const res = await addReplayBookmark(payload)
+      this.bookmarks = res.bookmarks || this.bookmarks
+      return res.bookmark
+    },
+
+    async deleteBookmark(id: string) {
+      const res = await deleteReplayBookmark(id)
+      this.bookmarks = res.bookmarks || this.bookmarks.filter((it) => it.id !== id)
+      return res
+    },
+
+    async refreshCaseMeta() {
+      this.caseMeta = await getReplayCaseMeta()
+      return this.caseMeta
+    },
+
+    async saveCaseMeta(payload: Record<string, any>) {
+      const res = await saveReplayCaseMeta(payload)
+      this.caseMeta = res.caseMeta || payload
+      return this.caseMeta
+    },
+
+    async exportPackageWithOptions(payload: Record<string, any>) {
+      const res = await exportReplayPackageOptions(payload)
+      this.lastExportedPackage = res.package
+      return res.package
+    },
+
+    async comparePackages(left: Record<string, any>, right: Record<string, any>) {
+      const res = await compareReplayPackages({ left, right })
+      this.packageComparison = res.comparison
+      return this.packageComparison
     }
   }
 })

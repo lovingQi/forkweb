@@ -18,6 +18,16 @@ export async function createReplaySession(input: ReplaySessionInput) {
   return data
 }
 
+export async function createReplaySessionJob(input: ReplaySessionInput) {
+  const { data } = await replayHttp.post('/replay/session/jobs', input)
+  return data
+}
+
+export async function getReplaySessionJob(id: string) {
+  const { data } = await replayHttp.get(`/replay/session/jobs/${encodeURIComponent(id)}`)
+  return data
+}
+
 export async function getReplayOverview() {
   const { data } = await replayHttp.get('/replay/overview')
   return data
@@ -30,7 +40,12 @@ export async function getReplaySession() {
 
 export async function getReplayEvents(params?: Record<string, any>) {
   const { data } = await replayHttp.get('/replay/events', { params })
-  return data.events || []
+  return data
+}
+
+export async function getReplayEventMarkers(params?: Record<string, any>) {
+  const { data } = await replayHttp.get('/replay/event-markers', { params })
+  return data.markers || []
 }
 
 export async function getReplayFrames() {
@@ -87,6 +102,16 @@ export async function importReplayPackageByPath(payload: { path: string }) {
   return data
 }
 
+export async function exportReplayPackageOptions(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/package/export', payload)
+  return data
+}
+
+export async function compareReplayPackages(payload: { left: Record<string, any>; right: Record<string, any> }) {
+  const { data } = await replayHttp.post('/replay/package/compare', payload)
+  return data
+}
+
 export async function getReplayCache() {
   const { data } = await replayHttp.get('/replay/cache')
   return data
@@ -112,9 +137,42 @@ export async function getReplayFoldedLogLines(id: string, params?: Record<string
   return data
 }
 
+export async function getReplayBookmarks() {
+  const { data } = await replayHttp.get('/replay/bookmarks')
+  return data.bookmarks || []
+}
+
+export async function addReplayBookmark(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/bookmarks', payload)
+  return data
+}
+
+export async function deleteReplayBookmark(id: string) {
+  const { data } = await replayHttp.delete(`/replay/bookmarks/${encodeURIComponent(id)}`)
+  return data
+}
+
+export async function getReplayCaseMeta() {
+  const { data } = await replayHttp.get('/replay/case-meta')
+  return data.caseMeta || {}
+}
+
+export async function saveReplayCaseMeta(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/case-meta', payload)
+  return data
+}
+
 export type ReplayMode = 'realtime' | 'frame_compact'
 
-export async function setReplayControl(payload: { playing?: boolean; speed?: number; mode?: ReplayMode }) {
+export async function setReplayControl(payload: {
+  playing?: boolean
+  speed?: number
+  mode?: ReplayMode
+  loopEnabled?: boolean
+  loopStartMs?: number
+  loopEndMs?: number
+  autoPauseOnIssue?: boolean
+}) {
   const { data } = await replayHttp.post('/replay/control', payload)
   return data
 }

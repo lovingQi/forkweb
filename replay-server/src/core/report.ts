@@ -1,6 +1,12 @@
 import type { ReplaySessionData } from '../types'
+import { readBookmarks } from './bookmarks'
+import { readCaseMeta } from './caseMeta'
 
-export function buildMarkdownReport(data: ReplaySessionData): string {
+export async function buildMarkdownReportAsync(data: ReplaySessionData): Promise<string> {
+  return buildMarkdownReport(data, { bookmarks: await readBookmarks(), caseMeta: await readCaseMeta() })
+}
+
+export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks?: any[]; caseMeta?: any } = {}): string {
   const o = data.overview
   const lines = [
     '# 叉车日志诊断报告',
@@ -19,6 +25,15 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
     `- 错误事件: ${o.errorCount}`,
     `- 关键告警: ${o.warningCount}`,
     `- 地图匹配: ${matchLabel(o.mapMatch.matchStrategy)} ${Math.round(o.mapMatch.confidence * 100)}%`,
+    `- 数据完整性评分: ${o.healthScore ?? '-'} / 100`,
+    `- 日志质量评分: ${o.logQualityScore ?? '-'} / 100`,
+    '',
+    '## 人工结论',
+    '',
+    `- 处理状态: ${extras.caseMeta?.status || '-'}`,
+    `- 已确认根因: ${extras.caseMeta?.confirmedRootCause || '-'}`,
+    `- 现场人员: ${extras.caseMeta?.operator || '-'}`,
+    `- 备注: ${extras.caseMeta?.note || '-'}`,
     '',
     '## 文件索引',
     '',
@@ -34,6 +49,10 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
   }
   for (const cause of o.rootCauses) {
     lines.push(`- [${cause.severity}] ${cause.title}，置信度 ${Math.round(cause.confidence * 100)}%。${cause.suggestion}`)
+    for (const item of cause.triggeredRules || []) lines.push(`  - 触发规则: ${item}`)
+    for (const item of cause.positiveEvidence || []) lines.push(`  - 加分证据: ${item}`)
+    for (const item of cause.negativeEvidence || []) lines.push(`  - 扣分证据: ${item}`)
+    for (const item of cause.confidenceFactors || []) lines.push(`  - 置信度来源: ${item}`)
     for (const event of (cause.evidenceEvents || []).slice(0, 3)) {
       lines.push(`  - 事件证据: ${event.timestamp} ${event.title}: ${event.detail}`)
     }
@@ -52,6 +71,15 @@ export function buildMarkdownReport(data: ReplaySessionData): string {
   lines.push('', '## Top 问题', '')
   for (const issue of o.topIssues) {
     lines.push(`- ${issue.timestamp} ${issue.title}: ${issue.detail}`)
+  }
+  lines.push('', '## 建议优先查看时间点', '')
+  for (const focus of o.recommendedFocusTimes || []) {
+    lines.push(`- ${focus.timestamp} [${focus.level}] ${focus.title}: ${focus.reason}`)
+  }
+  lines.push('', '## 人工书签', '')
+  if (!(extras.bookmarks || []).length) lines.push('- 暂无人工书签。')
+  for (const bookmark of extras.bookmarks || []) {
+    lines.push(`- ${bookmark.timestamp} ${bookmark.title}: ${bookmark.note || '-'}`)
   }
   lines.push('', '## 关键时间线摘要', '')
   for (const event of data.events.filter((it) => it.level === 'error' || it.level === 'warning').slice(0, 50)) {
@@ -93,6 +121,8 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     topIssues: data.overview.topIssues,
     mapMatch: data.overview.mapMatch,
     rootCauses: data.overview.rootCauses,
+    parseStats: data.overview.parseStats,
+    recommendedFocusTimes: data.overview.recommendedFocusTimes,
     evidenceSnippets: data.overview.rootCauses.map((cause) => ({
       id: cause.id,
       title: cause.title,

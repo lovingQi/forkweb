@@ -11,7 +11,9 @@
     "replay:dev": "tsx replay-server/src/index.ts",
     "replay:dev:all": "node scripts/start-replay-dev.mjs",
     "replay:build": "tsc -p replay-server/tsconfig.json",
-    "replay:start": "node replay-server/dist/index.js"
+    "replay:start": "node replay-server/dist/index.js",
+    "replay:verify:samples": "tsx replay-server/scripts/verify-samples.ts",
+    "replay:collect": "node scripts/collect-replay-case.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

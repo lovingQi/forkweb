@@ -1,4 +1,5 @@
 import type { ErrorCodeDefinition, ErrorOccurrence, ErrorOccurrenceKind, ParsedLogLine } from '../types'
+import { enrichDictionarySource } from '../core/errorDictionarySources'
 
 const DEF_RE = /error_name,error_str=(ERROR\d{4}),(\{.*\})/
 const CODE_RE = /(ERROR\d{4})/g
@@ -9,20 +10,22 @@ export function parseErrorDefinition(line: ParsedLogLine): ErrorCodeDefinition |
   try {
     const raw = JSON.parse(m[2])
     return {
-      code: m[1],
-      description: stringOrUndefined(raw.error_description),
-      screenText: stringOrUndefined(raw.error_to_screen),
-      level: numberOrUndefined(raw.error_level),
-      toRms: boolOrUndefined(raw.to_rms),
-      toScreen: boolOrUndefined(raw.to_screen),
-      toWarn: boolOrUndefined(raw.to_warn),
-      source: 'log',
-      dictionaryConfidence: 1,
-      raw,
-      firstLine: line
+      ...enrichDictionarySource({
+        code: m[1],
+        description: stringOrUndefined(raw.error_description),
+        screenText: stringOrUndefined(raw.error_to_screen),
+        level: numberOrUndefined(raw.error_level),
+        toRms: boolOrUndefined(raw.to_rms),
+        toScreen: boolOrUndefined(raw.to_screen),
+        toWarn: boolOrUndefined(raw.to_warn),
+        source: 'log',
+        dictionaryConfidence: 1,
+        raw,
+        firstLine: line
+      }, 'log_definition', '日志中包含完整 error_name,error_str 定义')
     }
   } catch {
-    return { code: m[1], source: 'log', dictionaryConfidence: 0.6, firstLine: line }
+    return enrichDictionarySource({ code: m[1], source: 'log', dictionaryConfidence: 0.6, firstLine: line }, 'log_definition', '日志定义存在但 JSON 解析失败')
   }
 }
 

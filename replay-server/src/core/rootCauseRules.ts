@@ -40,7 +40,11 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         severity: ctx.mapMatch.confidence < 0.8 ? 'warning' : 'info',
         evidenceEvents: configEvents,
         evidenceLines: mapLines,
-        suggestion: '确认现场地图文件是否与日志一致，并优先处理启动阶段参数缺失或错误码配置提醒。'
+        suggestion: '确认现场地图文件是否与日志一致，并优先处理启动阶段参数缺失或错误码配置提醒。',
+        triggeredRules: ['map-config'],
+        positiveEvidence: [`地图匹配置信度 ${Math.round(ctx.mapMatch.confidence * 100)}%`, `配置/地图相关事件 ${configEvents.length} 个`],
+        negativeEvidence: ctx.mapMatch.confidence >= 0.8 ? ['地图匹配置信度较高'] : [],
+        confidenceFactors: ['地图匹配置信度', '配置类事件数量', '地图/参数日志数量']
       }
     }
   },
@@ -58,7 +62,11 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         severity: 'warning',
         evidenceEvents: locEvents,
         evidenceLines: lowScoreFrames.map((frame) => frame.rawLine),
-        suggestion: '检查地图匹配、激光数据、定位分变化，以及异常前后车辆是否进入遮挡或反光区域。'
+        suggestion: '检查地图匹配、激光数据、定位分变化，以及异常前后车辆是否进入遮挡或反光区域。',
+        triggeredRules: ['localization'],
+        positiveEvidence: [`低定位分帧 ${lowScoreFrames.length} 个`, `定位异常事件 ${locEvents.length} 个`],
+        negativeEvidence: [],
+        confidenceFactors: ['低定位分帧数量', 'lost/定位事件数量']
       }
     }
   },
@@ -77,7 +85,11 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         severity: 'error',
         evidenceEvents: ctx.events.filter((event) => deviceErrors.some((err) => err.code === event.code)).slice(0, 10),
         evidenceLines: deviceErrors.map((it) => it.line),
-        suggestion: '优先检查里程计、IMU、激光等设备连接状态、驱动启动顺序和现场供电/网络。'
+        suggestion: '优先检查里程计、IMU、激光等设备连接状态、驱动启动顺序和现场供电/网络。',
+        triggeredRules: ['device-timeout'],
+        positiveEvidence: [`设备相关真实故障错误码 ${deviceErrors.length} 个`],
+        negativeEvidence: [],
+        confidenceFactors: ['ERROR05xx/ERROR06xx 真实故障', '错误码发生次数']
       }
     }
   },
@@ -96,7 +108,11 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         severity: 'error',
         evidenceEvents: safetyEvents,
         evidenceLines: [...safetyFrames.map((frame) => frame.rawLine), ...safetyLines].slice(0, 10),
-        suggestion: '检查急停、挡板、安全触边、避障输入和现场安全 PLC 状态。'
+        suggestion: '检查急停、挡板、安全触边、避障输入和现场安全 PLC 状态。',
+        triggeredRules: ['safety'],
+        positiveEvidence: [`安全事件 ${safetyEvents.length} 个`, `急停状态帧 ${safetyFrames.length} 个`],
+        negativeEvidence: [],
+        confidenceFactors: ['estop 状态', '安全链路日志', 'alarm 日志']
       }
     }
   },
@@ -118,7 +134,11 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         severity: 'warning',
         evidenceEvents: ctx.events.filter((event) => event.category === 'task').slice(0, 10),
         evidenceLines: taskLines,
-        suggestion: '从失败任务开始时间向前查看路径、货叉状态、定位分、错误码和未完成路径变化。'
+        suggestion: '从失败任务开始时间向前查看路径、货叉状态、定位分、错误码和未完成路径变化。',
+        triggeredRules: ['task-failure'],
+        positiveEvidence: [`失败候选任务 ${failedTasks.length} 个`, `任务失败相关日志 ${taskLines.length} 行`],
+        negativeEvidence: failedTasks.length === 0 ? ['未解析到明确失败任务段'] : [],
+        confidenceFactors: ['任务成功标记', '任务错误码', 'unfinished_path', '任务失败日志']
       }
     }
   }

@@ -633,3 +633,110 @@ REPLAY_PORT=18082 npm run replay:dev
 - 转交问题时优先导出诊断包，必要时同时附上 Markdown 报告。
 - 定期清理缓存中的旧诊断包，避免磁盘占用越来越大。
 - 车端部署前先在本机离线流程稳定使用，再评估车端权限、性能和安全边界。
+
+## 14. 样本验证和回归测试
+
+### 14.1 单样本验证
+
+用于验证当前默认日志和地图能否被完整解析：
+
+```bash
+cd /home/xbl/Desktop/learn/forkweb
+npx -y -p node@20 -c './node_modules/.bin/tsx replay-server/scripts/verify-sample.ts'
+```
+
+该脚本会验证：
+
+- 回放帧。
+- 地图匹配。
+- 错误码分类和结构化来源。
+- 根因解释字段。
+- 健康分、日志质量分、推荐关注时间。
+- Markdown/JSON 报告。
+- 诊断包导出和导入。
+- 缓存摘要。
+
+### 14.2 批量样本验证
+
+样本清单位置：
+
+```text
+replay-server/samples/manifest.example.json
+```
+
+运行：
+
+```bash
+cd /home/xbl/Desktop/learn/forkweb
+npx -y -p node@20 -c 'npm run replay:verify:samples'
+```
+
+也可以指定自己的 manifest：
+
+```bash
+npx -y -p node@20 -c './node_modules/.bin/tsx replay-server/scripts/verify-samples.ts /path/to/manifest.json'
+```
+
+建议把真实现场样本逐步补进 manifest，形成回归测试集。
+
+## 15. 一键采集脚本
+
+本轮新增采集命令：
+
+```bash
+cd /home/xbl/Desktop/learn/forkweb
+npm run replay:collect -- --logDir /path/to/logs --mapDir /path/to/maps --out /tmp/replay-case
+```
+
+常用参数：
+
+- `--logDir`：必填，日志目录。
+- `--mapDir`：可选，地图目录。
+- `--mapFile`：可选，优先写入 manifest 的地图文件名。
+- `--out`：可选，输出目录，不填会在当前目录生成 `replay-case-时间戳`。
+- `--robotName`：可选，车辆名。
+- `--site`：可选，现场名。
+- `--testRound`：可选，测试轮次。
+- `--startMs` / `--endMs`：可选，记录问题时间范围。
+
+脚本会生成：
+
+- 标准目录。
+- `diagnostic-package.json`。
+- 可由 `/replay` 页面导入的 zip 包。
+
+当前采集脚本只做文件收集和 manifest 生成，不做日志内容裁剪。需要瘦身时，建议先把无关日志移出目录。
+
+## 16. 新增缓存分类
+
+缓存版本已升级，新增索引分类：
+
+```text
+replay-server/.cache/indexes
+```
+
+当前缓存分类包括：
+
+- 会话缓存。
+- 日志索引缓存。
+- 导出诊断包。
+- 导入诊断包。
+- 根因反馈。
+- 其他缓存。
+
+缓存结构变化时旧缓存会自动失效。现场如遇到旧数据残留，优先在页面点击“重新解析”，必要时再清理对应缓存分类。
+
+## 17. 构建验证命令
+
+完整验证建议按顺序执行：
+
+```bash
+cd /home/xbl/Desktop/learn/forkweb
+npx -y -p node@20 -c 'npm run typecheck'
+npx -y -p node@20 -c 'npm run build'
+npx -y -p node@20 -c 'npm run replay:build'
+npx -y -p node@20 -c './node_modules/.bin/tsx replay-server/scripts/verify-sample.ts'
+npx -y -p node@20 -c 'npm run replay:verify:samples'
+```
+
+如果只是改前端页面，可以先运行 `typecheck` 和 `build`。如果改 replay-server，必须运行 `replay:build` 和至少一个样本验证。

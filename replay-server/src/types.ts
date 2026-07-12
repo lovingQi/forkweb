@@ -1,6 +1,7 @@
 export type LogLevel = 'D' | 'I' | 'W' | 'E' | 'UNKNOWN'
 export type ErrorOccurrenceKind = 'real_fault' | 'config_notice' | 'definition' | 'unknown'
 export type ReplayMode = 'realtime' | 'frame_compact'
+export type ErrorDictionarySourceKind = 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
 
 export interface ParsedLogLine {
   file: string
@@ -51,6 +52,10 @@ export interface ErrorCodeDefinition {
   toScreen?: boolean
   toWarn?: boolean
   source?: 'log' | 'source' | 'unknown'
+  sourceKind?: ErrorDictionarySourceKind
+  sourceLabel?: string
+  sourcePriority?: number
+  confidenceReason?: string
   sourceFile?: string
   sourceLine?: number
   dictionaryConfidence?: number
@@ -140,6 +145,27 @@ export interface RootCauseCandidate {
   evidenceEvents: TimelineEvent[]
   evidenceLines: ParsedLogLine[]
   suggestion: string
+  triggeredRules?: string[]
+  positiveEvidence?: string[]
+  negativeEvidence?: string[]
+  confidenceFactors?: string[]
+}
+
+export interface RecommendedFocusTime {
+  timeMs: number
+  timestamp: string
+  title: string
+  reason: string
+  level: 'info' | 'warning' | 'error'
+}
+
+export interface ParseStats {
+  loadMs: number
+  parseMs: number
+  mapLoadMs: number
+  totalMs: number
+  cacheHit: boolean
+  source: string
 }
 
 export interface OverviewSummary {
@@ -173,6 +199,32 @@ export interface OverviewSummary {
   mapMatch: MapMatchInfo
   rootCauses: RootCauseCandidate[]
   dataWarnings: string[]
+  healthScore: number
+  logQualityScore: number
+  recommendedFocusTimes: RecommendedFocusTime[]
+  parseStats: ParseStats
+}
+
+export interface ReplayBookmark {
+  id: string
+  timeMs: number
+  timestamp: string
+  title: string
+  note?: string
+  eventId?: string
+  level?: 'info' | 'warning' | 'error'
+  createdAt: string
+}
+
+export interface ReplayCaseMeta {
+  site?: string
+  robotName?: string
+  operator?: string
+  testRound?: string
+  confirmedRootCause?: string
+  status?: 'pending' | 'reproduced' | 'located' | 'fixed' | 'closed'
+  note?: string
+  updatedAt?: string
 }
 
 export interface ErrorCodeSummary {
@@ -203,6 +255,8 @@ export interface ReplaySessionData {
   tasks: TaskSegment[]
   foldedLogs: FoldedLogGroup[]
   rawLines: ParsedLogLine[]
+  bookmarks?: ReplayBookmark[]
+  caseMeta?: ReplayCaseMeta
 }
 
 export interface ReplayControlState {
@@ -211,4 +265,8 @@ export interface ReplayControlState {
   currentMs: number
   currentFrameIndex: number
   mode: ReplayMode
+  loopEnabled?: boolean
+  loopStartMs?: number
+  loopEndMs?: number
+  autoPauseOnIssue?: boolean
 }

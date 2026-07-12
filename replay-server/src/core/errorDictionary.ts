@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import type { ErrorCodeDefinition } from '../types'
+import { enrichDictionarySource } from './errorDictionarySources'
 
 const CODE_RE = /ERROR\d{4}/g
 const DEFAULT_SOURCE_DIR = '/home/xbl/Desktop/jarvis-fork'
@@ -27,7 +28,7 @@ export async function loadSourceErrorDictionary(sourceDir = DEFAULT_SOURCE_DIR):
         const code = match[0]
         if (result.has(code)) continue
         const context = extractContext(lines, index)
-        result.set(code, {
+        result.set(code, enrichDictionarySource({
           code,
           description: guessDescription(context, code),
           source: 'source',
@@ -35,7 +36,7 @@ export async function loadSourceErrorDictionary(sourceDir = DEFAULT_SOURCE_DIR):
           sourceLine: index + 1,
           dictionaryConfidence: context.includes('error_description') ? 0.8 : 0.45,
           raw: { context }
-        })
+        }, context.includes('error_description') ? 'source_config' : 'source_scan', context.includes('error_description') ? '源码上下文包含 error_description' : '源码扫描到 ERRORxxxx'))
       }
     }
   }

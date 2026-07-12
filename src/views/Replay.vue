@@ -16,19 +16,30 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="replay.loading" @click="load">加载诊断</el-button>
+          <el-button :loading="replay.loading" @click="loadAsync">异步加载</el-button>
           <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('md')">Markdown</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
           <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
+          <el-button :disabled="!replay.loaded" @click="openCaseMetaDialog">人工结论</el-button>
+          <el-button @click="openPackageCompareDialog">诊断包对比</el-button>
           <el-button @click="triggerPackageImport">导入诊断包</el-button>
           <el-button :disabled="!packagePath" @click="importPackagePath">路径导入</el-button>
           <el-button @click="openAliasManager">地图别名</el-button>
           <el-button @click="openCacheDialog">缓存 {{ cacheText }}</el-button>
           <el-button type="warning" plain @click="clearCache">清理缓存</el-button>
           <input ref="packageInput" class="hidden-input" type="file" accept=".zip" @change="onPackageSelected" />
+          <input ref="compareLeftInput" class="hidden-input" type="file" accept=".json" @change="onCompareManifestSelected($event, 'left')" />
+          <input ref="compareRightInput" class="hidden-input" type="file" accept=".json" @change="onCompareManifestSelected($event, 'right')" />
           <input ref="aliasInput" class="hidden-input" type="file" accept=".json" @change="onAliasFileSelected" />
         </el-form-item>
       </el-form>
+      <el-progress
+        v-if="replay.sessionJob && replay.sessionJob.status !== 'done'"
+        :percentage="replay.sessionJob.progress || 0"
+        :status="replay.sessionJob.status === 'error' ? 'exception' : undefined"
+        :format="() => `${replay.sessionJob.stage || ''} ${replay.sessionJob.progress || 0}%`"
+      />
     </el-card>
 
     <el-row :gutter="12" class="overview-row">
@@ -45,6 +56,8 @@
         <span>车辆：{{ replay.overview?.robotName || '-' }}</span>
         <span>地图：{{ replay.overview?.mapName || '-' }}</span>
         <span>分支：{{ replay.overview?.branch || '-' }}</span>
+        <span>健康分：{{ scoreText(replay.overview?.healthScore) }}</span>
+        <span>日志质量：{{ scoreText(replay.overview?.logQualityScore) }}</span>
       </div>
       <div class="tag-line">
         <el-tag :type="replay.overview?.hasMap ? 'success' : 'danger'">地图{{ replay.overview?.hasMap ? '已加载' : '缺失' }}</el-tag>
@@ -55,6 +68,22 @@
         <el-tag :type="(replay.overview?.dataWarnings || []).length ? 'warning' : 'success'">数据提醒 {{ (replay.overview?.dataWarnings || []).length }}</el-tag>
         <el-tag type="info">[E] {{ replay.overview?.errorLogCount || 0 }}</el-tag>
         <el-tag type="info">[W] {{ replay.overview?.warningLogCount || 0 }}</el-tag>
+        <el-tag type="info">解析 {{ replay.overview?.parseStats?.totalMs || 0 }}ms</el-tag>
+        <el-tag :type="replay.overview?.parseStats?.cacheHit ? 'success' : 'info'">
+          {{ replay.overview?.parseStats?.cacheHit ? '缓存命中' : '直接解析' }}
+        </el-tag>
+      </div>
+      <div v-if="recommendedFocusTimes.length" class="focus-line">
+        <span>建议关注：</span>
+        <el-button
+          v-for="item in recommendedFocusTimes"
+          :key="`${item.timeMs}-${item.title}`"
+          size="small"
+          link
+          @click="jump(item.timeMs)"
+        >
+          {{ item.timestamp?.slice(11) || '-' }} {{ item.title }}
+        </el-button>
       </div>
       <div v-if="(replay.overview?.dataWarnings || []).length" class="warning-line">
         <span v-for="item in replay.overview.dataWarnings" :key="item">{{ item }}</span>
@@ -79,8 +108,28 @@
             <div>{{ cause.suggestion }}</div>
             <div class="cause-actions">
               <el-button size="small" @click="jumpFirstEvidence(cause)">跳转证据</el-button>
+              <el-button size="small" plain @click="copyCauseEvidence(cause)">复制证据包</el-button>
+              <el-button size="small" plain @click="openBookmarkDialog(cause)">加书签</el-button>
               <el-button size="small" type="success" plain @click="sendCauseFeedback(cause.id, 'useful')">有用</el-button>
               <el-button size="small" type="warning" plain @click="sendCauseFeedback(cause.id, 'false_positive')">误报</el-button>
+            </div>
+            <div class="cause-grid">
+              <div>
+                <strong>触发规则</strong>
+                <p>{{ (cause.triggeredRules || []).join('、') || '-' }}</p>
+              </div>
+              <div>
+                <strong>正向证据</strong>
+                <p>{{ (cause.positiveEvidence || []).join('；') || '-' }}</p>
+              </div>
+              <div>
+                <strong>反向证据</strong>
+                <p>{{ (cause.negativeEvidence || []).join('；') || '-' }}</p>
+              </div>
+              <div>
+                <strong>置信因素</strong>
+                <p>{{ (cause.confidenceFactors || []).join('；') || '-' }}</p>
+              </div>
             </div>
             <pre>{{ causeEvidenceText(cause) }}</pre>
           </div>
@@ -98,6 +147,8 @@
                 <div class="play-tools">
                   <el-button size="small" :disabled="!replay.loaded" @click="onPlay">播放</el-button>
                   <el-button size="small" :disabled="!replay.loaded" @click="onPause">暂停</el-button>
+                  <el-button size="small" :disabled="!replay.loaded" @click="jumpPrevIssue">上一问题</el-button>
+                  <el-button size="small" :disabled="!replay.loaded" @click="jumpNextIssue">下一问题</el-button>
                   <el-segmented
                     v-model="replay.mode"
                     size="small"
@@ -112,6 +163,11 @@
                     <el-option :value="5" label="5x" />
                   </el-select>
                   <el-checkbox v-model="smoothTrajectory" size="small">平滑轨迹</el-checkbox>
+                  <el-checkbox v-model="replay.loopEnabled" size="small" @change="replay.updateControlOptions">循环</el-checkbox>
+                  <el-checkbox v-model="replay.autoPauseOnIssue" size="small" @change="replay.updateControlOptions">遇问题暂停</el-checkbox>
+                  <el-button size="small" :disabled="!replay.loaded" @click="setLoopStart">设起点</el-button>
+                  <el-button size="small" :disabled="!replay.loaded" @click="setLoopEnd">设终点</el-button>
+                  <el-button size="small" :disabled="!replay.loaded" @click="captureSnapshot">截图</el-button>
                 </div>
               </div>
               <div class="progress-row">
@@ -185,6 +241,27 @@
               <div class="event-detail">{{ event.detail }}</div>
             </el-timeline-item>
           </el-timeline>
+          <div class="side-section">
+            <div class="side-section-title">
+              <span>人工书签</span>
+              <el-button size="small" link :disabled="!replay.loaded" @click="openBookmarkDialog()">添加</el-button>
+            </div>
+            <el-empty v-if="replay.bookmarks.length === 0" description="暂无书签" :image-size="48" />
+            <div v-else class="bookmark-list">
+              <div v-for="bookmark in replay.bookmarks.slice(0, 8)" :key="bookmark.id" class="bookmark-item">
+                <button class="link-btn" @click="jump(bookmark.timeMs)">{{ bookmark.timestamp?.slice(11) || '-' }} {{ bookmark.title }}</button>
+                <el-button size="small" type="danger" link @click="deleteBookmark(bookmark.id)">删除</el-button>
+                <div v-if="bookmark.note" class="event-detail">{{ bookmark.note }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-if="caseMetaText" class="side-section">
+            <div class="side-section-title">
+              <span>人工结论</span>
+              <el-button size="small" link @click="openCaseMetaDialog">编辑</el-button>
+            </div>
+            <div class="case-meta-text">{{ caseMetaText }}</div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -238,6 +315,7 @@
             <el-checkbox v-model="replay.eventQuery.dedupe" size="small" @change="refreshEvents">合并重复</el-checkbox>
             <el-button size="small" @click="refreshEvents">筛选</el-button>
             <el-tag v-if="selectedTaskId" closable @close="clearTaskSelection">任务 {{ selectedTaskId }}</el-tag>
+            <el-tag type="info">共 {{ replay.eventTotal }} 条</el-tag>
           </div>
           <el-table :data="filteredEvents" height="320" size="small" @row-click="selectTimelineEvent">
             <el-table-column type="expand">
@@ -255,7 +333,20 @@
             </el-table-column>
             <el-table-column prop="title" label="标题" width="180" />
             <el-table-column prop="detail" label="详情" show-overflow-tooltip />
+            <el-table-column label="操作" width="150">
+              <template #default="{ row }">
+                <el-button size="small" link @click.stop="openBookmarkDialog(row)">书签</el-button>
+                <el-button size="small" link @click.stop="copyEventEvidence(row)">复制证据</el-button>
+              </template>
+            </el-table-column>
           </el-table>
+          <el-pagination
+            class="pager"
+            layout="prev, pager, next, total"
+            :total="replay.eventTotal"
+            :page-size="replay.eventQuery.limit"
+            @current-change="replay.changeEventPage"
+          />
         </el-tab-pane>
         <el-tab-pane label="错误码中心" name="errors">
           <div class="filter-row">
@@ -269,6 +360,7 @@
               <el-option value="unknown" label="未知" />
             </el-select>
             <el-button size="small" @click="refreshErrorCodes">筛选</el-button>
+            <el-tag type="info">发生点 {{ replay.errorOccurrenceTotal }}</el-tag>
           </div>
           <el-table :data="replay.errorSummaries" height="160" size="small" @row-click="selectErrorSummary">
             <el-table-column prop="code" label="错误码" width="110" />
@@ -277,10 +369,13 @@
             <el-table-column prop="configNoticeCount" label="配置" width="70" />
             <el-table-column prop="level" label="等级" width="70" />
             <el-table-column label="来源" width="90">
-              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.source || '-' }}</template>
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.sourceLabel || row.occurrences?.[0]?.definition?.source || '-' }}</template>
             </el-table-column>
             <el-table-column label="置信度" width="80">
               <template #default="{ row }">{{ confidenceText(row.occurrences?.[0]?.definition?.dictionaryConfidence) }}</template>
+            </el-table-column>
+            <el-table-column label="来源说明" width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.confidenceReason || '-' }}</template>
             </el-table-column>
             <el-table-column prop="firstTime" label="首次" width="180" />
             <el-table-column prop="lastTime" label="末次" width="180" />
@@ -296,9 +391,17 @@
             <el-table-column label="操作" width="130">
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="showErrorLogContext(row)">查看日志上下文</el-button>
+                <el-button size="small" link @click.stop="openBookmarkDialog(row)">书签</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            class="pager"
+            layout="prev, pager, next, total"
+            :total="replay.errorOccurrenceTotal"
+            :page-size="replay.errorQuery.occurrenceLimit"
+            @current-change="replay.changeErrorOccurrencePage"
+          />
         </el-tab-pane>
         <el-tab-pane label="任务视角" name="tasks">
           <el-table :data="replay.tasks" height="320" size="small" @row-click="selectTask">
@@ -331,6 +434,7 @@
             </el-select>
             <el-input v-model="replay.logFilter.module" placeholder="模块" class="filter-item" />
             <el-input v-model="replay.logFilter.keyword" placeholder="关键词" class="filter-item" />
+            <el-input v-model="replay.logFilter.keywords" placeholder="多关键词逗号分隔" class="filter-item wide-filter" />
             <el-input v-model="replay.logFilter.errorCode" placeholder="错误码" class="filter-item" />
             <el-input v-model="replay.logFilter.taskId" placeholder="任务 ID" class="filter-item" />
             <el-input-number
@@ -362,6 +466,14 @@
               placeholder="上下文行"
               class="number-filter"
             />
+            <el-input-number
+              v-model="replay.logFilter.aroundSeconds"
+              :min="0"
+              :max="3600"
+              :controls="false"
+              placeholder="上下文秒"
+              class="number-filter"
+            />
             <el-select v-model="replay.logFilter.noise" clearable placeholder="噪声" class="filter-item">
               <el-option value="true" label="只看噪声" />
               <el-option value="false" label="排除噪声" />
@@ -372,18 +484,24 @@
             <el-button @click="replay.refreshLogs">过滤</el-button>
             <el-button @click="loadCurrentTimeLogs">当前时间上下文</el-button>
             <el-button :disabled="!replay.logCopyText" @click="copyLogContext">复制上下文</el-button>
+            <el-button :disabled="!replay.logCopyText" @click="copyCurrentEvidencePack">复制证据包</el-button>
           </div>
           <div class="fold-row">
             <el-tag v-for="fold in replay.folded" :key="fold.id" type="info" class="fold-tag" @click="openFoldDetail(fold)">
               {{ fold.label }} x{{ fold.count }}
             </el-tag>
             <el-tag v-if="highlightedLogKey" type="warning">已高亮关联日志</el-tag>
+            <el-tag v-for="keyword in replay.logKeywordMatches" :key="keyword" type="success">关键词 {{ keyword }}</el-tag>
           </div>
           <el-table :data="replay.logs" height="260" size="small" :row-class-name="logRowClassName">
             <el-table-column prop="timestamp" label="时间" width="180" />
             <el-table-column prop="level" label="级别" width="70" />
             <el-table-column prop="module" label="模块" width="130" />
-            <el-table-column prop="message" label="内容" show-overflow-tooltip />
+            <el-table-column label="内容" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span v-html="highlightLogMessage(row.message || row.raw || '')"></span>
+              </template>
+            </el-table-column>
           </el-table>
           <el-pagination
             class="pager"
@@ -452,6 +570,100 @@
       </el-table>
     </el-dialog>
 
+    <el-dialog v-model="bookmarkDialogVisible" title="添加书签" width="520px">
+      <el-form label-width="80px">
+        <el-form-item label="时间">
+          <el-input v-model="bookmarkForm.timestamp" disabled />
+        </el-form-item>
+        <el-form-item label="标题">
+          <el-input v-model="bookmarkForm.title" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="bookmarkForm.note" type="textarea" :rows="4" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="bookmarkDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveBookmark">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="caseMetaDialogVisible" title="人工结论" width="720px">
+      <el-form label-width="92px">
+        <el-form-item label="现场">
+          <el-input v-model="caseMetaForm.site" />
+        </el-form-item>
+        <el-form-item label="车辆">
+          <el-input v-model="caseMetaForm.robotName" />
+        </el-form-item>
+        <el-form-item label="测试人员">
+          <el-input v-model="caseMetaForm.operator" />
+        </el-form-item>
+        <el-form-item label="测试轮次">
+          <el-input v-model="caseMetaForm.testRound" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="caseMetaForm.status" clearable>
+            <el-option value="pending" label="待确认" />
+            <el-option value="reproduced" label="已复现" />
+            <el-option value="located" label="已定位" />
+            <el-option value="fixed" label="已修复" />
+            <el-option value="closed" label="已关闭" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="确认根因">
+          <el-input v-model="caseMetaForm.confirmedRootCause" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="caseMetaForm.note" type="textarea" :rows="4" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="caseMetaDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveCaseMeta">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="packageExportDialogVisible" title="导出诊断包" width="560px">
+      <el-form label-width="112px">
+        <el-form-item label="开始时间戳">
+          <el-input-number v-model="packageExportForm.startMs" :min="0" :controls="false" />
+        </el-form-item>
+        <el-form-item label="结束时间戳">
+          <el-input-number v-model="packageExportForm.endMs" :min="0" :controls="false" />
+        </el-form-item>
+        <el-form-item label="包含内容">
+          <el-checkbox v-model="packageExportForm.includeMap">地图</el-checkbox>
+          <el-checkbox v-model="packageExportForm.includeReports">报告</el-checkbox>
+          <el-checkbox v-model="packageExportForm.includeAliases">地图别名</el-checkbox>
+          <el-checkbox v-model="packageExportForm.includeFeedback">根因反馈</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <el-alert
+        v-if="replay.lastExportedPackage"
+        type="success"
+        :closable="false"
+        :title="`已生成：${replay.lastExportedPackage.file}`"
+      />
+      <template #footer>
+        <el-button @click="downloadDefaultPackage">直接下载完整包</el-button>
+        <el-button type="primary" @click="exportPackageWithOptions">生成选项包</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="packageCompareDialogVisible" title="诊断包 Manifest 对比" width="760px">
+      <div class="dialog-toolbar">
+        <el-button size="small" @click="compareLeftInput?.click()">选择左侧 manifest</el-button>
+        <el-button size="small" @click="compareRightInput?.click()">选择右侧 manifest</el-button>
+        <el-button size="small" type="primary" :disabled="!compareLeftManifest || !compareRightManifest" @click="compareManifests">开始对比</el-button>
+      </div>
+      <el-descriptions v-if="replay.packageComparison" :column="2" size="small" border>
+        <el-descriptions-item v-for="(value, key) in replay.packageComparison" :key="key" :label="String(key)">
+          {{ JSON.stringify(value) }}
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
     <el-dialog v-model="packageInfoVisible" title="诊断包信息" width="720px">
       <el-descriptions v-if="replay.importedPackage" :column="2" size="small" border>
         <el-descriptions-item label="包 ID">{{ replay.importedPackage.id }}</el-descriptions-item>
@@ -518,10 +730,28 @@ const foldDialogVisible = ref(false)
 const aliasDialogVisible = ref(false)
 const packageInfoVisible = ref(false)
 const cacheDialogVisible = ref(false)
+const bookmarkDialogVisible = ref(false)
+const caseMetaDialogVisible = ref(false)
+const packageExportDialogVisible = ref(false)
+const packageCompareDialogVisible = ref(false)
 const aliasImportOverwrite = ref(false)
 const smoothTrajectory = ref(false)
 const packageInput = ref<HTMLInputElement | null>(null)
 const aliasInput = ref<HTMLInputElement | null>(null)
+const compareLeftInput = ref<HTMLInputElement | null>(null)
+const compareRightInput = ref<HTMLInputElement | null>(null)
+const bookmarkForm = ref<any>({ timeMs: 0, timestamp: '', title: '', note: '', eventId: '', level: 'info' })
+const caseMetaForm = ref<any>({})
+const packageExportForm = ref({
+  startMs: 0,
+  endMs: 0,
+  includeMap: true,
+  includeReports: true,
+  includeAliases: true,
+  includeFeedback: true
+})
+const compareLeftManifest = ref<any>(null)
+const compareRightManifest = ref<any>(null)
 let progressTimer = 0
 
 const overviewItems = computed(() => {
@@ -538,6 +768,7 @@ const overviewItems = computed(() => {
 
 const topIssues = computed(() => (replay.overview?.topIssues || []).slice(0, 5))
 const rootCauses = computed(() => (replay.overview?.rootCauses || []).slice(0, 3))
+const recommendedFocusTimes = computed(() => (replay.overview?.recommendedFocusTimes || []).slice(0, 5))
 const cacheText = computed(() => {
   const cache = replay.cacheSummary
   if (!cache) return '-'
@@ -588,9 +819,11 @@ const trajectory = computed(() =>
 )
 const eventTypes = computed(() => Array.from(new Set(replay.events.map((it) => it.category || it.type).filter(Boolean))))
 const progressMarkerResult = computed(() =>
-  aggregateMarkers(replay.events
-    .filter((event) => event.level === 'error' || event.type === 'task' || ['lost', 'estop', 'loc_score'].includes(event.category))
-  )
+  replay.eventMarkers.length
+    ? aggregateServerMarkers(replay.eventMarkers)
+    : aggregateMarkers(replay.events
+      .filter((event) => event.level === 'error' || event.type === 'task' || ['lost', 'estop', 'loc_score'].includes(event.category))
+    )
 )
 const progressMarkers = computed(() => progressMarkerResult.value.markers)
 const hiddenMarkerCount = computed(() => progressMarkerResult.value.hiddenCount)
@@ -622,11 +855,34 @@ const selectedErrorOccurrences = computed(() => {
     .filter((it) => !replay.selectedErrorCode || it.code === replay.selectedErrorCode)
     .filter((it) => !selectedTaskId.value || it.taskId === selectedTaskId.value)
 })
+const caseMetaText = computed(() => {
+  const meta = replay.caseMeta || {}
+  const parts = [
+    meta.status ? `状态：${caseStatusLabel(meta.status)}` : '',
+    meta.confirmedRootCause ? `根因：${meta.confirmedRootCause}` : '',
+    meta.note ? `备注：${meta.note}` : ''
+  ].filter(Boolean)
+  return parts.join('；')
+})
 
 async function load(forceReload = false) {
   try {
     robot.disconnectWs()
     await replay.loadSession(forceReload)
+    robot.map = await getReplayMap()
+    robot.connectWs('replay')
+    syncProgressValue()
+    startProgressTimer()
+    ElMessage.success('日志诊断已加载')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function loadAsync(forceReload = false) {
+  try {
+    robot.disconnectWs()
+    await replay.loadSessionAsync(forceReload)
     robot.map = await getReplayMap()
     robot.connectWs('replay')
     syncProgressValue()
@@ -729,9 +985,21 @@ async function sendCauseFeedback(id: string, verdict: 'useful' | 'false_positive
 }
 
 function causeEvidenceText(cause: any) {
+  const meta = [
+    `结论：${cause.title}`,
+    `建议：${cause.suggestion || '-'}`,
+    `触发规则：${(cause.triggeredRules || []).join('、') || '-'}`,
+    `正向证据：${(cause.positiveEvidence || []).join('；') || '-'}`,
+    `反向证据：${(cause.negativeEvidence || []).join('；') || '-'}`,
+    `置信因素：${(cause.confidenceFactors || []).join('；') || '-'}`
+  ]
   const events = (cause.evidenceEvents || []).slice(0, 3).map((event: any) => `${event.timestamp} ${event.title}: ${event.detail}`)
   const lines = (cause.evidenceLines || []).slice(0, 3).map((line: any) => line.raw)
-  return [...events, ...lines].join('\n')
+  return [...meta, ...events, ...lines].join('\n')
+}
+
+async function copyCauseEvidence(cause: any) {
+  await copyText(causeEvidenceText(cause), '根因证据已复制')
 }
 
 function jump(timeMs: number) {
@@ -740,6 +1008,7 @@ function jump(timeMs: number) {
 }
 
 async function refreshEvents() {
+  replay.eventQuery.offset = 0
   await replay.refreshEvents()
 }
 
@@ -784,6 +1053,7 @@ async function clearTaskSelection() {
 }
 
 async function refreshErrorCodes() {
+  replay.errorQuery.occurrenceOffset = 0
   await replay.refreshErrorCodes()
 }
 
@@ -856,7 +1126,22 @@ function openReport(kind: 'md' | 'json') {
 }
 
 function openPackageExport() {
+  packageExportForm.value.startMs = replay.startMs
+  packageExportForm.value.endMs = replay.endMs
+  packageExportDialogVisible.value = true
+}
+
+function downloadDefaultPackage() {
   window.open(replayPackageUrl(), '_blank')
+}
+
+async function exportPackageWithOptions() {
+  try {
+    const pkg = await replay.exportPackageWithOptions(packageExportForm.value)
+    ElMessage.success(`诊断包已生成：${pkg?.name || pkg?.file || ''}`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
 }
 
 function triggerPackageImport() {
@@ -937,6 +1222,24 @@ function aggregateMarkers(events: any[]) {
     }
   })
   const sorted = markers.sort((a, b) => a.timeMs - b.timeMs)
+  const visible = sorted.slice(0, 200)
+  return {
+    markers: visible,
+    hiddenCount: Math.max(0, sorted.length - visible.length)
+  }
+}
+
+function aggregateServerMarkers(markers: any[]) {
+  const sorted = markers
+    .map((marker, index) => ({
+      id: `server-marker-${index}-${marker.startMs}`,
+      timeMs: marker.startMs,
+      level: marker.level || 'info',
+      title: `${marker.title || '事件'}\n错误 ${marker.error || 0} / 警告 ${marker.warning || 0} / 任务 ${marker.task || 0}`,
+      left: `${markerPercent(marker.startMs)}%`,
+      count: (marker.error || 0) + (marker.warning || 0) + (marker.task || 0)
+    }))
+    .sort((a, b) => a.timeMs - b.timeMs)
   const visible = sorted.slice(0, 200)
   return {
     markers: visible,
@@ -1057,6 +1360,194 @@ function confidenceText(value: unknown) {
   return Number.isFinite(n) ? `${Math.round(n * 100)}%` : '-'
 }
 
+function scoreText(value: unknown) {
+  const n = Number(value)
+  return Number.isFinite(n) ? `${Math.round(n)}` : '-'
+}
+
+function caseStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: '待确认',
+    reproduced: '已复现',
+    located: '已定位',
+    fixed: '已修复',
+    closed: '已关闭'
+  }
+  return labels[status] || status || '-'
+}
+
+function openBookmarkDialog(source?: any) {
+  const timeMs = Number(source?.timeMs || source?.evidenceEvents?.[0]?.timeMs || source?.evidenceLines?.[0]?.timeMs || replay.currentMs || replay.startMs)
+  const title = source?.title || source?.code || '人工书签'
+  bookmarkForm.value = {
+    timeMs,
+    timestamp: source?.timestamp || new Date(timeMs).toISOString(),
+    title,
+    note: source?.detail || source?.suggestion || '',
+    eventId: source?.id || '',
+    level: source?.level || source?.severity || 'info'
+  }
+  bookmarkDialogVisible.value = true
+}
+
+async function saveBookmark() {
+  try {
+    await replay.addBookmark(bookmarkForm.value)
+    bookmarkDialogVisible.value = false
+    ElMessage.success('书签已保存')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function deleteBookmark(id: string) {
+  try {
+    await replay.deleteBookmark(id)
+    ElMessage.success('书签已删除')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function openCaseMetaDialog() {
+  caseMetaForm.value = { ...(replay.caseMeta || {}), robotName: replay.caseMeta?.robotName || replay.overview?.robotName || '' }
+  caseMetaDialogVisible.value = true
+}
+
+async function saveCaseMeta() {
+  try {
+    await replay.saveCaseMeta(caseMetaForm.value)
+    caseMetaDialogVisible.value = false
+    ElMessage.success('人工结论已保存')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function jumpPrevIssue() {
+  const issues = issueTimes()
+  const target = [...issues].reverse().find((time) => time < replay.currentMs - 1)
+  if (Number.isFinite(target)) jump(target as number)
+}
+
+function jumpNextIssue() {
+  const issues = issueTimes()
+  const target = issues.find((time) => time > replay.currentMs + 1)
+  if (Number.isFinite(target)) jump(target as number)
+}
+
+function issueTimes() {
+  return replay.events
+    .filter((event) => event.level === 'error' || ['lost', 'estop', 'loc_score', 'error_code'].includes(event.category || event.type))
+    .map((event) => Number(event.timeMs))
+    .filter((time) => Number.isFinite(time))
+    .sort((a, b) => a - b)
+}
+
+async function setLoopStart() {
+  replay.loopStartMs = replay.currentMs
+  if (replay.loopEndMs && replay.loopEndMs <= replay.loopStartMs) replay.loopEndMs = replay.endMs
+  await replay.updateControlOptions()
+  ElMessage.success('循环起点已设置')
+}
+
+async function setLoopEnd() {
+  replay.loopEndMs = replay.currentMs
+  if (replay.loopStartMs && replay.loopStartMs >= replay.loopEndMs) replay.loopStartMs = replay.startMs
+  await replay.updateControlOptions()
+  ElMessage.success('循环终点已设置')
+}
+
+async function captureSnapshot() {
+  const pack = [
+    `时间：${currentFrame.value?.timestamp || replay.currentMs}`,
+    `位置：${currentFrame.value ? `${currentFrame.value.x},${currentFrame.value.y},${currentFrame.value.theta}` : '-'}`,
+    `状态：${currentFrame.value?.status || '-'}`,
+    `任务：${currentFrame.value?.taskId || '-'}`,
+    `错误：${currentFrame.value?.errors || '-'}`
+  ].join('\n')
+  await copyText(pack, '当前回放快照已复制')
+}
+
+async function copyEventEvidence(row: any) {
+  await copyText(contextText(row) || `${row.timestamp} ${row.title}\n${row.detail || ''}`, '事件证据已复制')
+}
+
+async function copyCurrentEvidencePack() {
+  const pack = [
+    `当前时间：${currentFrame.value?.timestamp || replay.currentMs}`,
+    `任务：${currentFrame.value?.taskId || '-'}`,
+    `状态：${currentFrame.value?.status || '-'}`,
+    '',
+    replay.logCopyText || ''
+  ].join('\n')
+  await copyText(pack, '证据包已复制')
+}
+
+function openPackageCompareDialog() {
+  packageCompareDialogVisible.value = true
+}
+
+async function onCompareManifestSelected(event: Event, side: 'left' | 'right') {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const json = JSON.parse(await file.text())
+    if (side === 'left') compareLeftManifest.value = json
+    else compareRightManifest.value = json
+    ElMessage.success(`${side === 'left' ? '左侧' : '右侧'} manifest 已读取`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  } finally {
+    input.value = ''
+  }
+}
+
+async function compareManifests() {
+  try {
+    await replay.comparePackages(compareLeftManifest.value, compareRightManifest.value)
+    ElMessage.success('对比完成')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function highlightLogMessage(text: string) {
+  const keywords = [
+    replay.logFilter.keyword,
+    ...String(replay.logFilter.keywords || '').split(',')
+  ].map((it) => it.trim()).filter(Boolean)
+  let html = escapeHtml(text)
+  for (const keyword of keywords) {
+    const escaped = escapeRegExp(escapeHtml(keyword))
+    html = html.replace(new RegExp(escaped, 'g'), `<mark>${escapeHtml(keyword)}</mark>`)
+  }
+  return html
+}
+
+function escapeHtml(text: string) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function copyText(text: string, successMessage: string) {
+  try {
+    await navigator.clipboard.writeText(text || '')
+    ElMessage.success(successMessage)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
 function smoothFrames(frames: any[]) {
   if (frames.length < 3) return frames
   return frames.map((frame, index) => {
@@ -1124,6 +1615,15 @@ onBeforeUnmount(() => {
   color: #92400e;
   font-size: 12px;
 }
+.focus-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  color: #374151;
+  font-size: 12px;
+}
 .cause-title {
   margin-right: 8px;
   font-weight: 600;
@@ -1136,6 +1636,17 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
   margin: 8px 0;
+}
+.cause-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cause-grid p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  line-height: 1.5;
 }
 .cause-body pre {
   max-height: 96px;
@@ -1300,6 +1811,33 @@ onBeforeUnmount(() => {
   font-size: 12px;
   margin-top: 4px;
 }
+.side-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+.side-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bookmark-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bookmark-item {
+  font-size: 12px;
+}
+.case-meta-text {
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .current-box {
   margin-bottom: 12px;
 }
@@ -1324,6 +1862,9 @@ onBeforeUnmount(() => {
 .filter-item {
   width: 160px;
 }
+.wide-filter {
+  width: 210px;
+}
 .number-filter {
   width: 150px;
 }
@@ -1336,6 +1877,12 @@ onBeforeUnmount(() => {
 }
 :deep(.highlight-log-row) {
   --el-table-tr-bg-color: #fff7ed;
+}
+:deep(mark) {
+  padding: 0 2px;
+  border-radius: 2px;
+  background: #fef3c7;
+  color: #92400e;
 }
 .fold-tag {
   cursor: pointer;

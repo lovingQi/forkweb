@@ -1,0 +1,16 @@
+{
+  "samples": [
+    {
+      "name": "sample-current-desktop-log",
+      "logDir": "/home/xbl/Desktop",
+      "mapDir": "/home/xbl/Desktop/jarvis-fork/params/map",
+      "expect": {
+        "minFrames": 1,
+        "minErrors": 1,
+        "minErrorDefinitions": 1,
+        "rootCauseKeywords": ["地图", "配置"],
+        "mapDetected": "3.json"
+      }
+    }
+  ]
+}

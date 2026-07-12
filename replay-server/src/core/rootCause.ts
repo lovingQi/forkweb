@@ -15,7 +15,17 @@ function applyConfidence(candidate: RootCauseCandidate, weight: number): RootCau
   const evidenceBoost = Math.min(0.12, evidenceCount * 0.015)
   const timeBoost = candidate.evidenceEvents.length > 0 && candidate.evidenceLines.length > 0 ? 0.04 : 0
   const confidence = Math.max(0, Math.min(0.98, (candidate.confidence + evidenceBoost + timeBoost) * weight))
-  return { ...candidate, confidence }
+  return {
+    ...candidate,
+    confidence,
+    confidenceFactors: [
+      ...(candidate.confidenceFactors || []),
+      `规则权重 ${weight}`,
+      `证据数量 ${evidenceCount}`,
+      evidenceBoost ? `证据加成 ${Math.round(evidenceBoost * 100)}%` : '',
+      timeBoost ? '同时包含事件和日志证据' : ''
+    ].filter(Boolean)
+  }
 }
 
 function severityScore(severity: RootCauseCandidate['severity']): number {

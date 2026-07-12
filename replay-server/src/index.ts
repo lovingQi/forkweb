@@ -6,8 +6,11 @@ import os from 'os'
 import path from 'path'
 import { WebSocketServer } from 'ws'
 import { clearReplayCache, getCacheSummary } from './core/cache'
-import { exportDiagnosticPackage, importDiagnosticPackage } from './core/diagnosticPackage'
+import { exportDiagnosticPackage, importDiagnosticPackage, type DiagnosticPackageManifest } from './core/diagnosticPackage'
 import { isNoiseLine, noiseRuleId } from './core/noise'
+import { addBookmark, deleteBookmark, readBookmarks } from './core/bookmarks'
+import { readCaseMeta, writeCaseMeta } from './core/caseMeta'
+import { comparePackageManifests } from './core/packageCompare'
 import {
   deleteMapAlias,
   exportMapAliasesPayload,
@@ -16,9 +19,10 @@ import {
   readMapAliases,
   upsertMapAlias
 } from './core/mapAlias'
-import { buildJsonReport, buildMarkdownReport } from './core/report'
+import { buildJsonReport, buildMarkdownReportAsync } from './core/report'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
+import { createSessionJob, getSessionJob } from './core/sessionJobs'
 import { filterTimelineEvents } from './core/timeline'
 
 const app = express()
@@ -44,6 +48,25 @@ app.post('/api/replay/session', async (req, res) => {
   }
 })
 
+app.post('/api/replay/session/jobs', (req, res) => {
+  const job = createSessionJob(session, {
+    logDir: String(req.body.logDir || ''),
+    mapDir: req.body.mapDir ? String(req.body.mapDir) : undefined,
+    mapFile: req.body.mapFile ? String(req.body.mapFile) : undefined,
+    forceReload: !!req.body.forceReload
+  })
+  res.json({ succeed: true, job })
+})
+
+app.get('/api/replay/session/jobs/:id', (req, res) => {
+  const job = getSessionJob(req.params.id)
+  if (!job) {
+    res.status(404).json({ succeed: false, error: 'job not found' })
+    return
+  }
+  res.json({ succeed: true, job })
+})
+
 app.get('/api/replay/session', (_req, res) => {
   res.json({ overview: session.data.overview, control: session.control })
 })
@@ -59,6 +82,8 @@ app.get('/api/replay/events', (req, res) => {
     ? String(req.query.mode) as 'real_fault' | 'config_notice' | 'noise'
     : 'all'
   const sort = req.query.sort === 'severity' ? 'severity' : 'time'
+  const offset = Math.max(0, Number(req.query.offset || 0))
+  const limit = Math.min(Math.max(0, Number(req.query.limit || 0)), 5000)
   const events = filterTimelineEvents(session.data.events, {
     startMs,
     endMs,
@@ -68,7 +93,28 @@ app.get('/api/replay/events', (req, res) => {
     sort,
     dedupe: req.query.dedupe === 'true'
   })
-  res.json({ events })
+  const page = limit ? events.slice(offset, offset + limit) : events
+  res.json({ events: page, total: events.length, offset, limit: limit || events.length })
+})
+
+app.get('/api/replay/event-markers', (req, res) => {
+  const startMs = Number(req.query.startMs || session.data.overview.startMs || 0)
+  const endMs = Number(req.query.endMs || session.data.overview.endMs || 0)
+  const bucketMs = Math.max(1000, Number(req.query.bucketMs || 60_000))
+  const buckets = new Map<number, { startMs: number; endMs: number; error: number; warning: number; task: number; level: string; title: string }>()
+  for (const event of session.data.events) {
+    if (event.timeMs < startMs || event.timeMs > endMs) continue
+    const bucket = Math.floor((event.timeMs - startMs) / bucketMs)
+    const item = buckets.get(bucket) || { startMs: startMs + bucket * bucketMs, endMs: startMs + (bucket + 1) * bucketMs, error: 0, warning: 0, task: 0, level: 'info', title: '' }
+    if (event.level === 'error') item.error += 1
+    if (event.level === 'warning') item.warning += 1
+    if (event.category === 'task' || event.type === 'task') item.task += 1
+    if (event.level === 'error') item.level = 'error'
+    else if (event.level === 'warning' && item.level !== 'error') item.level = 'warning'
+    if (!item.title) item.title = event.title
+    buckets.set(bucket, item)
+  }
+  res.json({ markers: Array.from(buckets.values()).sort((a, b) => a.startMs - b.startMs) })
 })
 
 app.get('/api/replay/frames', (_req, res) => {
@@ -95,13 +141,16 @@ app.get('/api/replay/error-codes', (req, res) => {
   const moduleName = req.query.module ? String(req.query.module) : ''
   const code = req.query.code ? String(req.query.code).toUpperCase() : ''
   const taskId = req.query.taskId ? String(req.query.taskId) : ''
-  const occurrences = session.data.errorOccurrences
+  const occurrenceOffset = Math.max(0, Number(req.query.occurrenceOffset || 0))
+  const occurrenceLimit = Math.min(Math.max(0, Number(req.query.occurrenceLimit || 0)), 5000)
+  const occurrencesAll = session.data.errorOccurrences
     .filter((it) => !kind || it.kind === kind)
     .filter((it) => !Number.isFinite(level) || it.definition?.level === level)
     .filter((it) => !moduleName || it.line.module.includes(moduleName))
     .filter((it) => !code || it.code.includes(code))
     .filter((it) => !taskId || it.taskId === taskId)
-  const occurrenceCodes = new Set(occurrences.map((it) => it.code))
+  const occurrences = occurrenceLimit ? occurrencesAll.slice(occurrenceOffset, occurrenceOffset + occurrenceLimit) : occurrencesAll
+  const occurrenceCodes = new Set(occurrencesAll.map((it) => it.code))
   const definitions = session.data.errorDefinitions
     .filter((it) => !code || it.code.includes(code))
     .filter((it) => !Number.isFinite(level) || it.level === level)
@@ -112,13 +161,44 @@ app.get('/api/replay/error-codes', (req, res) => {
     .filter((it) => occurrenceCodes.size === 0 ? true : occurrenceCodes.has(it.code))
     .map((summary) => ({
       ...summary,
-      occurrences: summary.occurrences.filter((it) => occurrences.includes(it))
+      occurrences: summary.occurrences.filter((it) => occurrencesAll.includes(it))
     }))
   res.json({
     definitions,
     occurrences,
+    occurrenceTotal: occurrencesAll.length,
+    occurrenceOffset,
+    occurrenceLimit: occurrenceLimit || occurrencesAll.length,
     summaries
   })
+})
+
+app.get('/api/replay/bookmarks', async (_req, res) => {
+  res.json({ bookmarks: await readBookmarks() })
+})
+
+app.post('/api/replay/bookmarks', async (req, res) => {
+  const bookmark = await addBookmark({
+    timeMs: Number(req.body.timeMs || 0),
+    timestamp: String(req.body.timestamp || ''),
+    title: String(req.body.title || '人工书签'),
+    note: req.body.note ? String(req.body.note) : undefined,
+    eventId: req.body.eventId ? String(req.body.eventId) : undefined,
+    level: req.body.level === 'error' || req.body.level === 'warning' ? req.body.level : 'info'
+  })
+  res.json({ succeed: true, bookmark, bookmarks: await readBookmarks() })
+})
+
+app.delete('/api/replay/bookmarks/:id', async (req, res) => {
+  res.json({ succeed: await deleteBookmark(req.params.id), bookmarks: await readBookmarks() })
+})
+
+app.get('/api/replay/case-meta', async (_req, res) => {
+  res.json({ caseMeta: await readCaseMeta() })
+})
+
+app.post('/api/replay/case-meta', async (req, res) => {
+  res.json({ succeed: true, caseMeta: await writeCaseMeta(req.body || {}) })
 })
 
 app.get('/api/replay/tasks', (req, res) => {
@@ -196,6 +276,11 @@ app.get('/api/replay/logs', (req, res) => {
   const endMs = Number(req.query.endMs || 0)
   const aroundTimeMs = Number(req.query.aroundTimeMs || 0)
   const aroundLines = Math.min(Math.max(0, Number(req.query.aroundLines || 0)), 500)
+  const aroundSeconds = Math.min(Math.max(0, Number(req.query.aroundSeconds || 0)), 3600)
+  const keywords = String(req.query.keywords || '')
+    .split(',')
+    .map((it) => it.trim())
+    .filter(Boolean)
   const offset = Math.max(0, Number(req.query.offset || 0))
   const limit = Math.min(Number(req.query.limit || 500), 5000)
   const eventLineKeys = new Set(
@@ -208,6 +293,7 @@ app.get('/api/replay/logs', (req, res) => {
     .filter((line) => !level || line.level === level)
     .filter((line) => !moduleName || line.module.includes(moduleName))
     .filter((line) => !keyword || line.raw.includes(keyword))
+    .filter((line) => keywords.length === 0 || keywords.every((item) => line.raw.includes(item)))
     .filter((line) => !errorCode || line.raw.includes(errorCode))
     .filter((line) => !taskId || line.raw.includes(taskId))
     .filter((line) => !startMs || line.timeMs >= startMs)
@@ -221,12 +307,17 @@ app.get('/api/replay/logs', (req, res) => {
     }
     lines = lines.slice(Math.max(0, nearestIndex - aroundLines), Math.min(lines.length, nearestIndex + aroundLines + 1))
   }
+  if (aroundTimeMs && aroundSeconds) {
+    const delta = aroundSeconds * 1000
+    lines = lines.filter((line) => Math.abs(line.timeMs - aroundTimeMs) <= delta)
+  }
   const page = lines.slice(offset, offset + limit)
   res.json({
     total: lines.length,
     offset,
     limit,
     lines: page,
+    keywordMatches: keywords,
     copyText: page.map((line) => line.raw).join('\n'),
     folded: session.data.foldedLogs
   })
@@ -247,8 +338,8 @@ app.get('/api/replay/folded-logs/:id/lines', (req, res) => {
   })
 })
 
-app.get('/api/replay/report.md', (_req, res) => {
-  res.type('text/markdown; charset=utf-8').send(buildMarkdownReport(session.data))
+app.get('/api/replay/report.md', async (_req, res) => {
+  res.type('text/markdown; charset=utf-8').send(await buildMarkdownReportAsync(session.data))
 })
 
 app.get('/api/replay/report.json', (_req, res) => {
@@ -259,6 +350,32 @@ app.get('/api/replay/package', async (_req, res) => {
   try {
     const pkg = await exportDiagnosticPackage(session.data)
     res.download(pkg.file, pkg.name)
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/package/export', async (req, res) => {
+  try {
+    const pkg = await exportDiagnosticPackage(session.data, {
+      startMs: Number(req.body.startMs || 0) || undefined,
+      endMs: Number(req.body.endMs || 0) || undefined,
+      includeMap: req.body.includeMap !== false,
+      includeReports: req.body.includeReports !== false,
+      includeAliases: req.body.includeAliases !== false,
+      includeFeedback: req.body.includeFeedback !== false
+    })
+    res.json({ succeed: true, package: pkg })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/package/compare', (req, res) => {
+  try {
+    const left = req.body.left as DiagnosticPackageManifest
+    const right = req.body.right as DiagnosticPackageManifest
+    res.json({ succeed: true, comparison: comparePackageManifests(left, right) })
   } catch (e) {
     res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
   }
@@ -292,7 +409,8 @@ app.post('/api/replay/package/import', async (req, res) => {
         manifest: imported.manifest,
         mapAliases: imported.mapAliases,
         aliasConflicts: imported.aliasConflicts,
-        rootCauseFeedback: imported.rootCauseFeedback
+        rootCauseFeedback: imported.rootCauseFeedback,
+        bookmarks: imported.bookmarks
       },
       overview: data.overview
     })
@@ -333,7 +451,8 @@ app.post('/api/replay/package/import-path', async (req, res) => {
         manifest: imported.manifest,
         mapAliases: imported.mapAliases,
         aliasConflicts: imported.aliasConflicts,
-        rootCauseFeedback: imported.rootCauseFeedback
+        rootCauseFeedback: imported.rootCauseFeedback,
+        bookmarks: imported.bookmarks
       },
       overview: data.overview
     })
@@ -355,6 +474,10 @@ app.post('/api/replay/control', (req, res) => {
   if (typeof req.body.playing === 'boolean') session.control.playing = req.body.playing
   if (Number.isFinite(Number(req.body.speed))) session.control.speed = Number(req.body.speed)
   if (req.body.mode === 'realtime' || req.body.mode === 'frame_compact') session.control.mode = req.body.mode
+  if (typeof req.body.loopEnabled === 'boolean') session.control.loopEnabled = req.body.loopEnabled
+  if (Number.isFinite(Number(req.body.loopStartMs))) session.control.loopStartMs = Number(req.body.loopStartMs)
+  if (Number.isFinite(Number(req.body.loopEndMs))) session.control.loopEndMs = Number(req.body.loopEndMs)
+  if (typeof req.body.autoPauseOnIssue === 'boolean') session.control.autoPauseOnIssue = req.body.autoPauseOnIssue
   res.json({ succeed: true, control: session.control })
 })
 
@@ -419,6 +542,14 @@ function tickPlayback() {
     return
   }
   session.control.currentMs += 200 * session.control.speed
+  if (session.control.autoPauseOnIssue && hasIssueNear(session.control.currentMs)) {
+    session.control.playing = false
+    session.seekByTime(session.control.currentMs)
+    return
+  }
+  if (session.control.loopEnabled && session.control.loopEndMs && session.control.currentMs > session.control.loopEndMs) {
+    session.control.currentMs = session.control.loopStartMs || session.data.frames[0].timeMs
+  }
   const last = session.data.frames[session.data.frames.length - 1]
   if (session.control.currentMs > last.timeMs) {
     session.control.currentMs = last.timeMs
@@ -427,6 +558,10 @@ function tickPlayback() {
   } else {
     session.seekByTime(session.control.currentMs)
   }
+}
+
+function hasIssueNear(timeMs: number): boolean {
+  return session.data.events.some((event) => Math.abs(event.timeMs - timeMs) <= 300 && (event.level === 'error' || ['estop', 'lost', 'loc_score'].includes(event.category || '')))
 }
 
 function buildStateSnapshot(): Record<string, unknown> {
