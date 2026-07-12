@@ -32,10 +32,15 @@ import {
   upsertMapAlias
 } from './core/mapAlias'
 import { buildJsonReport, buildMarkdownReportAsync } from './core/report'
+import { askReplayAssistant, buildAssistantContext, recommendSimilarCases } from './core/ragAssistant'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
 import { createSessionJob, getSessionJob } from './core/sessionJobs'
 import { filterTimelineEvents } from './core/timeline'
+import { getAssistantStatus, getPublicLlmConfig } from './core/llmConfig'
+import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
+import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
+import { rebuildVectorStore } from './core/vectorStore'
 
 const app = express()
 const server = http.createServer(app)
@@ -269,6 +274,96 @@ app.post('/api/replay/knowledge/test', async (req, res) => {
   const rule = req.body.rule || req.body
   const match = matchKnowledgeRule(rule, session.data.rawLines)
   res.json({ match, matched: !!match })
+})
+
+app.get('/api/replay/assistant/status', async (_req, res) => {
+  res.json({ succeed: true, status: await getAssistantStatus() })
+})
+
+app.get('/api/replay/assistant/config', async (_req, res) => {
+  res.json({ succeed: true, config: await getPublicLlmConfig() })
+})
+
+app.post('/api/replay/assistant/config', async (req, res) => {
+  try {
+    await writeLlmLocalConfig(req.body || {})
+    res.json({ succeed: true, config: await getPublicLlmConfig(), status: await getAssistantStatus() })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.delete('/api/replay/assistant/config', async (_req, res) => {
+  await clearLlmLocalConfig()
+  res.json({ succeed: true, config: await getPublicLlmConfig(), status: await getAssistantStatus() })
+})
+
+app.post('/api/replay/assistant/config/test', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const client = new OpenAiCompatibleClient({
+      provider: body.provider === 'openai_compatible' ? 'openai_compatible' : 'deepseek',
+      apiKey: String(body.apiKey || ''),
+      model: String(body.model || (body.provider === 'openai_compatible' ? 'gpt-4o-mini' : 'deepseek-chat')),
+      baseUrl: String(body.baseUrl || (body.provider === 'openai_compatible' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com')).replace(/\/+$/, ''),
+      timeoutMs: Number(body.timeoutMs || 30000),
+      maxTokens: Number(body.maxTokens || 300),
+      temperature: Number(body.temperature ?? 0.2),
+      source: 'default',
+      redaction: {
+        enabled: true,
+        redactPaths: true,
+        redactIp: true,
+        redactLongIds: true,
+        redactRobotName: false
+      }
+    })
+    const result = await client.chatJson([
+      { role: 'system', content: '只返回 JSON。' },
+      { role: 'user', content: '返回 {"ok":true,"message":"pong"}' }
+    ], { maxTokens: 80, timeoutMs: Number(body.timeoutMs || 30000) })
+    res.json({ succeed: true, result })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/assistant/reindex', async (_req, res) => {
+  const store = await rebuildVectorStore()
+  res.json({ succeed: true, vectorStore: { chunks: store.chunks.length, updatedAt: store.updatedAt } })
+})
+
+app.get('/api/replay/assistant/similar', async (req, res) => {
+  const question = req.query.question ? String(req.query.question) : ''
+  res.json({ succeed: true, similarCases: await recommendSimilarCases(session.data, question) })
+})
+
+app.post('/api/replay/assistant/context-preview', async (req, res) => {
+  try {
+    const context = await buildAssistantContext(session.data, {
+      question: String(req.body.question || ''),
+      includeLogs: req.body.includeLogs !== false,
+      maxLogLines: Number(req.body.maxLogLines || 80),
+      maxKnowledge: Number(req.body.maxKnowledge || 8)
+    })
+    res.json({ succeed: true, context })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/assistant/ask', async (req, res) => {
+  try {
+    const answer = await askReplayAssistant(session.data, {
+      question: String(req.body.question || ''),
+      includeLogs: req.body.includeLogs !== false,
+      maxLogLines: Number(req.body.maxLogLines || 80),
+      maxKnowledge: Number(req.body.maxKnowledge || 8)
+    })
+    res.json({ succeed: true, answer })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
 })
 
 app.get('/api/replay/tasks', (req, res) => {

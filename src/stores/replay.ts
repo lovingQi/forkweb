@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import {
   addReplayBookmark,
+  askReplayAssistant,
+  clearReplayAssistantConfig,
   clearReplayCache,
   compareReplayPackages,
   createReplaySession,
@@ -20,9 +22,12 @@ import {
   getReplayLogs,
   getReplayMapAliases,
   getReplayKnowledge,
+  getReplayAssistantConfig,
+  getReplayAssistantStatus,
   getReplayOverview,
   getReplaySession,
   getReplaySessionJob,
+  getReplaySimilarCases,
   getReplayTasks,
   importReplayKnowledge,
   importReplayPackage,
@@ -30,11 +35,15 @@ import {
   importReplayMapAliases,
   deleteReplayMapAlias,
   saveReplayMapAlias,
+  saveReplayAssistantConfig,
   saveReplayCaseMeta,
   seekReplay,
   sendRootCauseFeedback,
   setReplayControl,
+  previewReplayAssistantContext,
+  reindexReplayAssistant,
   suggestReplayKnowledgePattern,
+  testReplayAssistantConfig,
   testReplayKnowledgeRule,
   toggleReplayKnowledgeRule,
   updateReplayKnowledgeRule
@@ -137,7 +146,20 @@ export const useReplayStore = defineStore('replay', {
     selectedEvidenceLines: [] as any[],
     knowledgeDraft: null as any,
     knowledgeTestResult: null as any,
-    knowledgeImportConflicts: [] as any[]
+    knowledgeImportConflicts: [] as any[],
+    assistantStatus: null as any,
+    assistantQuestion: '',
+    assistantAnswer: null as any,
+    assistantLoading: false,
+    assistantSimilarCases: [] as any[],
+    assistantContextPreview: null as any,
+    assistantHistory: [] as any[],
+    assistantError: '',
+    assistantConfig: null as any,
+    assistantConfigVisible: false,
+    assistantConfigSaving: false,
+    assistantConfigTesting: false,
+    assistantConfigTestResult: null as any
   }),
 
   actions: {
@@ -543,6 +565,87 @@ export const useReplayStore = defineStore('replay', {
       this.knowledgeStats = res.library ? { version: res.library.version, updatedAt: res.library.updatedAt, total: res.library.rules?.length || 0 } : this.knowledgeStats
       this.knowledgeImportConflicts = res.conflicts || []
       return res
+    },
+
+    async refreshAssistantStatus() {
+      this.assistantStatus = await getReplayAssistantStatus()
+      return this.assistantStatus
+    },
+
+    async refreshAssistantConfig() {
+      this.assistantConfig = await getReplayAssistantConfig()
+      return this.assistantConfig
+    },
+
+    async saveAssistantConfig(payload: Record<string, any>) {
+      this.assistantConfigSaving = true
+      try {
+        const res = await saveReplayAssistantConfig(payload)
+        this.assistantConfig = res.config
+        this.assistantStatus = res.status
+        return res
+      } finally {
+        this.assistantConfigSaving = false
+      }
+    },
+
+    async clearAssistantConfig() {
+      const res = await clearReplayAssistantConfig()
+      this.assistantConfig = res.config
+      this.assistantStatus = res.status
+      return res
+    },
+
+    async testAssistantConfig(payload: Record<string, any>) {
+      this.assistantConfigTesting = true
+      try {
+        this.assistantConfigTestResult = await testReplayAssistantConfig(payload)
+        return this.assistantConfigTestResult
+      } catch (e: any) {
+        this.assistantConfigTestResult = { succeed: false, error: e && e.message ? e.message : String(e) }
+        throw e
+      } finally {
+        this.assistantConfigTesting = false
+      }
+    },
+
+    async reindexAssistant() {
+      const res = await reindexReplayAssistant()
+      await this.refreshAssistantStatus()
+      return res
+    },
+
+    async refreshSimilarCases(question = '') {
+      this.assistantSimilarCases = await getReplaySimilarCases(question ? { question } : undefined)
+      return this.assistantSimilarCases
+    },
+
+    async askAssistant(question: string, options: Record<string, any> = {}) {
+      this.assistantLoading = true
+      this.assistantError = ''
+      try {
+        const answer = await askReplayAssistant({ question, ...options })
+        this.assistantAnswer = answer
+        this.assistantHistory.unshift({ question, answer, createdAt: new Date().toISOString() })
+        this.assistantSimilarCases = answer?.similarCases || this.assistantSimilarCases
+        return answer
+      } catch (e: any) {
+        this.assistantError = e && e.message ? e.message : String(e)
+        throw e
+      } finally {
+        this.assistantLoading = false
+      }
+    },
+
+    async previewAssistantContext(question: string, options: Record<string, any> = {}) {
+      this.assistantContextPreview = await previewReplayAssistantContext({ question, ...options })
+      return this.assistantContextPreview
+    },
+
+    clearAssistantAnswer() {
+      this.assistantAnswer = null
+      this.assistantContextPreview = null
+      this.assistantError = ''
     }
   }
 })

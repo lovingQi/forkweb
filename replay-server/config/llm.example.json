@@ -1,0 +1,15 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "baseUrl": "https://api.deepseek.com",
+  "timeoutMs": 30000,
+  "maxTokens": 1200,
+  "temperature": 0.2,
+  "redaction": {
+    "enabled": true,
+    "redactPaths": true,
+    "redactIp": true,
+    "redactLongIds": true,
+    "redactRobotName": false
+  }
+}

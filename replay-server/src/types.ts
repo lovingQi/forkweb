@@ -248,6 +248,136 @@ export interface KnowledgePatternSuggestion {
   confidenceWeights: KnowledgeConfidenceWeight[]
 }
 
+export type VectorDocumentSourceType = 'knowledge_rule' | 'case_meta' | 'knowledge_match' | 'log_excerpt'
+
+export interface VectorDocumentSource {
+  type: VectorDocumentSourceType
+  id: string
+  title: string
+  timestamp?: string
+  tags?: string[]
+  solution?: string
+  evidence?: string[]
+}
+
+export interface VectorDocumentChunk {
+  id: string
+  source: VectorDocumentSource
+  text: string
+  summary: string
+  metadata: Record<string, unknown>
+  embedding: number[]
+  updatedAt: string
+}
+
+export interface VectorSearchResult {
+  chunk: VectorDocumentChunk
+  score: number
+  highlights: string[]
+}
+
+export interface AssistantContext {
+  overview: Partial<OverviewSummary>
+  rootCauses: RootCauseCandidate[]
+  knowledgeMatches: KnowledgeMatch[]
+  similarChunks: VectorSearchResult[]
+  logExcerpts: ParsedLogLine[]
+  redaction: {
+    enabled: boolean
+    rules: string[]
+  }
+}
+
+export interface AssistantAskRequest {
+  question: string
+  includeLogs?: boolean
+  maxLogLines?: number
+  maxKnowledge?: number
+}
+
+export interface AssistantEvidence {
+  title: string
+  source: string
+  excerpt: string
+  timestamp?: string
+  score?: number
+}
+
+export interface AssistantAnswer {
+  answer: string
+  rootCauseCandidates: string[]
+  suggestions: string[]
+  evidence: AssistantEvidence[]
+  uncertainties: string[]
+  similarCases: VectorSearchResult[]
+  provider: 'offline' | LlmProviderType
+  model: string
+  offline: boolean
+  createdAt: string
+}
+
+export interface AssistantStatus {
+  provider: LlmProviderType
+  model: string
+  baseUrl?: string
+  enabled: boolean
+  apiKeyMasked?: string
+  source?: 'local_file' | 'env' | 'default'
+  reason: string
+  vectorStore: {
+    chunks: number
+    updatedAt: string
+  }
+}
+
+export type LlmProviderType = 'deepseek' | 'openai_compatible'
+
+export interface LlmRuntimeConfig {
+  provider: LlmProviderType
+  apiKey: string
+  model: string
+  baseUrl: string
+  timeoutMs: number
+  maxTokens: number
+  temperature: number
+  source: 'local_file' | 'env' | 'default'
+  redaction: {
+    enabled: boolean
+    redactPaths: boolean
+    redactIp: boolean
+    redactLongIds: boolean
+    redactRobotName: boolean
+  }
+}
+
+export interface LlmPublicConfig {
+  provider: LlmProviderType
+  model: string
+  baseUrl: string
+  timeoutMs: number
+  maxTokens: number
+  temperature: number
+  enabled: boolean
+  apiKeyMasked: string
+  source: 'local_file' | 'env' | 'default'
+  updatedAt?: string
+}
+
+export interface LlmConfigUpdateRequest {
+  provider?: LlmProviderType
+  apiKey?: string
+  model?: string
+  baseUrl?: string
+  timeoutMs?: number
+  maxTokens?: number
+  temperature?: number
+}
+
+export interface AssistantSnapshot {
+  lastAnswer?: AssistantAnswer
+  similarCases?: VectorSearchResult[]
+}
+
 export interface RecommendedFocusTime {
   timeMs: number
   timestamp: string
@@ -355,6 +485,7 @@ export interface ReplaySessionData {
   bookmarks?: ReplayBookmark[]
   caseMeta?: ReplayCaseMeta
   knowledgeMatches?: KnowledgeMatch[]
+  assistant?: AssistantSnapshot
 }
 
 export interface ReplayControlState {

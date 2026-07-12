@@ -7,3 +7,4 @@ dist-ssr
 !.vscode/extensions.json
 tsconfig.tsbuildinfo
 *.log
+replay-server/config/llm.local.json

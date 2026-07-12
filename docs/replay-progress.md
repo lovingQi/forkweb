@@ -1276,3 +1276,166 @@ interface KnowledgeMatch {
 - 增加知识规则样本绑定，每条规则保存正样本和负样本。
 - 增加规则质量评分，提示规则过宽或证据过少。
 - 增加知识库版本号和团队同步策略。
+
+## 第二版第一轮实现记录：问诊助手、向量检索与 DeepSeek 接入
+
+第二版第一轮目标是先把“相似经验检索 + 自然语言问答”的最小闭环接入 `/replay` 页面。实现边界为本地优先、DeepSeek 可选：未配置 API Key 时仍可使用规则知识库、相似知识检索和离线问答提示。
+
+### 已实现能力
+
+- 新增本地向量能力：
+  - `replay-server/src/core/knowledgeEmbedding.ts`
+  - `replay-server/src/core/vectorStore.ts`
+  - 第一轮使用本地 hash embedding，不依赖外部 embedding 服务。
+  - 向量库文件位于 `replay-server/.cache/vector-store.json`。
+- 新增 DeepSeek 配置与调用：
+  - `replay-server/config/llm.example.json`
+  - `replay-server/src/core/llmConfig.ts`
+  - `replay-server/src/core/llmProvider.ts`
+  - `replay-server/src/core/deepseekClient.ts`
+  - API Key 只从后端环境变量 `DEEPSEEK_API_KEY` 读取，不下发前端。
+- 新增上下文脱敏：
+  - `replay-server/src/core/redaction.ts`
+  - 支持本地路径、IP、长 ID、车号可选脱敏。
+- 新增 RAG 编排：
+  - `replay-server/src/core/ragAssistant.ts`
+  - 汇总诊断概览、根因候选、知识库命中、相似知识块和相关日志片段。
+  - 限制日志片段数量，默认不上传全量日志。
+  - 未配置 DeepSeek 时返回离线建议。
+  - DeepSeek 调用失败时自动降级为离线建议。
+- 新增后端 API：
+  - `GET /api/replay/assistant/status`
+  - `POST /api/replay/assistant/reindex`
+  - `GET /api/replay/assistant/similar`
+  - `POST /api/replay/assistant/context-preview`
+  - `POST /api/replay/assistant/ask`
+- 新增前端能力：
+  - `src/components/replay/ReplayAssistant.vue`
+  - `/replay` 页面新增“问诊助手”Tab。
+  - 支持查看 DeepSeek/离线状态。
+  - 支持重建向量索引。
+  - 支持相似历史问题列表。
+  - 支持快捷问题、上下文预览和提问。
+  - 支持把 AI 辅助建议转为知识草稿，但仍需研发人工确认保存。
+- 报告与诊断包：
+  - JSON 报告新增 `assistant` 和 `similarCases`。
+  - 诊断包新增 `config/assistant-snapshot.json`，只保存本次 AI/离线回答快照，不包含 API Key 和全量向量库。
+- 新增验证脚本：
+  - `replay-server/scripts/verify-assistant.ts`
+  - npm 命令：`npm run replay:verify:assistant`
+
+### 第一轮边界
+
+- 当前 embedding 是本地轻量 hash embedding，适合先做可离线检索，不等价于深度学习语义向量。
+- 当前向量库只索引本地知识规则和人工结论，历史诊断包批量入库后续再做。
+- DeepSeek 只做辅助问答，不自动覆盖根因结论，不自动写入知识库。
+- AI 建议转知识只打开草稿弹窗，必须人工确认后保存。
+- 上下文预览用于研发确认将要发送的摘要和日志片段。
+
+### 后续优化点
+
+- 引入真实 embedding API 或本地 embedding 模型，替换 hash embedding。
+- 支持历史诊断包批量入库，形成跨现场案例库。
+- 增加相似案例详情页，展示历史问题完整证据链。
+- 增加 LLM 回答引用定位，点击证据跳转时间线或地图回放。
+- 增加团队级知识库版本管理和同步策略。
+
+### 第二版自动验收记录
+
+本轮强化 `replay-server/scripts/verify-assistant.ts`，将 `### 第二版验收标准` 转成可重复执行的专项验收。由于当前机器未配置真实 `DEEPSEEK_API_KEY`，在线问答链路使用本地 OpenAI-compatible mock DeepSeek 服务验证：后端仍按 DeepSeek API 格式发起请求，并通过 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 进入在线分支。
+
+逐项验收结果：
+
+- 配置 DeepSeek API Key 后，可以在页面自然语言提问：
+  - 已通过 mock DeepSeek 验证在线问答链路，返回 `onlineProvider: deepseek`。
+  - 后端状态接口在配置 Key 后返回在线模式。
+- 问答结果能引用当前日志证据和知识库条目：
+  - 验收脚本临时创建“电池数据采集失败历史处理”知识规则。
+  - 在线回答同时包含 `knowledge_base` 证据和 `log` 证据。
+- 相似案例推荐能返回历史问题标题、处理办法和相似证据：
+  - 相似案例返回标题 `验收助手：电池数据采集失败历史处理`。
+  - 返回处理办法 `检查电池设备配置、驱动启动状态和通信连接。`。
+  - 返回知识规则证据日志或相似高亮。
+- 未配置 API Key 时，工具仍能正常使用规则知识库：
+  - 删除 `DEEPSEEK_API_KEY` 后，知识库规则仍能命中当前日志。
+  - 离线问答返回 `offlineProvider: offline`。
+- AI 建议不会自动写入知识库，必须人工确认：
+  - 调用问诊助手前后知识库规则数量保持 `[1, 1]`。
+  - 前端“转为知识”只打开草稿弹窗，不自动保存。
+- 请求上下文不会上传全量日志，只上传相关片段和摘要：
+  - 样本总日志行数 `165902`。
+  - 问答上下文日志片段数 `20`。
+  - DeepSeek 请求上下文改为 compact 摘要，避免完整嵌套日志对象。
+  - 路径、IP、长 ID 脱敏通过，示例输出 `[PATH] [IP] [ID]`。
+
+本轮发现并修复的问题：
+
+- DeepSeek 请求体原先直接序列化完整 context，`overview.topIssues` 嵌套过大，导致 `knowledgeMatches` 被 60000 字符限制截断；已改为 compact 摘要。
+- overview 中的 `logDir` 等字符串原先未脱敏；已让 `redactAssistantContext` 递归脱敏 overview。
+- 相似案例列表原先没有显式展示处理办法和相似证据；已在向量 source 和前端表格中补充。
+
+本轮验证命令：
+
+- `npx -y -p node@20 -c 'npm run typecheck'`：通过。
+- `npx -y -p node@20 -c 'npm run build'`：通过，仅保留 Vite chunk 偏大警告。
+- `npx -y -p node@20 -c 'npm run replay:build'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:samples'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:knowledge'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:assistant'`：通过。
+
+## 问诊助手前端可配置模型实现记录
+
+本轮补充“配置模型”能力，解决只能通过后端环境变量配置 DeepSeek 的问题。现在研发可以在 `/replay` 的“问诊助手”Tab 中配置 Provider、API Key、Base URL、Model、Timeout、Max Tokens 和 Temperature。
+
+### 已实现能力
+
+- 新增本地配置文件 `replay-server/config/llm.local.json`。
+- `.gitignore` 已忽略 `replay-server/config/llm.local.json`，避免 API Key 进入 Git。
+- 新增 `replay-server/src/core/llmConfigStore.ts`：
+  - 读取本地配置。
+  - 保存本地配置。
+  - 清空本地配置。
+  - API Key 脱敏。
+- `llmConfig` 优先级：
+  - 本地配置文件。
+  - 环境变量。
+  - 默认值。
+- 新增通用 OpenAI-compatible client：
+  - `replay-server/src/core/openAiCompatibleClient.ts`
+  - 支持 DeepSeek。
+  - 支持其他兼容 `/chat/completions` 的模型服务。
+- 新增后端接口：
+  - `GET /api/replay/assistant/config`
+  - `POST /api/replay/assistant/config`
+  - `DELETE /api/replay/assistant/config`
+  - `POST /api/replay/assistant/config/test`
+- 前端“问诊助手”新增“配置模型”弹窗：
+  - Provider：DeepSeek / OpenAI Compatible。
+  - API Key：密码框，留空不修改旧 Key。
+  - Base URL。
+  - Model。
+  - Timeout。
+  - Max Tokens。
+  - Temperature。
+  - 测试连接。
+  - 保存。
+  - 清空本地配置。
+
+### 安全边界
+
+- 前端只显示 masked key，例如 `****3456`。
+- 后端 config API 不返回完整 API Key。
+- 诊断包不导出 `llm.local.json`。
+- 诊断包不包含 API Key。
+- 清空本地配置后会回退到环境变量或离线模式。
+
+### 验收覆盖
+
+`npm run replay:verify:assistant` 已增加：
+
+- 保存本地 LLM 配置。
+- 公开配置只返回 masked key。
+- status 使用 `local_file` 来源。
+- OpenAI Compatible mock provider 可在线问答。
+- 验证诊断包不包含 API Key 和 `llm.local.json`。
+- 验证脚本结束后恢复原 `llm.local.json`。

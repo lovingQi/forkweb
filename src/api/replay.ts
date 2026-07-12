@@ -206,6 +206,51 @@ export function replayKnowledgeExportUrl() {
   return `${config.replayApiBase}/replay/knowledge/export`
 }
 
+export async function getReplayAssistantStatus() {
+  const { data } = await replayHttp.get('/replay/assistant/status')
+  return data.status
+}
+
+export async function getReplayAssistantConfig() {
+  const { data } = await replayHttp.get('/replay/assistant/config')
+  return data.config
+}
+
+export async function saveReplayAssistantConfig(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/assistant/config', payload)
+  return data
+}
+
+export async function clearReplayAssistantConfig() {
+  const { data } = await replayHttp.delete('/replay/assistant/config')
+  return data
+}
+
+export async function testReplayAssistantConfig(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/assistant/config/test', payload)
+  return data
+}
+
+export async function reindexReplayAssistant() {
+  const { data } = await replayHttp.post('/replay/assistant/reindex')
+  return data
+}
+
+export async function getReplaySimilarCases(params?: Record<string, any>) {
+  const { data } = await replayHttp.get('/replay/assistant/similar', { params })
+  return data.similarCases || []
+}
+
+export async function previewReplayAssistantContext(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/assistant/context-preview', payload)
+  return data.context
+}
+
+export async function askReplayAssistant(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/assistant/ask', payload)
+  return data.answer
+}
+
 export type ReplayMode = 'realtime' | 'frame_compact'
 
 export async function setReplayControl(payload: {

@@ -429,6 +429,9 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+        <el-tab-pane label="问诊助手" name="assistant">
+          <ReplayAssistant @create-knowledge="openKnowledgeDraftFromAssistant" />
+        </el-tab-pane>
         <el-tab-pane label="原始日志/过滤" name="logs">
           <div class="filter-row">
             <el-select v-model="replay.logFilter.level" clearable placeholder="级别" class="filter-item">
@@ -847,6 +850,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
 import ReplayCharts from '@/components/replay/ReplayCharts.vue'
+import ReplayAssistant from '@/components/replay/ReplayAssistant.vue'
 import { getReplayMap, replayKnowledgeExportUrl, replayMapAliasesExportUrl, replayPackageUrl, replayReportUrl } from '@/api/replay'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
@@ -1740,6 +1744,22 @@ function openKnowledgeDraftFromCause(cause: any) {
     solution: cause.suggestion || '',
     severity: cause.severity || 'warning',
     lines
+  }))
+}
+
+function openKnowledgeDraftFromAssistant(draft: any) {
+  replay.addEvidenceLines(draft.examples?.[0]?.lines || [])
+  openKnowledgeDraft(buildKnowledgeDraft({
+    title: draft.title || 'AI 辅助诊断知识',
+    description: draft.description || '',
+    rootCause: draft.rootCause || '',
+    solution: draft.solution || '',
+    severity: draft.severity || 'warning',
+    lines: draft.examples?.[0]?.lines || [],
+    seed: {
+      tags: draft.tags || ['assistant'],
+      pattern: draft.pattern || {}
+    }
   }))
 }
 

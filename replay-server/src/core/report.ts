@@ -131,6 +131,8 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     mapMatch: data.overview.mapMatch,
     rootCauses: data.overview.rootCauses,
     knowledgeMatches: data.knowledgeMatches || [],
+    assistant: data.assistant || {},
+    similarCases: data.assistant?.similarCases || [],
     parseStats: data.overview.parseStats,
     recommendedFocusTimes: data.overview.recommendedFocusTimes,
     evidenceSnippets: data.overview.rootCauses.map((cause) => ({

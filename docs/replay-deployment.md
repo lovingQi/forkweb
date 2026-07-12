@@ -769,3 +769,89 @@ replay-server/config/knowledge-base.json
 - `POST /api/replay/knowledge/test`
 
 验证知识库功能时，`replay-server/scripts/verify-sample.ts` 会临时写入一条验证规则，并在结束后恢复原知识库。
+
+## 19. 问诊助手和 DeepSeek 配置
+
+问诊助手默认支持离线模式，不配置 DeepSeek 也能启动。
+
+### 19.1 环境变量
+
+在线问答需要在启动 replay-server 前配置：
+
+```bash
+export DEEPSEEK_API_KEY='你的 key'
+export DEEPSEEK_MODEL='deepseek-chat'
+export DEEPSEEK_BASE_URL='https://api.deepseek.com'
+export DEEPSEEK_TIMEOUT_MS=30000
+export DEEPSEEK_MAX_TOKENS=1200
+export DEEPSEEK_TEMPERATURE=0.2
+```
+
+真实 API Key 不要写入 Git。配置模板见：
+
+```text
+replay-server/config/llm.example.json
+```
+
+### 19.2 安全边界
+
+- API Key 只在后端读取，不会下发到前端。
+- 诊断包不会导出 API Key。
+- 诊断包只保存本次问答快照，不导出完整向量库。
+- 默认不上传全量日志，只上传摘要、相似知识和受限数量的相关日志片段。
+- 支持路径、IP、长 ID 脱敏。
+
+### 19.3 向量索引
+
+本地向量索引文件：
+
+```text
+replay-server/.cache/vector-store.json
+```
+
+第一轮使用本地 hash embedding，不依赖外部 embedding 服务。页面“问诊助手”Tab 中可以点击“重建索引”。
+
+### 19.4 验证命令
+
+问诊助手验证命令：
+
+```bash
+npx -y -p node@20 -c 'npm run replay:verify:assistant'
+```
+
+该脚本会验证：
+
+- 未配置 `DEEPSEEK_API_KEY` 时进入离线模式。
+- 向量索引可以重建。
+- 相似案例接口返回数组。
+- 上下文日志片段数量受限。
+- 脱敏规则生效。
+- DeepSeek 调用失败时能够降级为离线结果。
+
+## 20. 前端配置模型
+
+除环境变量外，也可以在 `/replay` 页面的“问诊助手”中点击“配置模型”，将 LLM 配置保存到后端本地文件：
+
+```text
+replay-server/config/llm.local.json
+```
+
+配置优先级：
+
+1. `replay-server/config/llm.local.json`
+2. 环境变量，例如 `DEEPSEEK_API_KEY`
+3. 默认配置
+
+安全要求：
+
+- `replay-server/config/llm.local.json` 已加入 `.gitignore`。
+- 不要手动把该文件提交到 Git。
+- 后端 API 只返回 masked key。
+- 诊断包不会导出该文件。
+
+支持的 Provider：
+
+- DeepSeek。
+- OpenAI Compatible，即兼容 `/chat/completions` 的模型服务。
+
+OpenAI Compatible 的 Base URL 可以填写到服务根路径或 `/v1` 路径，工具会自动拼接 `/chat/completions`。

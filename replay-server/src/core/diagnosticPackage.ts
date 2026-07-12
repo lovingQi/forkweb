@@ -39,6 +39,7 @@ export interface DiagnosticPackageManifest {
     rootCauseFeedback: string
     bookmarks: string
     knowledgeMatches?: string
+    assistant?: string
   }
   caseMeta?: ReplayCaseMeta
 }
@@ -103,6 +104,7 @@ export async function exportDiagnosticPackage(data: ReplaySessionData, options: 
   const rootCauseFeedbackFile = 'config/root-cause-feedback.json'
   const bookmarksFile = 'config/bookmarks.json'
   const knowledgeMatchesFile = 'config/knowledge-matches.json'
+  const assistantFile = 'config/assistant-snapshot.json'
   if (includeReports) {
     await fs.writeFile(path.join(rootDir, reportMarkdown), await buildMarkdownReportAsync(data), 'utf8')
     await fs.writeFile(path.join(rootDir, reportJson), `${JSON.stringify(buildJsonReport(data), null, 2)}\n`, 'utf8')
@@ -111,6 +113,7 @@ export async function exportDiagnosticPackage(data: ReplaySessionData, options: 
   if (includeFeedback) await fs.writeFile(path.join(rootDir, rootCauseFeedbackFile), `${JSON.stringify(await readRootCauseFeedback(), null, 2)}\n`, 'utf8')
   await fs.writeFile(path.join(rootDir, bookmarksFile), `${JSON.stringify(await readBookmarks(), null, 2)}\n`, 'utf8')
   await fs.writeFile(path.join(rootDir, knowledgeMatchesFile), `${JSON.stringify(data.knowledgeMatches || [], null, 2)}\n`, 'utf8')
+  await fs.writeFile(path.join(rootDir, assistantFile), `${JSON.stringify(data.assistant || {}, null, 2)}\n`, 'utf8')
 
   const manifest: DiagnosticPackageManifest = {
     version: 1,
@@ -135,7 +138,8 @@ export async function exportDiagnosticPackage(data: ReplaySessionData, options: 
       mapAliases: includeAliases ? mapAliasesFile : '',
       rootCauseFeedback: includeFeedback ? rootCauseFeedbackFile : '',
       bookmarks: bookmarksFile,
-      knowledgeMatches: knowledgeMatchesFile
+      knowledgeMatches: knowledgeMatchesFile,
+      assistant: assistantFile
     },
     caseMeta: await readCaseMeta()
   }
