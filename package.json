@@ -15,7 +15,9 @@
     "replay:verify:assistant": "tsx replay-server/scripts/verify-assistant.ts",
     "replay:verify:knowledge": "tsx replay-server/scripts/verify-knowledge.ts",
     "replay:verify:samples": "tsx replay-server/scripts/verify-samples.ts",
-    "replay:collect": "node scripts/collect-replay-case.mjs"
+    "replay:collect": "node scripts/collect-replay-case.mjs",
+    "test:e2e:replay": "npx -y -p node@20 -c 'playwright test tests/e2e/replay.spec.ts'",
+    "test:e2e:replay:headed": "npx -y -p node@20 -c 'playwright test tests/e2e/replay.spec.ts --headed'"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -30,6 +32,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.14.9",
