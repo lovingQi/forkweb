@@ -1439,3 +1439,57 @@ interface KnowledgeMatch {
 - OpenAI Compatible mock provider 可在线问答。
 - 验证诊断包不包含 API Key 和 `llm.local.json`。
 - 验证脚本结束后恢复原 `llm.local.json`。
+
+## 人工错误码字典接入记录
+
+本轮接入研发确认的人工错误码体系，作为错误码中心和报告导出的最高优先级字典来源。
+
+### 已实现能力
+
+- 新增 `replay-server/config/manual-error-dictionary.json`。
+- 人工字典字段包含：
+  - 错误码。
+  - 错误码内容。
+  - 屏幕显示内容。
+  - 故障排除方法。
+  - 来源标记。
+  - 备注。
+- 错误码原样保留，不做自动纠正：
+  - `ERROR00501` 保持为 `ERROR00501`。
+  - `ERROR00509` 保持为 `ERROR00509`。
+  - `EERROR1001` 保持为 `EERROR1001`。
+- 错误码解析正则已支持：
+  - `ERROR` + 4 位数字。
+  - `ERROR` + 5 位数字。
+  - `EERROR` + 4 或 5 位数字。
+- 人工字典来源优先级高于日志定义、源码配置、源码扫描和文本猜测。
+- 错误码中心新增展示：
+  - 错误码内容。
+  - 屏幕显示。
+  - 故障排除方法。
+- Markdown 报告中的真实故障错误码和配置提醒错误码会输出人工字典排查信息。
+- JSON 报告会随错误码 definition 输出 `content`、`screenText`、`troubleshooting`、`manual` 等字段。
+
+### 原样保留原则
+
+人工字典中的错误码由研发确认后即视为权威值，工具不得根据长度、拼写或前缀自行改写。
+
+如果未来需要别名或兼容码，必须由研发明确补充到字典中；第一版 `aliases` 字段保留为空数组，不参与自动匹配。
+
+### 验收覆盖
+
+`npm run replay:verify:samples` 已增加：
+
+- 验证 `ERROR00501` 原样存在并关联“机器人陀螺仪数据超时”。
+- 验证 `ERROR00509` 原样存在并关联 `Charge faild.`。
+- 验证 `EERROR1001` 原样存在并关联“检查地图是否正确”。
+- 验证不会自动生成 `ERROR0501`、`ERROR0509`、`ERROR1001`。
+- 验证解析器能识别五位错误码和 `EERROR` 前缀错误码。
+
+本轮验证命令：
+
+- `npx -y -p node@20 -c 'npm run replay:build'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:samples'`：通过。
+- `npx -y -p node@20 -c 'npm run typecheck'`：通过。
+- `npx -y -p node@20 -c 'npm run build'`：通过，仅保留 Vite chunk 偏大警告。
+- `npm run test:e2e:replay`：通过。

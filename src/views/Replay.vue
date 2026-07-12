@@ -383,7 +383,15 @@
             </el-table-column>
             <el-table-column prop="firstTime" label="首次" width="180" />
             <el-table-column prop="lastTime" label="末次" width="180" />
-            <el-table-column prop="description" label="描述" show-overflow-tooltip />
+            <el-table-column label="错误码内容" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.content || row.description || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="屏幕显示" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.screenText || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="故障排除方法" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.occurrences?.[0]?.definition?.troubleshooting || '-' }}</template>
+            </el-table-column>
           </el-table>
           <el-table :data="selectedErrorOccurrences" height="160" size="small" @row-click="(row:any) => jump(row.timeMs)">
             <el-table-column prop="timestamp" label="时间" width="180" />
@@ -391,7 +399,12 @@
             <el-table-column prop="source" label="来源" width="170" />
             <el-table-column prop="kind" label="类型" width="110" />
             <el-table-column prop="taskId" label="任务" width="120" />
-            <el-table-column prop="definition.description" label="说明" show-overflow-tooltip />
+            <el-table-column label="说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.definition?.content || row.definition?.description || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="处理办法" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.definition?.troubleshooting || '-' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="130">
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="showErrorLogContext(row)">查看日志上下文</el-button>

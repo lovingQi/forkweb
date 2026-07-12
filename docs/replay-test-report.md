@@ -198,3 +198,32 @@
 - `npm run test:e2e:replay`：通过，1 个 Chromium 测试用例通过。
 - `npm run typecheck`：通过。
 - `npm run build`：通过，仅保留原有 Rollup 注释提示和 chunk size 警告。
+
+## 9. 人工错误码字典测试
+
+本轮接入 `replay-server/config/manual-error-dictionary.json`，用于补充研发确认的错误码内容、屏幕显示内容和故障排除方法。
+
+关键原则：
+
+- 人工字典优先级最高。
+- 人工字典错误码原样保留，不做自动纠正。
+- `ERROR00501`、`ERROR00509`、`EERROR1001` 均按研发给定值保存和识别。
+- 第一版不做 alias 自动匹配，`aliases` 保留为空数组。
+
+覆盖验证：
+
+- `npm run replay:build`：通过。
+- `npm run replay:verify:samples`：通过，已验证 `ERROR00501`、`ERROR00509`、`EERROR1001` 原样存在且不会被改写。
+- `npm run typecheck`：通过。
+- `npm run build`：通过，仅保留原有 Rollup 注释提示和 chunk size 警告。
+- `npm run test:e2e:replay`：通过。
+
+前端验证：
+
+- 错误码中心汇总表展示“错误码内容 / 屏幕显示 / 故障排除方法”。
+- 错误码发生点表展示“说明 / 处理办法”。
+
+报告验证：
+
+- Markdown 报告的真实故障错误码和配置提醒错误码会输出屏幕显示、排查方法和来源。
+- JSON 报告随错误码 definition 输出 `content`、`screenText`、`troubleshooting`、`manual` 等字段。

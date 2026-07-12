@@ -12,7 +12,7 @@ import type {
   ReplaySessionData
 } from '../types'
 import { buildCacheKey, cleanupReplayCache, readSessionCache, writeSessionCache } from './cache'
-import { loadSourceErrorDictionary } from './errorDictionary'
+import { loadManualErrorDictionary, loadSourceErrorDictionary } from './errorDictionary'
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
 import { parseInfoStatus } from '../parser/infoStatus'
@@ -155,6 +155,10 @@ export class ReplaySession {
 
     const sourceDefinitions = await loadSourceErrorDictionary()
     for (const [code, def] of sourceDefinitions) {
+      if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
+    }
+    const manualDefinitions = await loadManualErrorDictionary()
+    for (const [code, def] of manualDefinitions) {
       if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
     }
 

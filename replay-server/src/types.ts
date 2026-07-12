@@ -1,7 +1,7 @@
 export type LogLevel = 'D' | 'I' | 'W' | 'E' | 'UNKNOWN'
 export type ErrorOccurrenceKind = 'real_fault' | 'config_notice' | 'definition' | 'unknown'
 export type ReplayMode = 'realtime' | 'frame_compact'
-export type ErrorDictionarySourceKind = 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
+export type ErrorDictionarySourceKind = 'manual' | 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
 export type RootCauseSource = 'built_in' | 'knowledge_base' | 'llm'
 
 export interface ParsedLogLine {
@@ -46,8 +46,15 @@ export interface ReplayFrame {
 
 export interface ErrorCodeDefinition {
   code: string
+  content?: string
   description?: string
   screenText?: string
+  troubleshooting?: string
+  aliases?: string[]
+  manual?: boolean
+  module?: string
+  severity?: 'info' | 'warning' | 'error'
+  notes?: string
   level?: number
   toRms?: boolean
   toScreen?: boolean

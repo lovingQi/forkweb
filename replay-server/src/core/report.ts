@@ -96,13 +96,11 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
   }
   lines.push('', '## 真实故障错误码', '')
   for (const occurrence of data.errorOccurrences.filter((it) => it.kind === 'real_fault').slice(0, 50)) {
-    lines.push(
-      `- ${occurrence.timestamp} ${occurrence.code} ${occurrence.definition?.description || occurrence.source}`
-    )
+    lines.push(`- ${formatErrorOccurrence(occurrence)}`)
   }
   lines.push('', '## 配置提醒错误码', '')
   for (const occurrence of data.errorOccurrences.filter((it) => it.kind === 'config_notice').slice(0, 50)) {
-    lines.push(`- ${occurrence.timestamp} ${occurrence.code} ${occurrence.definition?.description || occurrence.source}`)
+    lines.push(`- ${formatErrorOccurrence(occurrence)}`)
   }
   lines.push('', '## 任务视角', '')
   if (data.tasks.length === 0) {
@@ -159,6 +157,19 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     keyTimeline: data.events.filter((it) => it.level === 'error' || it.level === 'warning').slice(0, 100),
     foldedLogs: data.foldedLogs
   }
+}
+
+function formatErrorOccurrence(occurrence: ReplaySessionData['errorOccurrences'][number]): string {
+  const definition = occurrence.definition
+  const parts = [
+    occurrence.timestamp,
+    occurrence.code,
+    definition?.content || definition?.description || occurrence.source
+  ]
+  if (definition?.screenText) parts.push(`屏幕显示: ${definition.screenText}`)
+  if (definition?.troubleshooting) parts.push(`排查: ${definition.troubleshooting}`)
+  if (definition?.sourceLabel) parts.push(`来源: ${definition.sourceLabel}`)
+  return parts.join(' | ')
 }
 
 function matchLabel(strategy: string): string {

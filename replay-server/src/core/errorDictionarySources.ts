@@ -1,6 +1,7 @@
 import type { ErrorCodeDefinition, ErrorDictionarySourceKind } from '../types'
 
 const SOURCE_LABELS: Record<ErrorDictionarySourceKind, string> = {
+  manual: '人工字典',
   log_definition: '日志定义',
   source_config: '源码配置',
   source_scan: '源码扫描',
@@ -8,6 +9,7 @@ const SOURCE_LABELS: Record<ErrorDictionarySourceKind, string> = {
 }
 
 const SOURCE_PRIORITY: Record<ErrorDictionarySourceKind, number> = {
+  manual: 200,
   log_definition: 100,
   source_config: 80,
   source_scan: 50,

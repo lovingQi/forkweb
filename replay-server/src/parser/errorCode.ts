@@ -1,8 +1,8 @@
 import type { ErrorCodeDefinition, ErrorOccurrence, ErrorOccurrenceKind, ParsedLogLine } from '../types'
+import { ERROR_CODE_RE } from '../core/errorDictionary'
 import { enrichDictionarySource } from '../core/errorDictionarySources'
 
-const DEF_RE = /error_name,error_str=(ERROR\d{4}),(\{.*\})/
-const CODE_RE = /(ERROR\d{4})/g
+const DEF_RE = /error_name,error_str=(E?ERROR\d{4,5}),(\{.*\})/
 
 export function parseErrorDefinition(line: ParsedLogLine): ErrorCodeDefinition | null {
   const m = line.message.match(DEF_RE)
@@ -36,8 +36,8 @@ export function parseErrorOccurrences(
 ): ErrorOccurrence[] {
   const occurrences: ErrorOccurrence[] = []
   const seen = new Set<string>()
-  for (const match of line.message.matchAll(CODE_RE)) {
-    const code = match[1]
+  for (const match of line.message.matchAll(ERROR_CODE_RE)) {
+    const code = match[0]
     if (line.message.includes(`error_name,error_str=${code}`)) continue
     if (seen.has(code)) continue
     seen.add(code)
@@ -64,7 +64,7 @@ function classifySource(message: string): string {
 }
 
 function classifyKind(message: string): ErrorOccurrenceKind {
-  if (/error_name,error_str=ERROR\d{4}/.test(message)) return 'definition'
+  if (/error_name,error_str=E?ERROR\d{4,5}/.test(message)) return 'definition'
   if (isConfigNotice(message)) return 'config_notice'
   if (
     message.includes('current_task_error_code') ||
@@ -78,7 +78,7 @@ function classifyKind(message: string): ErrorOccurrenceKind {
 }
 
 function isConfigNotice(message: string): boolean {
-  return /GrmFault: configure error for device error_code code ERROR\d{4}/.test(message)
+  return /GrmFault: configure error for device error_code code E?ERROR\d{4,5}/.test(message)
 }
 
 function stringOrUndefined(v: unknown): string | undefined {
