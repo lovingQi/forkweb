@@ -5,7 +5,9 @@ import {
   compareReplayPackages,
   createReplaySession,
   createReplaySessionJob,
+  createReplayKnowledgeRule,
   deleteReplayBookmark,
+  deleteReplayKnowledgeRule,
   exportReplayPackageOptions,
   getReplayCache,
   getReplayBookmarks,
@@ -17,10 +19,12 @@ import {
   getReplayFoldedLogLines,
   getReplayLogs,
   getReplayMapAliases,
+  getReplayKnowledge,
   getReplayOverview,
   getReplaySession,
   getReplaySessionJob,
   getReplayTasks,
+  importReplayKnowledge,
   importReplayPackage,
   importReplayPackageByPath,
   importReplayMapAliases,
@@ -29,7 +33,11 @@ import {
   saveReplayCaseMeta,
   seekReplay,
   sendRootCauseFeedback,
-  setReplayControl
+  setReplayControl,
+  suggestReplayKnowledgePattern,
+  testReplayKnowledgeRule,
+  toggleReplayKnowledgeRule,
+  updateReplayKnowledgeRule
 } from '@/api/replay'
 import type { ReplayMode } from '@/api/replay'
 
@@ -123,7 +131,13 @@ export const useReplayStore = defineStore('replay', {
     caseMeta: {} as any,
     sessionJob: null as any,
     packageComparison: null as any,
-    lastExportedPackage: null as any
+    lastExportedPackage: null as any,
+    knowledgeRules: [] as any[],
+    knowledgeStats: null as any,
+    selectedEvidenceLines: [] as any[],
+    knowledgeDraft: null as any,
+    knowledgeTestResult: null as any,
+    knowledgeImportConflicts: [] as any[]
   }),
 
   actions: {
@@ -206,6 +220,7 @@ export const useReplayStore = defineStore('replay', {
       this.caseMeta = caseMeta || {}
       await this.refreshEventMarkers()
       await this.refreshMapAliases()
+      await this.refreshKnowledge()
     },
 
     async refreshLogs() {
@@ -457,6 +472,77 @@ export const useReplayStore = defineStore('replay', {
       const res = await compareReplayPackages({ left, right })
       this.packageComparison = res.comparison
       return this.packageComparison
+    },
+
+    async refreshKnowledge(params?: Record<string, any>) {
+      const res = await getReplayKnowledge(params)
+      this.knowledgeRules = res.rules || []
+      this.knowledgeStats = res.library || null
+      return res
+    },
+
+    async createKnowledgeRule(payload: Record<string, any>) {
+      const res = await createReplayKnowledgeRule(payload)
+      this.knowledgeRules = res.knowledge?.rules || this.knowledgeRules
+      this.knowledgeStats = res.knowledge?.library || this.knowledgeStats
+      return res.rule
+    },
+
+    async updateKnowledgeRule(id: string, payload: Record<string, any>) {
+      const res = await updateReplayKnowledgeRule(id, payload)
+      this.knowledgeRules = res.knowledge?.rules || this.knowledgeRules
+      this.knowledgeStats = res.knowledge?.library || this.knowledgeStats
+      return res.rule
+    },
+
+    async deleteKnowledgeRule(id: string) {
+      const res = await deleteReplayKnowledgeRule(id)
+      this.knowledgeRules = res.knowledge?.rules || this.knowledgeRules.filter((rule) => rule.id !== id)
+      this.knowledgeStats = res.knowledge?.library || this.knowledgeStats
+      return res
+    },
+
+    async toggleKnowledgeRule(id: string, enabled?: boolean) {
+      const res = await toggleReplayKnowledgeRule(id, enabled)
+      this.knowledgeRules = res.knowledge?.rules || this.knowledgeRules
+      this.knowledgeStats = res.knowledge?.library || this.knowledgeStats
+      return res.rule
+    },
+
+    addEvidenceLine(line: any) {
+      const key = line ? `${line.file}:${line.line}` : ''
+      if (!key || this.selectedEvidenceLines.some((item) => `${item.file}:${item.line}` === key)) return
+      this.selectedEvidenceLines.push(line)
+    },
+
+    addEvidenceLines(lines: any[]) {
+      for (const line of lines || []) this.addEvidenceLine(line)
+    },
+
+    removeEvidenceLine(line: any) {
+      const key = line ? `${line.file}:${line.line}` : ''
+      this.selectedEvidenceLines = this.selectedEvidenceLines.filter((item) => `${item.file}:${item.line}` !== key)
+    },
+
+    clearEvidenceLines() {
+      this.selectedEvidenceLines = []
+    },
+
+    async suggestKnowledgePattern(lines?: any[]) {
+      return suggestReplayKnowledgePattern(lines || this.selectedEvidenceLines)
+    },
+
+    async testKnowledgeRule(rule: Record<string, any>) {
+      this.knowledgeTestResult = await testReplayKnowledgeRule(rule)
+      return this.knowledgeTestResult
+    },
+
+    async importKnowledgeRules(library: Record<string, any>, overwrite = false) {
+      const res = await importReplayKnowledge({ library, overwrite })
+      this.knowledgeRules = res.library?.rules || this.knowledgeRules
+      this.knowledgeStats = res.library ? { version: res.library.version, updatedAt: res.library.updatedAt, total: res.library.rules?.length || 0 } : this.knowledgeStats
+      this.knowledgeImportConflicts = res.conflicts || []
+      return res
     }
   }
 })

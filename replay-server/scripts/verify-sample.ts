@@ -1,21 +1,59 @@
+import fs from 'fs/promises'
+import path from 'path'
 import { getCacheSummary } from '../src/core/cache'
 import { exportDiagnosticPackage, importDiagnosticPackage } from '../src/core/diagnosticPackage'
+import { createKnowledgeRule, readKnowledgeLibrary, writeKnowledgeLibrary } from '../src/core/knowledgeBase'
 import { buildJsonReport, buildMarkdownReportAsync } from '../src/core/report'
 import { ReplaySession } from '../src/core/session'
 import { filterTimelineEvents } from '../src/core/timeline'
 
 async function main() {
+  const knowledgeBackup = await readKnowledgeLibrary()
+  const knowledgePath = path.resolve(process.cwd(), 'replay-server/config/knowledge-base.json')
   const session = new ReplaySession()
-  const data = await session.load({
-    logDir: '/home/xbl/Desktop',
-    mapDir: '/home/xbl/Desktop/jarvis-fork/params/map',
-    forceReload: true
-  })
+  let data
+  try {
+    await createKnowledgeRule({
+      title: '验证知识库规则：地图 IO 区域提示',
+      description: '验证知识库能从日志中识别 map IO shield area 提示。',
+      rootCause: '地图中缺少 IO shield area 或相关配置。',
+      solution: '检查地图配置中的 IO shield area 配置。',
+      severity: 'warning',
+      tags: ['verify', 'map'],
+      enabled: true,
+      pattern: {
+        requiredKeywords: ['obs: the map'],
+        anyKeywords: ['IO sheild area', 'IO shield area'],
+        excludedKeywords: [],
+        modules: ['JObs'],
+        levels: ['D'],
+        errorCodes: [],
+        windowSeconds: 10,
+        minOccurrences: 1,
+        confidenceBase: 0.7,
+        confidenceWeights: [
+          { type: 'keyword', value: 'IO sheild area', weight: 0.12 },
+          { type: 'module', value: 'JObs', weight: 0.08 }
+        ]
+      }
+    })
+    data = await session.load({
+      logDir: '/home/xbl/Desktop',
+      mapDir: '/home/xbl/Desktop/jarvis-fork/params/map',
+      forceReload: true
+    })
+  } finally {
+    await writeKnowledgeLibrary(knowledgeBackup)
+    await fs.utimes(knowledgePath, new Date(), new Date()).catch(() => undefined)
+  }
   assert(data.overview.hasFrames, '应解析到回放帧')
   assert(data.overview.mapMatch.matchStrategy !== 'missing', '应产生地图匹配结果')
   assert(data.errorOccurrences.every((it) => it.kind), '错误码发生点应包含 kind')
   assert(data.errorSummaries.every((it) => typeof it.realCount === 'number'), '错误码聚合应包含 realCount')
   assert(Array.isArray(data.overview.rootCauses), 'overview 应包含根因候选')
+  assert(Array.isArray(data.knowledgeMatches), 'session data 应包含 knowledgeMatches')
+  assert(data.knowledgeMatches.some((match) => match.title.includes('验证知识库规则')), '知识库规则应命中样本日志')
+  assert(data.overview.rootCauses.some((cause) => cause.source === 'knowledge_base'), '知识库命中应进入根因候选')
   assert(typeof data.overview.healthScore === 'number', 'overview 应包含健康评分')
   assert(typeof data.overview.logQualityScore === 'number', 'overview 应包含日志质量评分')
   assert(Array.isArray(data.overview.recommendedFocusTimes), 'overview 应包含建议关注时间点')
@@ -36,12 +74,14 @@ async function main() {
   assert(md.includes('## 关键时间线摘要'), 'Markdown 报告应包含关键时间线摘要')
   assert(md.includes('## 人工结论'), 'Markdown 报告应包含人工结论')
   assert(md.includes('## 建议优先查看时间点'), 'Markdown 报告应包含建议关注时间点')
+  assert(md.includes('## 知识库命中'), 'Markdown 报告应包含知识库命中')
   const json = buildJsonReport(data) as Record<string, unknown>
   assert(Array.isArray(json.rootCauses), 'JSON 报告应包含 rootCauses')
   assert(json.diagnosticFiles, 'JSON 报告应包含 diagnosticFiles')
   assert(Array.isArray(json.keyTimeline), 'JSON 报告应包含 keyTimeline')
   assert(Array.isArray(json.recommendedFocusTimes), 'JSON 报告应包含 recommendedFocusTimes')
   assert(json.parseStats, 'JSON 报告应包含 parseStats')
+  assert(Array.isArray(json.knowledgeMatches), 'JSON 报告应包含 knowledgeMatches')
   const filteredEvents = filterTimelineEvents(data.events, { mode: 'config_notice', sort: 'severity', dedupe: true })
   assert(filteredEvents.every((it) => it.category === 'config'), '时间线配置提醒筛选应只返回 config')
   const exported = await exportDiagnosticPackage(data)
@@ -51,6 +91,7 @@ async function main() {
   assert(imported.manifest.extras?.reportMarkdown, '诊断包 manifest 应包含 Markdown 报告')
   assert(imported.manifest.extras?.reportJson, '诊断包 manifest 应包含 JSON 报告')
   assert(imported.manifest.extras?.bookmarks, '诊断包 manifest 应包含书签文件')
+  assert(imported.manifest.extras?.knowledgeMatches, '诊断包 manifest 应包含知识库命中快照')
   assert(imported.manifest.caseMeta, '诊断包 manifest 应包含人工结论')
   assert(Array.isArray(imported.mapAliases), '诊断包应返回包内地图别名')
   assert(Array.isArray(imported.bookmarks), '诊断包应返回包内书签')

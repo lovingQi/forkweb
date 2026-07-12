@@ -818,3 +818,461 @@ npx -y -p node@20 -c 'npm run replay:dev:all'
 - `replay-server/scripts/verify-sample.ts`：通过，样本解析到 601 个回放帧、41 个错误发生点、3 个根因候选。
 - `npm run replay:verify:samples`：通过。
 - 验证期间生成的未跟踪 `.cache/imports`、`.cache/indexes`、`.cache/packages` 和临时 session 缓存已清理；Git 已跟踪的既有缓存文件未删除。
+
+## 诊断知识库与自进化能力规划
+
+本章节记录日志诊断工具下一阶段的核心方向：让工具不仅能解析固定规则，还能沉淀研发人员每一次真实排查经验。目标是让工具越用越懂现场问题，逐步从“日志回放与规则诊断工具”升级为“研发经验驱动的诊断知识库”。
+
+### 总体目标
+
+建立一条研发分析闭环：
+
+1. 现场人员提供日志、地图或诊断包。
+2. 工具自动完成日志解析、地图回放、错误码识别、时间线聚合和已有根因候选分析。
+3. 研发人员查看自动诊断结果，同时在日志中发现工具暂未识别的问题。
+4. 研发人员标记关键证据日志，填写问题描述、确认根因、处理办法和适用范围。
+5. 工具把本次人工分析沉淀成一条可复用的诊断知识。
+6. 下次遇到相似日志时，工具自动命中该知识，直接给出问题结论、证据链和处理建议。
+
+这个方向需要分阶段实现。第一版优先做可解释、可审核、可导入导出的规则型知识库。第二版再引入机器学习、向量库和 DeepSeek 官方 API，实现相似案例检索和自然语言问答。
+
+### 第一版：规则型诊断知识库
+
+第一版不引入机器学习，重点做“研发可手工沉淀、工具可自动复用”的规则知识库。原因是日志诊断需要清晰证据链，第一版必须保证可解释、可调试、可回滚。
+
+#### 第一版功能边界
+
+- 知识条目管理：
+  - 问题标题。
+  - 问题描述。
+  - 确认根因。
+  - 处理办法。
+  - 严重度：`info`、`warning`、`error`。
+  - 标签：例如激光、定位、地图、任务、货叉、网络、配置。
+  - 适用范围：项目、车型、地图、版本、分支，可选。
+  - 启用/停用状态。
+  - 创建时间、更新时间、创建人，可选。
+- 证据规则：
+  - 必须包含关键词。
+  - 任意命中关键词。
+  - 排除关键词。
+  - 模块名匹配。
+  - 日志等级匹配，例如 `[E]`、`[W]`。
+  - 错误码匹配，例如 `ERRORxxxx`。
+  - 时间窗口，例如 5 秒内同时出现 A、B 两类日志。
+  - 次数阈值，例如 10 秒内某关键词出现超过 3 次。
+  - 置信度加权，例如命中错误码加 0.3，命中关键模块加 0.2。
+- 诊断命中输出：
+  - 命中的知识名称。
+  - 命中置信度。
+  - 命中的规则项。
+  - 关联证据日志。
+  - 历史处理办法。
+  - 适用范围提醒。
+  - 是否来自知识库。
+- 研发标注入口：
+  - 从原始日志选择若干行作为证据。
+  - 从时间线事件加入证据。
+  - 从错误码发生点加入证据。
+  - 从当前根因候选一键转为知识条目。
+  - 自动从证据日志中提取候选关键词、模块名、错误码、日志等级和时间跨度。
+- 知识库管理：
+  - 列表查看。
+  - 新增、编辑、删除。
+  - 启用、停用。
+  - 按标签、严重度、模块、错误码搜索。
+  - 查看历史命中次数。
+  - 查看最近命中样本。
+- 导入导出：
+  - JSON 导出完整知识库。
+  - JSON 导入知识库。
+  - 支持冲突提示，例如同名规则、同 ID 规则。
+  - 支持覆盖或跳过。
+
+#### 第一版建议数据结构
+
+建议新增 `KnowledgeRule`：
+
+```ts
+interface KnowledgeRule {
+  id: string
+  title: string
+  description: string
+  rootCause: string
+  solution: string
+  severity: 'info' | 'warning' | 'error'
+  tags: string[]
+  enabled: boolean
+  scope?: {
+    project?: string
+    robotType?: string
+    mapName?: string
+    version?: string
+    branch?: string
+  }
+  pattern: KnowledgeEvidencePattern
+  examples: KnowledgeExample[]
+  hitCount: number
+  createdAt: string
+  updatedAt: string
+}
+```
+
+建议新增 `KnowledgeEvidencePattern`：
+
+```ts
+interface KnowledgeEvidencePattern {
+  requiredKeywords: string[]
+  anyKeywords: string[]
+  excludedKeywords: string[]
+  modules: string[]
+  levels: string[]
+  errorCodes: string[]
+  windowSeconds?: number
+  minOccurrences?: number
+  confidenceBase?: number
+  confidenceWeights?: Array<{
+    type: 'keyword' | 'module' | 'level' | 'errorCode'
+    value: string
+    weight: number
+  }>
+}
+```
+
+建议新增 `KnowledgeMatch`：
+
+```ts
+interface KnowledgeMatch {
+  ruleId: string
+  title: string
+  confidence: number
+  severity: 'info' | 'warning' | 'error'
+  matchedPatterns: string[]
+  evidenceLines: ParsedLogLine[]
+  suggestion: string
+}
+```
+
+#### 第一版建议文件规划
+
+- 新增 `replay-server/config/knowledge-base.json`
+  - 存储本地知识库规则。
+  - 第一版使用 JSON 文件即可，降低部署复杂度。
+- 新增 `replay-server/src/core/knowledgeBase.ts`
+  - 读取知识库。
+  - 保存知识库。
+  - 导入导出。
+  - 根据日志行匹配规则。
+  - 输出 `KnowledgeMatch`。
+- 修改 `replay-server/src/types.ts`
+  - 增加 `KnowledgeRule`、`KnowledgeEvidencePattern`、`KnowledgeExample`、`KnowledgeMatch` 类型。
+  - 给 `RootCauseCandidate` 增加可选字段 `source: 'built_in' | 'knowledge_base' | 'llm'`。
+- 修改 `replay-server/src/core/rootCause.ts`
+  - 在内置根因规则之后执行知识库匹配。
+  - 将知识库命中转换为 `RootCauseCandidate`。
+  - 保持根因排序时考虑知识库置信度。
+- 修改 `replay-server/src/core/report.ts`
+  - Markdown/JSON 报告输出知识库命中来源。
+  - 报告中增加“知识库命中”小节。
+- 修改 `replay-server/src/core/diagnosticPackage.ts`
+  - 诊断包可选包含命中的知识规则快照。
+  - 不默认把完整本地知识库全部打包，避免泄露无关研发经验。
+- 修改 `replay-server/src/index.ts`
+  - 新增知识库 CRUD API。
+  - 新增知识库导入导出 API。
+  - 新增从证据日志生成候选规则 API。
+- 修改 `src/api/replay.ts`
+  - 增加知识库接口封装。
+- 修改 `src/stores/replay.ts`
+  - 增加知识库列表、当前编辑规则、证据选择状态。
+- 修改 `src/views/Replay.vue`
+  - 增加证据标记入口。
+  - 增加“沉淀知识”弹窗。
+  - 增加“知识库管理”弹窗或独立 Tab。
+
+#### 第一版前端交互规划
+
+- 原始日志 Tab：
+  - 每行日志增加选择框。
+  - 支持多选日志作为证据。
+  - 增加“用选中日志沉淀知识”按钮。
+  - 增加“加入当前知识证据”按钮。
+- 时间线 Tab：
+  - 每条事件增加“沉淀知识”按钮。
+  - 自动带入事件标题、详情、前后日志上下文。
+- 错误码中心：
+  - 每个错误码发生点增加“沉淀知识”按钮。
+  - 自动带入错误码、模块、等级和上下文。
+- 诊断结论：
+  - 内置根因候选增加“转为知识”按钮。
+  - 自动带入根因标题、建议、证据事件、证据日志。
+- 沉淀知识弹窗：
+  - 左侧展示证据日志。
+  - 右侧填写标题、描述、根因、处理办法、严重度、标签。
+  - 自动生成候选关键词、模块、错误码。
+  - 研发可勾选哪些模式作为规则。
+  - 保存前显示预计规则命中条件，避免规则过宽。
+- 知识库管理：
+  - 表格展示规则标题、严重度、标签、启用状态、命中次数、更新时间。
+  - 支持编辑、复制、停用、删除。
+  - 支持导入导出。
+  - 支持用当前日志立即试跑某条规则。
+
+#### 第一版后端规则匹配规划
+
+- 单条规则匹配流程：
+  - 先过滤排除关键词，命中排除则不匹配。
+  - 再检查必须关键词，全部存在才继续。
+  - 检查任意关键词，至少命中一个才继续。
+  - 检查模块名、日志等级、错误码。
+  - 如果配置时间窗口，则在窗口内聚合匹配证据。
+  - 如果配置次数阈值，则检查命中次数。
+  - 根据权重计算置信度。
+- 匹配结果转根因：
+  - `title` 使用知识标题。
+  - `suggestion` 使用处理办法。
+  - `evidenceLines` 使用命中的日志行。
+  - `triggeredRules` 输出命中的模式项。
+  - `positiveEvidence` 输出证据摘要。
+  - `confidenceFactors` 输出置信度来源。
+  - `source` 标记为 `knowledge_base`。
+- 性能边界：
+  - 第一版先基于 `rawLines` 扫描。
+  - 如果知识库规则增多，再引入倒排索引或预编译正则。
+  - 默认限制单条规则最多返回前 50 条证据，避免报告过大。
+
+#### 第一版导入导出和多人同步
+
+- 本地文件：
+  - 默认存储在 `replay-server/config/knowledge-base.json`。
+  - 适合单机研发使用。
+- 导出：
+  - 导出完整 JSON。
+  - 包含规则版本、导出时间、规则数量。
+- 导入：
+  - 同 ID 规则提示冲突。
+  - 支持跳过、覆盖、另存为副本。
+- 多人同步：
+  - 第一阶段通过 Git 或共享文件同步知识库 JSON。
+  - 后续如果团队规模扩大，再考虑服务端知识库或数据库。
+- 诊断包：
+  - 诊断包内保存“本次命中的知识规则快照”，方便研发复现当时诊断依据。
+  - 不自动包含全量知识库，避免将未公开规则或客户信息带出。
+
+### 第二版：机器学习、向量库和 DeepSeek 问答
+
+第二版建立在第一版规则知识库稳定之后，目标是让研发可以用自然语言询问当前日志，并通过相似案例检索快速找到历史经验。
+
+#### 第二版核心能力
+
+- 向量知识库：
+  - 将知识条目、历史人工结论、处理办法、证据日志切分成文档块。
+  - 为每个文档块生成 embedding。
+  - 存入本地向量库。
+  - 根据当前日志片段、错误码、根因候选检索相似历史案例。
+- 相似案例推荐：
+  - 在诊断结论旁展示“相似历史问题”。
+  - 展示相似度、问题标题、处理办法、关键证据。
+  - 支持一键打开历史案例详情。
+- 自然语言问答：
+  - 前端增加“问诊助手”。
+  - 研发可以直接提问：
+    - “这次问题最可能是什么？”
+    - “这些激光超时日志以前遇到过吗？”
+    - “这个 ERRORxxxx 应该怎么处理？”
+    - “帮我总结这份日志的问题链路。”
+    - “为什么任务没有成功完成？”
+  - 后端根据当前诊断数据、原始日志片段、知识库命中、相似案例构造上下文。
+  - 调用 DeepSeek 官方 API 返回结构化回答。
+- DeepSeek 官方 API 接入：
+  - 后端新增 LLM Provider 层。
+  - 通过环境变量配置 `DEEPSEEK_API_KEY`。
+  - 模型名、超时、最大 token、温度等参数可配置。
+  - API Key 只在后端使用，不下发给前端。
+  - 支持请求超时、重试和错误提示。
+- RAG 流程：
+  - 汇总当前诊断概览。
+  - 提取用户问题。
+  - 检索相关知识条目和历史案例。
+  - 检索当前日志中的相关片段。
+  - 拼接上下文。
+  - 调用 DeepSeek。
+  - 返回结论、证据、可能根因、处理建议、不确定点。
+
+#### 第二版建议文件规划
+
+- 新增 `replay-server/src/core/knowledgeEmbedding.ts`
+  - 将知识条目和案例转换为可向量化文本块。
+- 新增 `replay-server/src/core/vectorStore.ts`
+  - 第一版可用本地 JSON/SQLite 存储向量。
+  - 后续可替换为专业向量数据库。
+- 新增 `replay-server/src/core/llmProvider.ts`
+  - 定义统一 LLM 调用接口。
+- 新增 `replay-server/src/core/deepseekClient.ts`
+  - 封装 DeepSeek 官方 API。
+- 新增 `replay-server/src/core/ragAssistant.ts`
+  - 负责检索、上下文构造、问答编排。
+- 新增 `replay-server/config/llm.example.json`
+  - 记录 LLM 配置模板，不存真实密钥。
+- 新增 `src/components/replay/ReplayAssistant.vue`
+  - 前端问诊助手组件。
+
+#### 第二版安全边界
+
+- 默认仍以本地规则诊断为主，LLM 只作为辅助分析。
+- LLM 输出必须标记为“AI 辅助建议”，不能直接覆盖根因结论。
+- LLM 不允许自动写入知识库。
+- 只有研发确认后，AI 建议才能转为知识条目。
+- DeepSeek API Key 不进入前端、不进入诊断包、不写入 Git。
+- 支持脱敏：
+  - 本地路径脱敏。
+  - IP 地址脱敏。
+  - 客户名称或现场名称脱敏。
+  - 车号按配置决定是否脱敏。
+- 支持上下文长度限制：
+  - 不上传全量日志。
+  - 只上传当前问题相关片段、知识摘要和统计信息。
+- 支持离线模式：
+  - 未配置 API Key 时，规则知识库照常工作。
+  - 页面隐藏或禁用问诊助手的在线能力。
+
+### 推荐实施顺序
+
+1. 第一阶段：规则知识库基础能力。
+   - 完成知识库 JSON 存储。
+   - 完成知识条目 CRUD。
+   - 完成规则匹配。
+   - 完成命中结果合并到根因候选。
+2. 第二阶段：研发标注闭环。
+   - 原始日志支持选择证据。
+   - 时间线、错误码、根因候选支持沉淀知识。
+   - 自动提取候选关键词、模块、错误码。
+   - 支持知识库导入导出。
+3. 第三阶段：知识库质量建设。
+   - 增加规则试跑。
+   - 增加命中次数统计。
+   - 增加规则过宽/过窄提醒。
+   - 建立真实样本回归测试，避免新增知识误报。
+4. 第四阶段：相似案例检索。
+   - 将知识条目和人工结论切块。
+   - 引入本地向量库。
+   - 在诊断结果中推荐相似历史问题。
+5. 第五阶段：DeepSeek 问诊助手。
+   - 接入 DeepSeek 官方 API。
+   - 实现 RAG 问答。
+   - 支持研发确认后将 AI 建议转为知识条目。
+6. 第六阶段：团队协作和产品化。
+   - 知识库版本管理。
+   - 多人同步。
+   - 规则审核。
+   - 桌面端或车端采集流程中集成知识库版本信息。
+
+### 第一版验收标准
+
+- 研发可以从原始日志选择证据并保存为知识条目。
+- 新建知识条目后，重新解析同一份日志能自动命中。
+- 命中结果会出现在诊断结论中，并标记来源为知识库。
+- 命中结果包含证据日志、置信度和处理办法。
+- Markdown/JSON 报告能输出知识库命中。
+- 知识库可以导入导出。
+- 禁用某条知识后，该规则不再参与诊断。
+- 样本验证可以覆盖至少 3 条知识库规则，避免误报和漏报。
+
+### 第二版验收标准
+
+- 配置 DeepSeek API Key 后，可以在页面自然语言提问。
+- 问答结果能引用当前日志证据和知识库条目。
+- 相似案例推荐能返回历史问题标题、处理办法和相似证据。
+- 未配置 API Key 时，工具仍能正常使用规则知识库。
+- AI 建议不会自动写入知识库，必须人工确认。
+- 请求上下文不会上传全量日志，只上传相关片段和摘要。
+
+## 规则型诊断知识库第一版实现记录
+
+第一版规则型诊断知识库已进入实现，目标是先完成“研发标注证据 -> 保存知识规则 -> 下次自动命中 -> 输出到诊断结论和报告”的最小闭环。
+
+### 已实现能力
+
+- 新增本地知识库文件 `replay-server/config/knowledge-base.json`。
+- 新增知识库类型：`KnowledgeRule`、`KnowledgeEvidencePattern`、`KnowledgeExample`、`KnowledgeMatch`。
+- `RootCauseCandidate` 增加来源字段，可标记 `built_in`、`knowledge_base`、`llm`。
+- 新增 `replay-server/src/core/knowledgeBase.ts`：
+  - 知识库读写。
+  - 规则增删改查。
+  - 启用/停用。
+  - 导入/导出。
+  - 证据日志自动提取候选关键词、模块、错误码、等级。
+  - 基于关键词、模块、等级、错误码、时间窗口、次数阈值的规则匹配。
+  - 命中结果转换为根因候选。
+- session 解析完成后会执行知识库匹配，并将命中结果写入 `knowledgeMatches`。
+- 知识库命中会合并到诊断结论，并展示为“知识库命中”。
+- Markdown/JSON 报告输出知识库命中。
+- 诊断包导出 `config/knowledge-matches.json`，保存本次命中的知识规则快照。
+- 新增知识库 API：
+  - `GET /api/replay/knowledge`
+  - `POST /api/replay/knowledge`
+  - `PUT /api/replay/knowledge/:id`
+  - `DELETE /api/replay/knowledge/:id`
+  - `POST /api/replay/knowledge/:id/toggle`
+  - `GET /api/replay/knowledge/export`
+  - `POST /api/replay/knowledge/import`
+  - `POST /api/replay/knowledge/suggest-pattern`
+  - `POST /api/replay/knowledge/test`
+- 前端 `/replay` 页面新增：
+  - 顶部“知识库”入口。
+  - 原始日志多选作为证据。
+  - 时间线事件沉淀知识。
+  - 错误码发生点沉淀知识。
+  - 根因候选转为知识。
+  - “沉淀诊断知识”弹窗。
+  - “诊断知识库”管理弹窗。
+  - 知识规则筛选、编辑、复制、删除、启用/停用、导入、导出、试跑。
+
+### 第一版当前边界
+
+- 第一版使用本地 JSON 文件存储，不引入数据库。
+- 规则匹配以字符串包含为主，暂不做复杂正则编辑器。
+- 时间窗口匹配已支持，但“多个事件必须按顺序出现”的复杂时序规则暂未实现。
+- 规则过宽/过窄提醒暂未做成独立评分，仅通过试跑结果辅助研发判断。
+- 诊断包只保存本次命中的知识快照，不导出全量本地知识库。
+- DeepSeek、向量库、自然语言问答仍属于第二版能力。
+
+### 第一版自动验收记录
+
+本轮补充了专项验收脚本 `replay-server/scripts/verify-knowledge.ts`，并新增 npm 命令 `npm run replay:verify:knowledge`。脚本会在执行前备份 `replay-server/config/knowledge-base.json`，执行过程中临时写入验收规则，结束后恢复原知识库，避免污染研发本地知识。
+
+已覆盖验收项：
+
+- 模拟研发从原始日志选择证据，并保存为知识条目。
+- 新建知识条目后，重新解析 `/home/xbl/Desktop/log-20260710-173240.log` 能自动命中。
+- 命中结果进入 `overview.rootCauses`，并标记 `source: knowledge_base`。
+- 命中结果包含证据日志、置信度、处理办法。
+- Markdown 报告包含 `## 知识库命中`，JSON 报告包含 `knowledgeMatches`。
+- 知识库导出后可重新导入，导入后的规则仍可命中。
+- 禁用某条知识后，重新解析同一份日志不再命中该规则，其他规则不受影响。
+- 样本验证覆盖 3 条规则：
+  - `verify-knowledge-map-io-area`：地图缺少 IO 区域配置。
+  - `verify-knowledge-battery-missing`：电池数据采集失败。
+  - `verify-knowledge-empty-task-error-code`：任务错误码为空。
+
+本轮验证命令：
+
+- `npx -y -p node@20 -c 'npm run typecheck'`：通过。
+- `npx -y -p node@20 -c 'npm run build'`：通过，仅保留 Vite chunk 偏大警告。
+- `npx -y -p node@20 -c 'npm run replay:build'`：通过。
+- `npx -y -p node@20 -c './node_modules/.bin/tsx replay-server/scripts/verify-sample.ts'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:samples'`：通过。
+- `npx -y -p node@20 -c 'npm run replay:verify:knowledge'`：通过，输出 `accepted: true`、`rules: 3`、`matches: 3`、`rootCauses: 3`、`imported: 3`。
+
+仍建议补充的人工验收：
+
+- 在浏览器中手动打开 `/replay`，从“原始日志”表格勾选证据行并保存知识条目。
+- 在页面上确认知识库管理弹窗中的新增、编辑、复制、删除、导入、导出、启停、试跑交互体验。
+
+### 后续优化建议
+
+- 增加规则命中预览，显示哪些条件命中、哪些条件未命中。
+- 增加规则误报反馈，支持从知识库命中直接标记“误报”。
+- 增加知识规则样本绑定，每条规则保存正样本和负样本。
+- 增加规则质量评分，提示规则过宽或证据过少。
+- 增加知识库版本号和团队同步策略。

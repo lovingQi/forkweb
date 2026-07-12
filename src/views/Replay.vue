@@ -22,6 +22,7 @@
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
           <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
           <el-button :disabled="!replay.loaded" @click="openCaseMetaDialog">人工结论</el-button>
+          <el-button @click="openKnowledgeDialog">知识库</el-button>
           <el-button @click="openPackageCompareDialog">诊断包对比</el-button>
           <el-button @click="triggerPackageImport">导入诊断包</el-button>
           <el-button :disabled="!packagePath" @click="importPackagePath">路径导入</el-button>
@@ -100,6 +101,7 @@
         <el-collapse-item v-for="cause in rootCauses" :key="cause.id" :name="cause.id">
           <template #title>
             <span class="cause-title">{{ cause.title }}</span>
+            <el-tag v-if="cause.source === 'knowledge_base'" size="small" type="success">知识库命中</el-tag>
             <el-tag size="small" :type="cause.severity === 'error' ? 'danger' : 'warning'">
               {{ Math.round((cause.confidence || 0) * 100) }}%
             </el-tag>
@@ -110,6 +112,7 @@
               <el-button size="small" @click="jumpFirstEvidence(cause)">跳转证据</el-button>
               <el-button size="small" plain @click="copyCauseEvidence(cause)">复制证据包</el-button>
               <el-button size="small" plain @click="openBookmarkDialog(cause)">加书签</el-button>
+              <el-button size="small" plain @click="openKnowledgeDraftFromCause(cause)">转为知识</el-button>
               <el-button size="small" type="success" plain @click="sendCauseFeedback(cause.id, 'useful')">有用</el-button>
               <el-button size="small" type="warning" plain @click="sendCauseFeedback(cause.id, 'false_positive')">误报</el-button>
             </div>
@@ -337,6 +340,7 @@
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="openBookmarkDialog(row)">书签</el-button>
                 <el-button size="small" link @click.stop="copyEventEvidence(row)">复制证据</el-button>
+                <el-button size="small" link @click.stop="openKnowledgeDraftFromEvent(row)">沉淀知识</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -392,6 +396,7 @@
               <template #default="{ row }">
                 <el-button size="small" link @click.stop="showErrorLogContext(row)">查看日志上下文</el-button>
                 <el-button size="small" link @click.stop="openBookmarkDialog(row)">书签</el-button>
+                <el-button size="small" link @click.stop="openKnowledgeDraftFromError(row)">沉淀知识</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -485,6 +490,10 @@
             <el-button @click="loadCurrentTimeLogs">当前时间上下文</el-button>
             <el-button :disabled="!replay.logCopyText" @click="copyLogContext">复制上下文</el-button>
             <el-button :disabled="!replay.logCopyText" @click="copyCurrentEvidencePack">复制证据包</el-button>
+            <el-button :disabled="selectedLogRows.length === 0" @click="addSelectedLogEvidence">选中作为证据</el-button>
+            <el-button :disabled="replay.selectedEvidenceLines.length === 0" @click="openKnowledgeDraftFromEvidence">沉淀知识</el-button>
+            <el-button :disabled="replay.selectedEvidenceLines.length === 0" @click="replay.clearEvidenceLines">清空证据</el-button>
+            <el-tag type="info">证据 {{ replay.selectedEvidenceLines.length }}</el-tag>
           </div>
           <div class="fold-row">
             <el-tag v-for="fold in replay.folded" :key="fold.id" type="info" class="fold-tag" @click="openFoldDetail(fold)">
@@ -493,7 +502,14 @@
             <el-tag v-if="highlightedLogKey" type="warning">已高亮关联日志</el-tag>
             <el-tag v-for="keyword in replay.logKeywordMatches" :key="keyword" type="success">关键词 {{ keyword }}</el-tag>
           </div>
-          <el-table :data="replay.logs" height="260" size="small" :row-class-name="logRowClassName">
+          <el-table
+            :data="replay.logs"
+            height="260"
+            size="small"
+            :row-class-name="logRowClassName"
+            @selection-change="onLogSelectionChange"
+          >
+            <el-table-column type="selection" width="42" />
             <el-table-column prop="timestamp" label="时间" width="180" />
             <el-table-column prop="level" label="级别" width="70" />
             <el-table-column prop="module" label="模块" width="130" />
@@ -664,6 +680,124 @@
       </el-descriptions>
     </el-dialog>
 
+    <el-dialog v-model="knowledgeDraftVisible" title="沉淀诊断知识" width="960px">
+      <div class="knowledge-layout">
+        <div>
+          <div class="context-title">证据日志</div>
+          <el-table :data="knowledgeDraft.examples?.[0]?.lines || []" height="360" size="small">
+            <el-table-column prop="timestamp" label="时间" width="170" />
+            <el-table-column prop="level" label="级别" width="64" />
+            <el-table-column prop="module" label="模块" width="120" />
+            <el-table-column prop="message" label="内容" show-overflow-tooltip />
+          </el-table>
+        </div>
+        <el-form label-width="86px" class="knowledge-form">
+          <el-form-item label="标题">
+            <el-input v-model="knowledgeDraft.title" />
+          </el-form-item>
+          <el-form-item label="严重度">
+            <el-select v-model="knowledgeDraft.severity">
+              <el-option value="info" label="信息" />
+              <el-option value="warning" label="警告" />
+              <el-option value="error" label="错误" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="标签">
+            <el-input v-model="knowledgeTagText" placeholder="逗号分隔" />
+          </el-form-item>
+          <el-form-item label="问题描述">
+            <el-input v-model="knowledgeDraft.description" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item label="确认根因">
+            <el-input v-model="knowledgeDraft.rootCause" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item label="处理办法">
+            <el-input v-model="knowledgeDraft.solution" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item label="必选词">
+            <el-input v-model="patternText.requiredKeywords" placeholder="逗号分隔" />
+          </el-form-item>
+          <el-form-item label="任意词">
+            <el-input v-model="patternText.anyKeywords" placeholder="逗号分隔" />
+          </el-form-item>
+          <el-form-item label="排除词">
+            <el-input v-model="patternText.excludedKeywords" placeholder="逗号分隔" />
+          </el-form-item>
+          <el-form-item label="模块">
+            <el-input v-model="patternText.modules" placeholder="逗号分隔" />
+          </el-form-item>
+          <el-form-item label="等级">
+            <el-input v-model="patternText.levels" placeholder="E,W,I,D" />
+          </el-form-item>
+          <el-form-item label="错误码">
+            <el-input v-model="patternText.errorCodes" placeholder="ERRORxxxx,逗号分隔" />
+          </el-form-item>
+          <el-form-item label="窗口/次数">
+            <div class="inline-controls">
+              <el-input-number v-model="knowledgeDraft.pattern.windowSeconds" :min="0" :controls="false" placeholder="秒" />
+              <el-input-number v-model="knowledgeDraft.pattern.minOccurrences" :min="1" :controls="false" placeholder="次数" />
+              <el-input-number v-model="knowledgeDraft.pattern.confidenceBase" :min="0" :max="1" :step="0.05" :controls="false" placeholder="基础置信度" />
+            </div>
+          </el-form-item>
+          <el-form-item label="启用">
+            <el-switch v-model="knowledgeDraft.enabled" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <el-alert
+        v-if="replay.knowledgeTestResult"
+        class="dialog-alert"
+        :type="replay.knowledgeTestResult.matched ? 'success' : 'warning'"
+        :closable="false"
+        :title="replay.knowledgeTestResult.matched ? `试跑命中，置信度 ${confidenceText(replay.knowledgeTestResult.match?.confidence)}` : '试跑未命中'"
+      />
+      <template #footer>
+        <el-button @click="autoSuggestKnowledgePattern">自动提取规则</el-button>
+        <el-button @click="testKnowledgeDraft">试跑</el-button>
+        <el-button @click="knowledgeDraftVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveKnowledgeDraft">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="knowledgeDialogVisible" title="诊断知识库" width="980px">
+      <div class="dialog-toolbar">
+        <el-input v-model="knowledgeQuery.keyword" placeholder="搜索标题/描述" class="filter-item" />
+        <el-select v-model="knowledgeQuery.severity" clearable placeholder="严重度" class="filter-item">
+          <el-option value="error" label="错误" />
+          <el-option value="warning" label="警告" />
+          <el-option value="info" label="信息" />
+        </el-select>
+        <el-button size="small" @click="refreshKnowledgeWithQuery">筛选</el-button>
+        <el-button size="small" @click="openBlankKnowledgeDraft">新增</el-button>
+        <el-button size="small" @click="openKnowledgeExport">导出</el-button>
+        <el-button size="small" @click="triggerKnowledgeImport">导入</el-button>
+        <el-checkbox v-model="knowledgeImportOverwrite" size="small">覆盖冲突</el-checkbox>
+        <input ref="knowledgeInput" class="hidden-input" type="file" accept=".json" @change="onKnowledgeFileSelected" />
+      </div>
+      <el-table :data="replay.knowledgeRules" height="420" size="small">
+        <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="severity" label="严重度" width="80" />
+        <el-table-column label="标签" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ (row.tags || []).join(', ') }}</template>
+        </el-table-column>
+        <el-table-column prop="hitCount" label="命中" width="70" />
+        <el-table-column label="启用" width="70">
+          <template #default="{ row }">
+            <el-switch v-model="row.enabled" @change="(value:any) => toggleKnowledge(row, value)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="updatedAt" label="更新时间" width="180" />
+        <el-table-column label="操作" width="220">
+          <template #default="{ row }">
+            <el-button size="small" link @click="editKnowledgeRule(row)">编辑</el-button>
+            <el-button size="small" link @click="copyKnowledgeRule(row)">复制</el-button>
+            <el-button size="small" link @click="testKnowledgeRule(row)">试跑</el-button>
+            <el-button size="small" type="danger" link @click="deleteKnowledge(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
     <el-dialog v-model="packageInfoVisible" title="诊断包信息" width="720px">
       <el-descriptions v-if="replay.importedPackage" :column="2" size="small" border>
         <el-descriptions-item label="包 ID">{{ replay.importedPackage.id }}</el-descriptions-item>
@@ -713,7 +847,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
 import ReplayCharts from '@/components/replay/ReplayCharts.vue'
-import { getReplayMap, replayMapAliasesExportUrl, replayPackageUrl, replayReportUrl } from '@/api/replay'
+import { getReplayMap, replayKnowledgeExportUrl, replayMapAliasesExportUrl, replayPackageUrl, replayReportUrl } from '@/api/replay'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
@@ -734,10 +868,15 @@ const bookmarkDialogVisible = ref(false)
 const caseMetaDialogVisible = ref(false)
 const packageExportDialogVisible = ref(false)
 const packageCompareDialogVisible = ref(false)
+const knowledgeDialogVisible = ref(false)
+const knowledgeDraftVisible = ref(false)
 const aliasImportOverwrite = ref(false)
+const knowledgeImportOverwrite = ref(false)
 const smoothTrajectory = ref(false)
+const selectedLogRows = ref<any[]>([])
 const packageInput = ref<HTMLInputElement | null>(null)
 const aliasInput = ref<HTMLInputElement | null>(null)
+const knowledgeInput = ref<HTMLInputElement | null>(null)
 const compareLeftInput = ref<HTMLInputElement | null>(null)
 const compareRightInput = ref<HTMLInputElement | null>(null)
 const bookmarkForm = ref<any>({ timeMs: 0, timestamp: '', title: '', note: '', eventId: '', level: 'info' })
@@ -752,6 +891,17 @@ const packageExportForm = ref({
 })
 const compareLeftManifest = ref<any>(null)
 const compareRightManifest = ref<any>(null)
+const knowledgeQuery = ref({ keyword: '', severity: '' })
+const knowledgeDraft = ref<any>(emptyKnowledgeDraft())
+const knowledgeTagText = ref('')
+const patternText = ref({
+  requiredKeywords: '',
+  anyKeywords: '',
+  excludedKeywords: '',
+  modules: '',
+  levels: '',
+  errorCodes: ''
+})
 let progressTimer = 0
 
 const overviewItems = computed(() => {
@@ -1513,6 +1663,299 @@ async function compareManifests() {
   }
 }
 
+function onLogSelectionChange(rows: any[]) {
+  selectedLogRows.value = rows || []
+}
+
+function addSelectedLogEvidence() {
+  replay.addEvidenceLines(selectedLogRows.value)
+  ElMessage.success(`已加入证据 ${selectedLogRows.value.length} 行`)
+}
+
+async function openKnowledgeDialog() {
+  try {
+    await replay.refreshKnowledge(knowledgeQuery.value)
+    knowledgeDialogVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function refreshKnowledgeWithQuery() {
+  await replay.refreshKnowledge(knowledgeQuery.value)
+}
+
+function openBlankKnowledgeDraft() {
+  openKnowledgeDraft(emptyKnowledgeDraft())
+}
+
+function openKnowledgeDraftFromEvidence() {
+  openKnowledgeDraft(buildKnowledgeDraft({
+    title: '新诊断知识',
+    description: '',
+    rootCause: '',
+    solution: '',
+    lines: replay.selectedEvidenceLines
+  }))
+}
+
+function openKnowledgeDraftFromEvent(row: any) {
+  const lines = [...(row.contextBefore || []), row.line, ...(row.contextAfter || [])].filter(Boolean)
+  replay.addEvidenceLines(lines)
+  openKnowledgeDraft(buildKnowledgeDraft({
+    title: row.title || '时间线知识',
+    description: row.detail || '',
+    rootCause: row.detail || '',
+    solution: '',
+    lines
+  }))
+}
+
+function openKnowledgeDraftFromError(row: any) {
+  const line = row.line ? [row.line] : []
+  replay.addEvidenceLines(line)
+  openKnowledgeDraft(buildKnowledgeDraft({
+    title: `${row.code || '错误码'} 诊断知识`,
+    description: row.definition?.description || row.source || '',
+    rootCause: row.definition?.description || '',
+    solution: '',
+    lines: line,
+    seed: {
+      pattern: {
+        errorCodes: row.code ? [row.code] : [],
+        modules: row.line?.module ? [row.line.module] : [],
+        levels: row.line?.level ? [row.line.level] : []
+      }
+    }
+  }))
+}
+
+function openKnowledgeDraftFromCause(cause: any) {
+  const lines = cause.evidenceLines || []
+  replay.addEvidenceLines(lines)
+  openKnowledgeDraft(buildKnowledgeDraft({
+    title: cause.title || '根因知识',
+    description: cause.suggestion || '',
+    rootCause: cause.title || '',
+    solution: cause.suggestion || '',
+    severity: cause.severity || 'warning',
+    lines
+  }))
+}
+
+function openKnowledgeDraft(rule: any) {
+  knowledgeDraft.value = normalizeKnowledgeDraft(rule)
+  knowledgeTagText.value = (knowledgeDraft.value.tags || []).join(',')
+  syncPatternTextFromDraft()
+  replay.knowledgeTestResult = null
+  knowledgeDraftVisible.value = true
+}
+
+function editKnowledgeRule(rule: any) {
+  openKnowledgeDraft(JSON.parse(JSON.stringify(rule)))
+}
+
+function copyKnowledgeRule(rule: any) {
+  const copy = JSON.parse(JSON.stringify(rule))
+  copy.id = ''
+  copy.title = `${copy.title} 副本`
+  copy.hitCount = 0
+  copy.recentHits = []
+  openKnowledgeDraft(copy)
+}
+
+async function toggleKnowledge(row: any, enabled: boolean) {
+  try {
+    await replay.toggleKnowledgeRule(row.id, enabled)
+    ElMessage.success(enabled ? '知识规则已启用' : '知识规则已停用')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function deleteKnowledge(id: string) {
+  try {
+    await replay.deleteKnowledgeRule(id)
+    ElMessage.success('知识规则已删除')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function testKnowledgeRule(rule: any) {
+  try {
+    await replay.testKnowledgeRule(normalizeKnowledgeDraft(rule))
+    ElMessage.success(replay.knowledgeTestResult?.matched ? '试跑命中' : '试跑未命中')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function testKnowledgeDraft() {
+  await testKnowledgeRule(draftWithPatternText())
+}
+
+async function autoSuggestKnowledgePattern() {
+  try {
+    const suggestion = await replay.suggestKnowledgePattern(knowledgeDraft.value.examples?.[0]?.lines || replay.selectedEvidenceLines)
+    knowledgeDraft.value.pattern = {
+      ...knowledgeDraft.value.pattern,
+      ...suggestion
+    }
+    syncPatternTextFromDraft()
+    ElMessage.success('已提取候选规则')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function saveKnowledgeDraft() {
+  try {
+    const draft = draftWithPatternText()
+    if (draft.id) await replay.updateKnowledgeRule(draft.id, draft)
+    else await replay.createKnowledgeRule(draft)
+    knowledgeDraftVisible.value = false
+    await replay.refreshKnowledge(knowledgeQuery.value)
+    ElMessage.success('诊断知识已保存')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+function openKnowledgeExport() {
+  window.open(replayKnowledgeExportUrl(), '_blank')
+}
+
+function triggerKnowledgeImport() {
+  knowledgeInput.value?.click()
+}
+
+async function onKnowledgeFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const json = JSON.parse(await file.text())
+    const res = await replay.importKnowledgeRules(json, knowledgeImportOverwrite.value)
+    ElMessage.success(`知识库导入完成：新增 ${res.imported || 0}，更新 ${res.updated || 0}，跳过 ${res.skipped || 0}`)
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  } finally {
+    input.value = ''
+  }
+}
+
+function emptyKnowledgeDraft() {
+  return buildKnowledgeDraft({ title: '', description: '', rootCause: '', solution: '', lines: [] })
+}
+
+function buildKnowledgeDraft(input: { title: string; description: string; rootCause: string; solution: string; severity?: string; lines: any[]; seed?: any }) {
+  return normalizeKnowledgeDraft({
+    id: input.seed?.id || '',
+    title: input.title,
+    description: input.description,
+    rootCause: input.rootCause,
+    solution: input.solution,
+    severity: input.severity || 'warning',
+    tags: input.seed?.tags || [],
+    enabled: true,
+    scope: {},
+    pattern: {
+      requiredKeywords: [],
+      anyKeywords: [],
+      excludedKeywords: [],
+      modules: input.seed?.pattern?.modules || [],
+      levels: input.seed?.pattern?.levels || [],
+      errorCodes: input.seed?.pattern?.errorCodes || [],
+      windowSeconds: 10,
+      minOccurrences: 1,
+      confidenceBase: 0.62,
+      confidenceWeights: []
+    },
+    examples: [{
+      id: `example-${Date.now()}`,
+      title: '研发标注证据',
+      lines: input.lines || [],
+      createdAt: new Date().toISOString()
+    }],
+    hitCount: 0
+  })
+}
+
+function normalizeKnowledgeDraft(rule: any) {
+  const draft = {
+    ...emptyKnowledgeShape(),
+    ...rule,
+    pattern: {
+      ...emptyKnowledgeShape().pattern,
+      ...(rule?.pattern || {})
+    },
+    examples: Array.isArray(rule?.examples) && rule.examples.length ? rule.examples : [{
+      id: `example-${Date.now()}`,
+      title: '研发标注证据',
+      lines: replay.selectedEvidenceLines,
+      createdAt: new Date().toISOString()
+    }]
+  }
+  return draft
+}
+
+function emptyKnowledgeShape() {
+  return {
+    id: '',
+    title: '',
+    description: '',
+    rootCause: '',
+    solution: '',
+    severity: 'warning',
+    tags: [] as string[],
+    enabled: true,
+    scope: {},
+    pattern: {
+      requiredKeywords: [] as string[],
+      anyKeywords: [] as string[],
+      excludedKeywords: [] as string[],
+      modules: [] as string[],
+      levels: [] as string[],
+      errorCodes: [] as string[],
+      windowSeconds: 10,
+      minOccurrences: 1,
+      confidenceBase: 0.62,
+      confidenceWeights: [] as any[]
+    },
+    examples: [] as any[],
+    hitCount: 0
+  }
+}
+
+function syncPatternTextFromDraft() {
+  const pattern = knowledgeDraft.value.pattern || {}
+  patternText.value = {
+    requiredKeywords: (pattern.requiredKeywords || []).join(','),
+    anyKeywords: (pattern.anyKeywords || []).join(','),
+    excludedKeywords: (pattern.excludedKeywords || []).join(','),
+    modules: (pattern.modules || []).join(','),
+    levels: (pattern.levels || []).join(','),
+    errorCodes: (pattern.errorCodes || []).join(',')
+  }
+}
+
+function draftWithPatternText() {
+  const draft = JSON.parse(JSON.stringify(knowledgeDraft.value))
+  draft.tags = splitList(knowledgeTagText.value)
+  draft.pattern.requiredKeywords = splitList(patternText.value.requiredKeywords)
+  draft.pattern.anyKeywords = splitList(patternText.value.anyKeywords)
+  draft.pattern.excludedKeywords = splitList(patternText.value.excludedKeywords)
+  draft.pattern.modules = splitList(patternText.value.modules)
+  draft.pattern.levels = splitList(patternText.value.levels)
+  draft.pattern.errorCodes = splitList(patternText.value.errorCodes).map((item) => item.toUpperCase())
+  return draft
+}
+
+function splitList(text: string) {
+  return String(text || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
+
 function highlightLogMessage(text: string) {
   const keywords = [
     replay.logFilter.keyword,
@@ -1913,6 +2356,22 @@ onBeforeUnmount(() => {
 }
 .dialog-table {
   margin-top: 10px;
+}
+.knowledge-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+}
+.knowledge-form {
+  min-width: 0;
+}
+.inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inline-controls :deep(.el-input-number) {
+  width: 100px;
 }
 .pager {
   margin-top: 8px;

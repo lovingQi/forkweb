@@ -10,6 +10,18 @@ import { exportDiagnosticPackage, importDiagnosticPackage, type DiagnosticPackag
 import { isNoiseLine, noiseRuleId } from './core/noise'
 import { addBookmark, deleteBookmark, readBookmarks } from './core/bookmarks'
 import { readCaseMeta, writeCaseMeta } from './core/caseMeta'
+import {
+  createKnowledgeRule,
+  deleteKnowledgeRule,
+  exportKnowledgeLibraryPayload,
+  importKnowledgeLibraryPayload,
+  listKnowledgeRules,
+  matchKnowledgeRule,
+  readKnowledgeLibrary,
+  suggestKnowledgePattern,
+  toggleKnowledgeRule,
+  updateKnowledgeRule
+} from './core/knowledgeBase'
 import { comparePackageManifests } from './core/packageCompare'
 import {
   deleteMapAlias,
@@ -199,6 +211,64 @@ app.get('/api/replay/case-meta', async (_req, res) => {
 
 app.post('/api/replay/case-meta', async (req, res) => {
   res.json({ succeed: true, caseMeta: await writeCaseMeta(req.body || {}) })
+})
+
+app.get('/api/replay/knowledge', async (req, res) => {
+  res.json(await listKnowledgeRules(req.query))
+})
+
+app.post('/api/replay/knowledge', async (req, res) => {
+  try {
+    res.json({ succeed: true, rule: await createKnowledgeRule(req.body || {}), knowledge: await listKnowledgeRules() })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.put('/api/replay/knowledge/:id', async (req, res) => {
+  const rule = await updateKnowledgeRule(req.params.id, req.body || {})
+  if (!rule) {
+    res.status(404).json({ succeed: false, error: 'knowledge rule not found' })
+    return
+  }
+  res.json({ succeed: true, rule, knowledge: await listKnowledgeRules() })
+})
+
+app.delete('/api/replay/knowledge/:id', async (req, res) => {
+  res.json({ succeed: await deleteKnowledgeRule(req.params.id), knowledge: await listKnowledgeRules() })
+})
+
+app.post('/api/replay/knowledge/:id/toggle', async (req, res) => {
+  const rule = await toggleKnowledgeRule(req.params.id, typeof req.body.enabled === 'boolean' ? req.body.enabled : undefined)
+  if (!rule) {
+    res.status(404).json({ succeed: false, error: 'knowledge rule not found' })
+    return
+  }
+  res.json({ succeed: true, rule, knowledge: await listKnowledgeRules() })
+})
+
+app.get('/api/replay/knowledge/export', async (_req, res) => {
+  res.setHeader('Content-Disposition', 'attachment; filename="knowledge-base.json"')
+  res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibrary()))
+})
+
+app.post('/api/replay/knowledge/import', async (req, res) => {
+  try {
+    res.json({ succeed: true, ...(await importKnowledgeLibraryPayload(req.body.library || req.body, !!req.body.overwrite)) })
+  } catch (e) {
+    res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+app.post('/api/replay/knowledge/suggest-pattern', (req, res) => {
+  const lines = Array.isArray(req.body.lines) ? req.body.lines : []
+  res.json({ suggestion: suggestKnowledgePattern(lines) })
+})
+
+app.post('/api/replay/knowledge/test', async (req, res) => {
+  const rule = req.body.rule || req.body
+  const match = matchKnowledgeRule(rule, session.data.rawLines)
+  res.json({ match, matched: !!match })
 })
 
 app.get('/api/replay/tasks', (req, res) => {

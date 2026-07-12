@@ -1,13 +1,16 @@
-import type { RootCauseCandidate } from '../types'
+import type { KnowledgeMatch, RootCauseCandidate } from '../types'
+import { knowledgeMatchToRootCauseCandidate } from './knowledgeBase'
 import { ROOT_CAUSE_RULES, type RootCauseContext } from './rootCauseRules'
 
-export function buildRootCauses(ctx: RootCauseContext): RootCauseCandidate[] {
+export function buildRootCauses(ctx: RootCauseContext, knowledgeMatches: KnowledgeMatch[] = []): RootCauseCandidate[] {
   const candidates = ROOT_CAUSE_RULES.map((rule) => {
     const candidate = rule.build(ctx)
-    return candidate ? applyConfidence(candidate, rule.weight) : null
+    return candidate ? applyConfidence({ ...candidate, source: candidate.source || 'built_in' }, rule.weight) : null
   }).filter(Boolean) as RootCauseCandidate[]
 
-  return candidates.sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
+  const knowledgeCandidates = knowledgeMatches.map(knowledgeMatchToRootCauseCandidate)
+  return [...candidates, ...knowledgeCandidates]
+    .sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
 }
 
 function applyConfidence(candidate: RootCauseCandidate, weight: number): RootCauseCandidate {

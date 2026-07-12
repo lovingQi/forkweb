@@ -2,6 +2,7 @@ export type LogLevel = 'D' | 'I' | 'W' | 'E' | 'UNKNOWN'
 export type ErrorOccurrenceKind = 'real_fault' | 'config_notice' | 'definition' | 'unknown'
 export type ReplayMode = 'realtime' | 'frame_compact'
 export type ErrorDictionarySourceKind = 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
+export type RootCauseSource = 'built_in' | 'knowledge_base' | 'llm'
 
 export interface ParsedLogLine {
   file: string
@@ -149,6 +150,102 @@ export interface RootCauseCandidate {
   positiveEvidence?: string[]
   negativeEvidence?: string[]
   confidenceFactors?: string[]
+  source?: RootCauseSource
+  knowledgeRuleId?: string
+  knowledgeRuleTitle?: string
+}
+
+export interface KnowledgeRuleScope {
+  project?: string
+  robotType?: string
+  mapName?: string
+  version?: string
+  branch?: string
+}
+
+export interface KnowledgeConfidenceWeight {
+  type: 'keyword' | 'module' | 'level' | 'errorCode'
+  value: string
+  weight: number
+}
+
+export interface KnowledgeEvidencePattern {
+  requiredKeywords: string[]
+  anyKeywords: string[]
+  excludedKeywords: string[]
+  modules: string[]
+  levels: LogLevel[]
+  errorCodes: string[]
+  windowSeconds?: number
+  minOccurrences?: number
+  confidenceBase?: number
+  confidenceWeights?: KnowledgeConfidenceWeight[]
+}
+
+export interface KnowledgeExample {
+  id: string
+  title?: string
+  note?: string
+  lines: ParsedLogLine[]
+  createdAt: string
+}
+
+export interface KnowledgeRule {
+  id: string
+  title: string
+  description: string
+  rootCause: string
+  solution: string
+  severity: 'info' | 'warning' | 'error'
+  tags: string[]
+  enabled: boolean
+  scope?: KnowledgeRuleScope
+  pattern: KnowledgeEvidencePattern
+  examples: KnowledgeExample[]
+  hitCount: number
+  recentHits?: Array<{
+    timestamp: string
+    logDir?: string
+    evidenceCount: number
+  }>
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+}
+
+export interface KnowledgeLibrary {
+  version: 1
+  updatedAt: string
+  rules: KnowledgeRule[]
+}
+
+export interface KnowledgeMatch {
+  ruleId: string
+  title: string
+  confidence: number
+  severity: 'info' | 'warning' | 'error'
+  matchedPatterns: string[]
+  evidenceLines: ParsedLogLine[]
+  suggestion: string
+  description: string
+  rootCause: string
+  solution: string
+  tags: string[]
+  scope?: KnowledgeRuleScope
+  ruleSnapshot: KnowledgeRule
+}
+
+export interface KnowledgePatternSuggestion {
+  modules: string[]
+  levels: LogLevel[]
+  errorCodes: string[]
+  requiredKeywords: string[]
+  anyKeywords: string[]
+  excludedKeywords: string[]
+  windowSeconds: number
+  minOccurrences: number
+  confidenceBase: number
+  confidenceWeights: KnowledgeConfidenceWeight[]
 }
 
 export interface RecommendedFocusTime {
@@ -257,6 +354,7 @@ export interface ReplaySessionData {
   rawLines: ParsedLogLine[]
   bookmarks?: ReplayBookmark[]
   caseMeta?: ReplayCaseMeta
+  knowledgeMatches?: KnowledgeMatch[]
 }
 
 export interface ReplayControlState {

@@ -26,6 +26,7 @@ import { readLogIndex, writeLogIndex, fileFingerprint } from './logIndex'
 import { shouldReplaceDefinition } from './errorDictionarySources'
 import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
+import { matchKnowledgeRules } from './knowledgeBase'
 
 const EMPTY_OVERVIEW: OverviewSummary = {
   loaded: false,
@@ -88,7 +89,8 @@ export class ReplaySession {
     foldedLogs: [],
     rawLines: [],
     bookmarks: [],
-    caseMeta: {}
+    caseMeta: {},
+    knowledgeMatches: []
   }
 
   control: ReplayControlState = {
@@ -174,6 +176,7 @@ export class ReplaySession {
     const mapStart = Date.now()
     const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
     const mapLoadMs = Date.now() - mapStart
+    const knowledgeMatches = await matchKnowledgeRules(rawLines, input.logDir)
     const rootCauses = buildRootCauses({
       events,
       frames: mergedFrames,
@@ -181,7 +184,7 @@ export class ReplaySession {
       tasks,
       rawLines,
       mapMatch: map.match
-    })
+    }, knowledgeMatches)
     const errorSummaries = buildErrorSummaries(occurrences)
     const overview = buildOverview({
       input,
@@ -218,7 +221,8 @@ export class ReplaySession {
       foldedLogs: foldNoise(rawLines),
       rawLines,
       bookmarks: await readBookmarks(),
-      caseMeta: await readCaseMeta()
+      caseMeta: await readCaseMeta(),
+      knowledgeMatches
     }
     this.control.currentMs = mergedFrames[0]?.timeMs || rawLines[0]?.timeMs || 0
     this.control.currentFrameIndex = 0

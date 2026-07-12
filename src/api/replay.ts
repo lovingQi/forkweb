@@ -162,6 +162,50 @@ export async function saveReplayCaseMeta(payload: Record<string, any>) {
   return data
 }
 
+export async function getReplayKnowledge(params?: Record<string, any>) {
+  const { data } = await replayHttp.get('/replay/knowledge', { params })
+  return data
+}
+
+export async function createReplayKnowledgeRule(payload: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/knowledge', payload)
+  return data
+}
+
+export async function updateReplayKnowledgeRule(id: string, payload: Record<string, any>) {
+  const { data } = await replayHttp.put(`/replay/knowledge/${encodeURIComponent(id)}`, payload)
+  return data
+}
+
+export async function deleteReplayKnowledgeRule(id: string) {
+  const { data } = await replayHttp.delete(`/replay/knowledge/${encodeURIComponent(id)}`)
+  return data
+}
+
+export async function toggleReplayKnowledgeRule(id: string, enabled?: boolean) {
+  const { data } = await replayHttp.post(`/replay/knowledge/${encodeURIComponent(id)}/toggle`, { enabled })
+  return data
+}
+
+export async function importReplayKnowledge(payload: { library: Record<string, any>; overwrite?: boolean }) {
+  const { data } = await replayHttp.post('/replay/knowledge/import', payload)
+  return data
+}
+
+export async function suggestReplayKnowledgePattern(lines: any[]) {
+  const { data } = await replayHttp.post('/replay/knowledge/suggest-pattern', { lines })
+  return data.suggestion
+}
+
+export async function testReplayKnowledgeRule(rule: Record<string, any>) {
+  const { data } = await replayHttp.post('/replay/knowledge/test', { rule })
+  return data
+}
+
+export function replayKnowledgeExportUrl() {
+  return `${config.replayApiBase}/replay/knowledge/export`
+}
+
 export type ReplayMode = 'realtime' | 'frame_compact'
 
 export async function setReplayControl(payload: {

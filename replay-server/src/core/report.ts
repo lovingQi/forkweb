@@ -48,7 +48,8 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
     lines.push('- 暂无明确根因候选。')
   }
   for (const cause of o.rootCauses) {
-    lines.push(`- [${cause.severity}] ${cause.title}，置信度 ${Math.round(cause.confidence * 100)}%。${cause.suggestion}`)
+    const source = cause.source === 'knowledge_base' ? '知识库' : cause.source === 'llm' ? 'AI' : '内置规则'
+    lines.push(`- [${cause.severity}] ${cause.title}，来源 ${source}，置信度 ${Math.round(cause.confidence * 100)}%。${cause.suggestion}`)
     for (const item of cause.triggeredRules || []) lines.push(`  - 触发规则: ${item}`)
     for (const item of cause.positiveEvidence || []) lines.push(`  - 加分证据: ${item}`)
     for (const item of cause.negativeEvidence || []) lines.push(`  - 扣分证据: ${item}`)
@@ -59,6 +60,14 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
     for (const line of (cause.evidenceLines || []).slice(0, 3)) {
       lines.push(`  - 日志证据: ${line.raw}`)
     }
+  }
+  lines.push('', '## 知识库命中', '')
+  const knowledgeMatches = data.knowledgeMatches || []
+  if (knowledgeMatches.length === 0) lines.push('- 暂无知识库命中。')
+  for (const match of knowledgeMatches) {
+    lines.push(`- ${match.title}: 置信度 ${Math.round(match.confidence * 100)}%，处理办法: ${match.solution || match.suggestion || '-'}`)
+    for (const item of match.matchedPatterns.slice(0, 8)) lines.push(`  - 命中: ${item}`)
+    for (const line of match.evidenceLines.slice(0, 5)) lines.push(`  - 证据: ${line.raw}`)
   }
   lines.push('', '## 地图匹配', '')
   lines.push(`- 策略: ${matchLabel(o.mapMatch.matchStrategy)}`)
@@ -121,6 +130,7 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     topIssues: data.overview.topIssues,
     mapMatch: data.overview.mapMatch,
     rootCauses: data.overview.rootCauses,
+    knowledgeMatches: data.knowledgeMatches || [],
     parseStats: data.overview.parseStats,
     recommendedFocusTimes: data.overview.recommendedFocusTimes,
     evidenceSnippets: data.overview.rootCauses.map((cause) => ({

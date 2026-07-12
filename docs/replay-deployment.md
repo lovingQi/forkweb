@@ -740,3 +740,32 @@ npx -y -p node@20 -c 'npm run replay:verify:samples'
 ```
 
 如果只是改前端页面，可以先运行 `typecheck` 和 `build`。如果改 replay-server，必须运行 `replay:build` 和至少一个样本验证。
+
+## 18. 知识库文件和备份
+
+规则型诊断知识库默认存储在：
+
+```text
+replay-server/config/knowledge-base.json
+```
+
+部署建议：
+
+- 该文件是研发经验资产，建议纳入备份。
+- 多人协作时，第一阶段可通过 Git 或共享文件同步。
+- 导入外部知识库前，建议先从页面导出当前知识库作为备份。
+- 诊断包默认只保存本次命中的知识规则快照，不会打包完整本地知识库。
+
+知识库相关接口：
+
+- `GET /api/replay/knowledge`
+- `POST /api/replay/knowledge`
+- `PUT /api/replay/knowledge/:id`
+- `DELETE /api/replay/knowledge/:id`
+- `POST /api/replay/knowledge/:id/toggle`
+- `GET /api/replay/knowledge/export`
+- `POST /api/replay/knowledge/import`
+- `POST /api/replay/knowledge/suggest-pattern`
+- `POST /api/replay/knowledge/test`
+
+验证知识库功能时，`replay-server/scripts/verify-sample.ts` 会临时写入一条验证规则，并在结束后恢复原知识库。
