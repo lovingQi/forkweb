@@ -2,6 +2,6 @@
 window.__APP_CONFIG__ = {
   apiBase: '/api',
   wsBase: '/ws',
-  replayApiBase: 'http://127.0.0.1:18082/api',
-  replayWsBase: 'ws://127.0.0.1:18082/ws'
+  replayApiBase: 'http://127.0.0.1:18080/api',
+  replayWsBase: 'ws://127.0.0.1:18080/ws'
 }
