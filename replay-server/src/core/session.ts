@@ -101,14 +101,33 @@ export class ReplaySession {
     mode: 'realtime'
   }
 
-  async load(input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean }): Promise<ReplaySessionData> {
+  async load(
+    input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean },
+    onProgress?: (stage: string, progress: number) => void
+  ): Promise<ReplaySessionData> {
     const loadStart = Date.now()
+    const timings: Record<string, number> = {}
+    let stepStart = loadStart
+    let lastStage = '初始化'
+    const step = (stage: string, progress: number) => {
+      const now = Date.now()
+      timings[lastStage] = now - stepStart
+      stepStart = now
+      lastStage = stage
+      onProgress?.(stage, progress)
+    }
+
+    step('清理缓存', 2)
     await cleanupReplayCache()
+    step('查找日志文件', 5)
     const files = await findLogFiles(input.logDir)
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
     if (!input.forceReload) {
+      step('检查缓存', 8)
       const cached = await readSessionCache(cacheKey)
       if (cached) {
+        timings['读取缓存'] = Date.now() - stepStart
+        onProgress?.('缓存命中', 100)
         this.data = cached
         this.control.currentMs = cached.frames[0]?.timeMs || cached.rawLines[0]?.timeMs || 0
         this.control.currentFrameIndex = 0
@@ -119,14 +138,18 @@ export class ReplaySession {
           mapLoadMs: 0,
           totalMs: Date.now() - loadStart,
           cacheHit: true,
-          source: 'session_cache'
+          source: 'session_cache',
+          stageTimings: timings
         }
         return this.data
       }
     }
+    step('读取日志文件', 10)
     const parseStart = Date.now()
     const indexed = await readLogFilesWithIndex(files)
     const rawLines = indexed.rawLines
+
+    step('解析日志行', 25)
     const definitions = new Map<string, ErrorCodeDefinition>()
     const frames: ReplayFrame[] = []
     let currentTaskId = ''
@@ -153,6 +176,7 @@ export class ReplaySession {
       }
     }
 
+    step('加载错误码字典', 35)
     const sourceDefinitions = await loadSourceErrorDictionary()
     for (const [code, def] of sourceDefinitions) {
       if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
@@ -162,6 +186,7 @@ export class ReplaySession {
       if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
     }
 
+    step('构建事件和任务', 45)
     const mergedFrames = mergeFrames(frames)
     const occurrences: ErrorOccurrence[] = [...indexed.occurrences]
     for (const line of rawLines) {
@@ -177,10 +202,16 @@ export class ReplaySession {
     assignOccurrenceTaskIds(occurrences, tasks)
     events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
     tasks = buildTaskSegments(mergedFrames, rawLines, events)
+
+    step('加载地图', 60)
     const mapStart = Date.now()
     const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
     const mapLoadMs = Date.now() - mapStart
+
+    step('知识库匹配', 70)
     const knowledgeMatches = await matchKnowledgeRules(rawLines, input.logDir)
+
+    step('构建根因分析', 80)
     const rootCauses = buildRootCauses({
       events,
       frames: mergedFrames,
@@ -205,13 +236,16 @@ export class ReplaySession {
       branch,
       rootCauses
     })
+
+    step('写入缓存', 90)
     overview.parseStats = {
       loadMs: parseStart - loadStart,
       parseMs: mapStart - parseStart,
       mapLoadMs,
       totalMs: Date.now() - loadStart,
       cacheHit: false,
-      source: indexed.cacheHits > 0 ? `log_index:${indexed.cacheHits}/${files.length}` : 'full_parse'
+      source: indexed.cacheHits > 0 ? `log_index:${indexed.cacheHits}/${files.length}` : 'full_parse',
+      stageTimings: timings
     }
     this.data = {
       overview,
@@ -232,6 +266,10 @@ export class ReplaySession {
     this.control.currentFrameIndex = 0
     this.control.playing = false
     await writeSessionCache(cacheKey, this.data)
+    timings['写入缓存'] = Date.now() - stepStart
+    overview.parseStats.totalMs = Date.now() - loadStart
+    overview.parseStats.stageTimings = timings
+    onProgress?.('完成', 100)
     return this.data
   }
 

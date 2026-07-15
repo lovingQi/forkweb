@@ -187,12 +187,57 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
 
 export async function matchKnowledgeRules(rawLines: ParsedLogLine[], logDir = ''): Promise<KnowledgeMatch[]> {
   const library = await readKnowledgeLibrary()
-  const matches = library.rules
-    .filter((rule) => rule.enabled)
+  const enabledRules = library.rules.filter((rule) => rule.enabled)
+  if (enabledRules.length === 0 || rawLines.length === 0) return []
+
+  const candidateRules = preFilterRules(enabledRules, rawLines)
+  const matches = candidateRules
     .map((rule) => matchKnowledgeRule(rule, rawLines))
     .filter(Boolean) as KnowledgeMatch[]
   if (matches.length > 0) await recordKnowledgeHits(matches, logDir)
   return matches.sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
+}
+
+function preFilterRules(rules: KnowledgeRule[], rawLines: ParsedLogLine[]): KnowledgeRule[] {
+  const allTerms = new Set<string>()
+  for (const rule of rules) {
+    const p = rule.pattern || {}
+    for (const kw of (p as any).requiredKeywords || []) if (kw) allTerms.add(kw)
+    for (const code of (p as any).errorCodes || []) if (code) allTerms.add(code)
+  }
+
+  const foundTerms = new Set<string>()
+  const remaining = new Set(allTerms)
+  for (const line of rawLines) {
+    if (remaining.size === 0) break
+    for (const term of remaining) {
+      if (line.raw.includes(term)) {
+        foundTerms.add(term)
+        remaining.delete(term)
+      }
+    }
+  }
+
+  const existingModules = new Set<string>()
+  for (const line of rawLines) {
+    if (line.module) existingModules.add(line.module)
+  }
+
+  return rules.filter((rule) => {
+    const p = normalizeRule(rule).pattern
+    if (p.requiredKeywords.length > 0 && p.requiredKeywords.some((kw) => kw && !foundTerms.has(kw))) return false
+    if (p.errorCodes.length > 0 && !p.errorCodes.some((code) => foundTerms.has(code))) return false
+    if (p.modules.length > 0 && p.requiredKeywords.length === 0 && p.errorCodes.length === 0) {
+      const hasModule = p.modules.some((mod) => {
+        for (const existing of existingModules) {
+          if (existing.includes(mod)) return true
+        }
+        return false
+      })
+      if (!hasModule) return false
+    }
+    return true
+  })
 }
 
 export function matchKnowledgeRule(rule: KnowledgeRule, rawLines: ParsedLogLine[]): KnowledgeMatch | null {
@@ -367,19 +412,21 @@ function buildCandidateWindows(lines: ParsedLogLine[], anchors: ParsedLogLine[],
   if (anchors.length === 0) return patternIsLooseFallback(lines, windowSeconds)
   if (!windowSeconds || windowSeconds <= 0) return [anchors]
   const windowMs = windowSeconds * 1000
-  const result: ParsedLogLine[][] = []
-  const seen = new Set<string>()
+  const maxAnchors = Math.min(anchors.length, 500)
+  const ranges: Array<[number, number]> = []
   let left = 0
   let right = 0
-  for (const anchor of anchors.slice(0, 5000)) {
+  for (let i = 0; i < maxAnchors; i++) {
+    const anchor = anchors[i]
     while (left < lines.length && lines[left].timeMs < anchor.timeMs - windowMs) left += 1
     while (right < lines.length && lines[right].timeMs <= anchor.timeMs + windowMs) right += 1
-    const key = `${left}:${right}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(lines.slice(left, right))
+    if (ranges.length > 0 && left <= ranges[ranges.length - 1][1]) {
+      ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], right)
+    } else {
+      ranges.push([left, right])
+    }
   }
-  return result
+  return ranges.map(([l, r]) => lines.slice(l, r))
 }
 
 function patternIsLooseFallback(lines: ParsedLogLine[], windowSeconds: number): ParsedLogLine[][] {

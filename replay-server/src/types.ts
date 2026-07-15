@@ -400,6 +400,7 @@ export interface ParseStats {
   totalMs: number
   cacheHit: boolean
   source: string
+  stageTimings?: Record<string, number>
 }
 
 export interface OverviewSummary {

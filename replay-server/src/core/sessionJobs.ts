@@ -8,6 +8,7 @@ export interface SessionJob {
   progress: number
   error?: string
   overview?: unknown
+  timing?: Record<string, number>
   createdAt: string
   updatedAt: string
 }
@@ -41,12 +42,13 @@ async function runJob(
   input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean }
 ) {
   try {
-    update(job, 'running', '读取日志文件', 15)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    update(job, 'running', '解析状态帧和错误码', 45)
-    const data = await session.load(input)
-    update(job, 'running', '构建时间线和地图', 80)
+    update(job, 'running', '初始化', 2)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const data = await session.load(input, (stage, progress) => {
+      update(job, 'running', stage, progress)
+    })
     job.overview = data.overview
+    job.timing = data.overview.parseStats?.stageTimings
     update(job, 'done', '完成', 100)
   } catch (e) {
     job.error = e instanceof Error ? e.message : String(e)

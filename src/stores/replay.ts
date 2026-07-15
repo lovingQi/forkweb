@@ -166,16 +166,17 @@ export const useReplayStore = defineStore('replay', {
     async loadSession(forceReload = false) {
       this.loading = true
       try {
-        await createReplaySession({
+        const created = await createReplaySessionJob({
           logDir: this.logDir,
           mapDir: this.mapDir || undefined,
           mapFile: this.mapFile || undefined,
           forceReload
         })
-        await this.refreshAll()
-        this.loaded = true
-      } finally {
+        this.sessionJob = created.job
+        await this.pollSessionJob(created.job.id)
+      } catch (e) {
         this.loading = false
+        throw e
       }
     },
 

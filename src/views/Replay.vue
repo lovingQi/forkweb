@@ -15,8 +15,8 @@
           <el-input v-model="packagePath" class="path-input" placeholder="大包可填本地 zip 路径" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="replay.loading" @click="load">加载诊断</el-button>
-          <el-button :loading="replay.loading" @click="loadAsync">异步加载</el-button>
+          <el-button type="primary" :loading="replay.loading" @click="load()">加载诊断</el-button>
+          <el-button :loading="replay.loading" @click="loadAsync()">异步加载</el-button>
           <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('md')">Markdown</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
@@ -72,6 +72,12 @@
         <el-tag type="info">解析 {{ replay.overview?.parseStats?.totalMs || 0 }}ms</el-tag>
         <el-tag :type="replay.overview?.parseStats?.cacheHit ? 'success' : 'info'">
           {{ replay.overview?.parseStats?.cacheHit ? '缓存命中' : '直接解析' }}
+        </el-tag>
+      </div>
+      <div v-if="stageTimingEntries.length" class="stage-timing-line">
+        <span class="stage-timing-title">各阶段耗时：</span>
+        <el-tag v-for="([name, ms]) in stageTimingEntries" :key="name" size="small" type="info" class="stage-tag">
+          {{ name }} {{ ms }}ms
         </el-tag>
       </div>
       <div v-if="recommendedFocusTimes.length" class="focus-line">
@@ -920,6 +926,12 @@ const patternText = ref({
   errorCodes: ''
 })
 let progressTimer = 0
+
+const stageTimingEntries = computed(() => {
+  const timings = replay.overview?.parseStats?.stageTimings
+  if (!timings || typeof timings !== 'object') return []
+  return Object.entries(timings as Record<string, number>)
+})
 
 const overviewItems = computed(() => {
   const o = replay.overview || {}
@@ -2072,11 +2084,22 @@ onBeforeUnmount(() => {
   flex: none;
 }
 .info-line,
-.tag-line {
+.tag-line,
+.stage-timing-line {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+.stage-timing-line {
+  margin-top: 6px;
+}
+.stage-timing-title {
+  font-size: 12px;
+  color: #606266;
+}
+.stage-tag {
+  font-variant-numeric: tabular-nums;
 }
 .info-line {
   margin-bottom: 8px;
