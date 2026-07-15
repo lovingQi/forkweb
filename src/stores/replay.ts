@@ -195,13 +195,15 @@ export const useReplayStore = defineStore('replay', {
     async pollSessionJob(id: string) {
       for (;;) {
         const res = await getReplaySessionJob(id)
-        this.sessionJob = res.job
         if (res.job?.status === 'done') {
+          this.sessionJob = { ...res.job, status: 'running', stage: '加载数据', progress: 95 }
           await this.refreshAll()
+          this.sessionJob = res.job
           this.loaded = true
           this.loading = false
           return res.job
         }
+        this.sessionJob = res.job
         if (res.job?.status === 'error') {
           this.loading = false
           throw new Error(res.job.error || '解析失败')

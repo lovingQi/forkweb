@@ -109,21 +109,22 @@ export class ReplaySession {
     const timings: Record<string, number> = {}
     let stepStart = loadStart
     let lastStage = '初始化'
-    const step = (stage: string, progress: number) => {
+    const step = async (stage: string, progress: number) => {
       const now = Date.now()
       timings[lastStage] = now - stepStart
       stepStart = now
       lastStage = stage
       onProgress?.(stage, progress)
+      await new Promise<void>(r => setImmediate(r))
     }
 
-    step('清理缓存', 2)
+    await step('清理缓存', 2)
     await cleanupReplayCache()
-    step('查找日志文件', 5)
+    await step('查找日志文件', 5)
     const files = await findLogFiles(input.logDir)
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
     if (!input.forceReload) {
-      step('检查缓存', 8)
+      await step('检查缓存', 8)
       const cached = await readSessionCache(cacheKey)
       if (cached) {
         timings['读取缓存'] = Date.now() - stepStart
@@ -144,12 +145,12 @@ export class ReplaySession {
         return this.data
       }
     }
-    step('读取日志文件', 10)
+    await step('读取日志文件', 10)
     const parseStart = Date.now()
     const indexed = await readLogFilesWithIndex(files)
     const rawLines = indexed.rawLines
 
-    step('解析日志行', 25)
+    await step('解析日志行', 25)
     const definitions = new Map<string, ErrorCodeDefinition>()
     const frames: ReplayFrame[] = []
     let currentTaskId = ''
@@ -176,7 +177,7 @@ export class ReplaySession {
       }
     }
 
-    step('加载错误码字典', 35)
+    await step('加载错误码字典', 35)
     const sourceDefinitions = await loadSourceErrorDictionary()
     for (const [code, def] of sourceDefinitions) {
       if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
@@ -186,7 +187,7 @@ export class ReplaySession {
       if (shouldReplaceDefinition(definitions.get(code), def)) definitions.set(code, def)
     }
 
-    step('构建事件和任务', 45)
+    await step('构建事件和任务', 45)
     const mergedFrames = mergeFrames(frames)
     const occurrences: ErrorOccurrence[] = [...indexed.occurrences]
     for (const line of rawLines) {
@@ -203,15 +204,15 @@ export class ReplaySession {
     events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
     tasks = buildTaskSegments(mergedFrames, rawLines, events)
 
-    step('加载地图', 60)
+    await step('加载地图', 60)
     const mapStart = Date.now()
     const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
     const mapLoadMs = Date.now() - mapStart
 
-    step('知识库匹配', 70)
+    await step('知识库匹配', 70)
     const knowledgeMatches = await matchKnowledgeRules(rawLines, input.logDir)
 
-    step('构建根因分析', 80)
+    await step('构建根因分析', 80)
     const rootCauses = buildRootCauses({
       events,
       frames: mergedFrames,
@@ -237,7 +238,7 @@ export class ReplaySession {
       rootCauses
     })
 
-    step('写入缓存', 90)
+    await step('写入缓存', 90)
     overview.parseStats = {
       loadMs: parseStart - loadStart,
       parseMs: mapStart - parseStart,

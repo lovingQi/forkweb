@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-15T06:10:26.698Z",
   "rules": [
     {
       "id": "knowledge-bdd72dd5",
@@ -78,61 +77,8 @@
           "createdAt": "2026-07-13T02:20:45.294Z"
         }
       ],
-      "hitCount": 21,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.165Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.228Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:36:32.994Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:27:44.263Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T02:58:33.692Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T02:52:33.052Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T00:43:08.782Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:49:37.378Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-13T02:21:54.194Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0010500",
@@ -188,36 +134,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.165Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.228Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0020501",
@@ -273,36 +191,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.165Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0030502",
@@ -357,36 +247,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.165Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0040503",
@@ -441,36 +303,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.165Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0050504",
@@ -525,36 +359,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0060505",
@@ -609,36 +415,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0070506",
@@ -693,36 +471,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-a0080507",
@@ -777,36 +527,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-b0090508",
@@ -862,36 +584,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-b0100509",
@@ -945,36 +639,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-b0110510",
@@ -1031,8 +697,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -1088,36 +752,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-b0130602",
@@ -1172,36 +808,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-b0140700",
@@ -1256,36 +864,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 4
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 4
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 4
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 4
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-c0150702",
@@ -1340,36 +920,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 8
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 8
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 8
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 8
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-c0160703",
@@ -1424,36 +976,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 16
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 16
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 16
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.213Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 16
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-c0170704",
@@ -1508,36 +1032,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-d0180900",
@@ -1592,36 +1088,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 26
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 26
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 26
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 26
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-e0191000",
@@ -1679,36 +1147,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-e0201006",
@@ -1767,36 +1207,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0211001",
@@ -1850,36 +1262,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0221002",
@@ -1934,36 +1318,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0231003",
@@ -2019,36 +1375,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0241004",
@@ -2102,36 +1430,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0251005",
@@ -2186,36 +1486,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0261007",
@@ -2269,36 +1541,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0271008",
@@ -2354,36 +1598,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.487Z"
     },
     {
       "id": "knowledge-f0281009",
@@ -2439,36 +1655,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0291010",
@@ -2522,36 +1710,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0301011",
@@ -2605,36 +1765,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0311012",
@@ -2688,36 +1820,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0321013",
@@ -2772,36 +1876,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0331014",
@@ -2855,36 +1931,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-f0341015",
@@ -2938,36 +1986,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0351016",
@@ -3023,36 +2043,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 7
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 7
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 7
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 7
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0361017",
@@ -3110,36 +2102,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0371018",
@@ -3195,36 +2159,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0381019",
@@ -3280,36 +2216,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 3
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0391020",
@@ -3364,36 +2272,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0401021",
@@ -3449,36 +2329,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0411022",
@@ -3534,36 +2386,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 5,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 2
-        },
-        {
-          "timestamp": "2026-07-14T03:27:28.314Z",
-          "logDir": "/home/xbl/Desktop",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-g0421029",
@@ -3619,8 +2443,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3677,8 +2499,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3735,8 +2555,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3792,8 +2610,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3849,8 +2665,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3906,8 +2720,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -3963,8 +2775,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4020,8 +2830,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4077,8 +2885,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4134,8 +2940,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4192,8 +2996,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4249,8 +3051,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4306,8 +3106,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4369,8 +3167,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4431,51 +3227,8 @@
         ]
       },
       "examples": [],
-      "hitCount": 8,
-      "recentHits": [
-        {
-          "timestamp": "2026-07-15T06:10:26.698Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:58:19.166Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:56:01.229Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:41:39.214Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T05:27:44.263Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T02:58:33.692Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T02:52:33.052Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        },
-        {
-          "timestamp": "2026-07-15T00:43:08.782Z",
-          "logDir": "/home/xbl/Desktop/log",
-          "evidenceCount": 50
-        }
-      ],
       "createdAt": "2026-07-14T03:15:00.000Z",
-      "updatedAt": "2026-07-15T06:10:26.698Z"
+      "updatedAt": "2026-07-15T07:23:36.488Z"
     },
     {
       "id": "knowledge-k057strip",
@@ -4522,8 +3275,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4578,8 +3329,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4629,8 +3378,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4680,8 +3427,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4736,8 +3481,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4792,8 +3535,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     },
@@ -4843,8 +3584,6 @@
         ]
       },
       "examples": [],
-      "hitCount": 0,
-      "recentHits": [],
       "createdAt": "2026-07-14T03:15:00.000Z",
       "updatedAt": "2026-07-14T03:15:00.000Z"
     }

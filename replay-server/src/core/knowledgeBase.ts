@@ -13,6 +13,7 @@ import type {
 } from '../types'
 
 const KNOWLEDGE_FILE = path.resolve(process.cwd(), 'replay-server/config/knowledge-base.json')
+const KNOWLEDGE_HITS_FILE = path.resolve(process.cwd(), 'replay-server/.cache/knowledge-hits.json')
 const MAX_EVIDENCE_LINES = 50
 const STOP_WORDS = new Set([
   'the',
@@ -32,6 +33,38 @@ const STOP_WORDS = new Set([
   'code'
 ])
 
+interface KnowledgeHitsData {
+  updatedAt: string
+  hits: Record<string, { hitCount: number; recentHits: any[]; updatedAt: string }>
+}
+
+async function readKnowledgeHits(): Promise<KnowledgeHitsData> {
+  try {
+    const text = await fs.readFile(KNOWLEDGE_HITS_FILE, 'utf8')
+    return JSON.parse(text)
+  } catch {
+    return { updatedAt: '', hits: {} }
+  }
+}
+
+async function writeKnowledgeHits(data: KnowledgeHitsData): Promise<void> {
+  await fs.mkdir(path.dirname(KNOWLEDGE_HITS_FILE), { recursive: true })
+  await fs.writeFile(KNOWLEDGE_HITS_FILE, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+}
+
+function stripRuntimeFields(rule: KnowledgeRule): KnowledgeRule {
+  const { hitCount, recentHits, ...rest } = rule
+  return { ...rest, hitCount: 0, recentHits: [] }
+}
+
+function mergeHitsIntoRules(rules: KnowledgeRule[], hitsData: KnowledgeHitsData): KnowledgeRule[] {
+  return rules.map((rule) => {
+    const hit = hitsData.hits[rule.id]
+    if (!hit) return rule
+    return { ...rule, hitCount: hit.hitCount || 0, recentHits: hit.recentHits || [] }
+  })
+}
+
 export async function readKnowledgeLibrary(): Promise<KnowledgeLibrary> {
   try {
     const text = await fs.readFile(KNOWLEDGE_FILE, 'utf8')
@@ -41,15 +74,22 @@ export async function readKnowledgeLibrary(): Promise<KnowledgeLibrary> {
   }
 }
 
+export async function readKnowledgeLibraryWithHits(): Promise<KnowledgeLibrary> {
+  const library = await readKnowledgeLibrary()
+  const hitsData = await readKnowledgeHits()
+  return { ...library, updatedAt: hitsData.updatedAt || library.updatedAt, rules: mergeHitsIntoRules(library.rules, hitsData) }
+}
+
 export async function writeKnowledgeLibrary(library: KnowledgeLibrary): Promise<KnowledgeLibrary> {
   const normalized = normalizeLibrary({ ...library, updatedAt: new Date().toISOString() })
+  const cleaned = { ...normalized, rules: normalized.rules.map(stripRuntimeFields) }
   await fs.mkdir(path.dirname(KNOWLEDGE_FILE), { recursive: true })
-  await fs.writeFile(KNOWLEDGE_FILE, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+  await fs.writeFile(KNOWLEDGE_FILE, `${JSON.stringify(cleaned, null, 2)}\n`, 'utf8')
   return normalized
 }
 
 export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
-  const library = await readKnowledgeLibrary()
+  const library = await readKnowledgeLibraryWithHits()
   const keyword = String(query.keyword || '').trim().toLowerCase()
   const severity = String(query.severity || '')
   const enabled = String(query.enabled || '')
@@ -299,24 +339,20 @@ export function knowledgeMatchToRootCauseCandidate(match: KnowledgeMatch): RootC
 }
 
 async function recordKnowledgeHits(matches: KnowledgeMatch[], logDir: string) {
-  const library = await readKnowledgeLibrary()
-  let changed = false
+  const hitsData = await readKnowledgeHits()
+  const now = new Date().toISOString()
   for (const match of matches) {
-    const rule = library.rules.find((item) => item.id === match.ruleId)
-    if (!rule) continue
-    rule.hitCount = (rule.hitCount || 0) + 1
-    rule.recentHits = [
-      {
-        timestamp: new Date().toISOString(),
-        logDir,
-        evidenceCount: match.evidenceLines.length
-      },
-      ...(rule.recentHits || [])
+    const existing = hitsData.hits[match.ruleId] || { hitCount: 0, recentHits: [], updatedAt: '' }
+    existing.hitCount += 1
+    existing.recentHits = [
+      { timestamp: now, logDir, evidenceCount: match.evidenceLines.length },
+      ...existing.recentHits
     ].slice(0, 10)
-    rule.updatedAt = new Date().toISOString()
-    changed = true
+    existing.updatedAt = now
+    hitsData.hits[match.ruleId] = existing
   }
-  if (changed) await writeKnowledgeLibrary(library)
+  hitsData.updatedAt = now
+  await writeKnowledgeHits(hitsData)
 }
 
 function filterEvidenceLines(lines: ParsedLogLine[], pattern: KnowledgeEvidencePattern, matchedPatterns: string[]): ParsedLogLine[] {

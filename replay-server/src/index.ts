@@ -17,7 +17,7 @@ import {
   importKnowledgeLibraryPayload,
   listKnowledgeRules,
   matchKnowledgeRule,
-  readKnowledgeLibrary,
+  readKnowledgeLibraryWithHits,
   suggestKnowledgePattern,
   toggleKnowledgeRule,
   updateKnowledgeRule
@@ -254,7 +254,7 @@ app.post('/api/replay/knowledge/:id/toggle', async (req, res) => {
 
 app.get('/api/replay/knowledge/export', async (_req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="knowledge-base.json"')
-  res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibrary()))
+  res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibraryWithHits()))
 })
 
 app.post('/api/replay/knowledge/import', async (req, res) => {
