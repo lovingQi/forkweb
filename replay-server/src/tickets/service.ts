@@ -10,6 +10,7 @@ import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
 import { exportDiagnosticPackage } from '../core/diagnosticPackage';
 import { ReplaySession } from '../core/session';
 import { createKnowledgeRule } from '../core/knowledgeBase';
+import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
 function generateTicketNo(): string {
@@ -26,6 +27,7 @@ export interface CreateTicketServiceInput {
   logOriginalName?: string;
   mapFilePath?: string;
   reporter: AuthUser;
+  aiEnabled?: boolean;
 }
 
 export async function createTicketWithUploads(input: CreateTicketServiceInput): Promise<DbTicket> {
@@ -37,7 +39,8 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     title: input.title,
     description: input.description,
     reporterId: input.reporter.id,
-    logDir: '' // 稍后更新
+    logDir: '', // 稍后更新
+    aiEnabled: input.aiEnabled
   });
 
   await ensureTicketDirs(ticket.id);
@@ -123,6 +126,9 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser): void 
 }
 
 async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, actor: AuthUser): Promise<void> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) return;
+
   const ticketDir = getTicketDir(ticketId);
   await fs.mkdir(ticketDir, { recursive: true });
 
@@ -140,18 +146,41 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
 
   const conclusion = summarizeRootCauses(session.data.overview.rootCauses);
 
-  await updateTicket(ticketId, {
+  const updatePayload: Parameters<typeof updateTicket>[1] = {
     status: 'analyzed',
     conclusion,
     report_path: mdPath,
     package_path: pkgDest
-  });
+  };
+
+  if (ticket.ai_enabled) {
+    try {
+      const aiAnswer = await askReplayAssistant(session.data, {
+        question: `${ticket.title}：${ticket.description}`,
+        includeLogs: true,
+        maxLogLines: 120,
+        maxKnowledge: 8
+      });
+      updatePayload.ai_conclusion = JSON.stringify(aiAnswer);
+      updatePayload.ai_offline = aiAnswer.offline ? 1 : 0;
+    } catch (e) {
+      console.error('[ticket] AI 分析失败:', e);
+      updatePayload.ai_conclusion = JSON.stringify({
+        answer: `AI 分析调用失败：${e instanceof Error ? e.message : String(e)}`,
+        provider: 'offline',
+        offline: true
+      });
+      updatePayload.ai_offline = 1;
+    }
+  }
+
+  await updateTicket(ticketId, updatePayload);
 
   await createTicketEvent({
     ticketId,
     actorId: actor.id,
     action: 'analysis_completed',
-    payload: { reportPath: mdPath, packagePath: pkgDest, conclusion }
+    payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled }
   });
 }
 

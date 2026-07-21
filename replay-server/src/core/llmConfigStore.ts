@@ -1,8 +1,9 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CONFIG_DIR } from '../paths'
 import type { LlmConfigUpdateRequest, LlmPublicConfig, LlmRuntimeConfig } from '../types'
 
-const LLM_LOCAL_FILE = path.resolve(process.cwd(), 'replay-server/config/llm.local.json')
+const LLM_LOCAL_FILE = path.join(CONFIG_DIR, 'llm.local.json')
 
 export interface LlmLocalConfig extends LlmConfigUpdateRequest {
   updatedAt?: string

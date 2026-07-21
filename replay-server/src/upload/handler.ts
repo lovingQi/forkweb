@@ -2,8 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import unzipper from 'unzipper';
 import tar from 'tar';
+import { CACHE_DIR } from '../paths';
 
-const UPLOAD_BASE = path.resolve(process.cwd(), 'replay-server/.cache/tickets');
+const UPLOAD_BASE = path.join(CACHE_DIR, 'tickets');
 
 export function getTicketDir(ticketId: number): string {
   return path.join(UPLOAD_BASE, String(ticketId));

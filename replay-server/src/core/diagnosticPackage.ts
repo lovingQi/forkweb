@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import fs from 'fs/promises'
 import path from 'path'
 import { promisify } from 'util'
+import { CACHE_DIR } from '../paths'
 import type { ReplayCaseMeta, ReplaySessionData } from '../types'
 import { exportMapAliasesPayload, findMapAliasConflicts, readMapAliases, type MapAlias, type MapAliasConflict } from './mapAlias'
 import { buildJsonReport, buildMarkdownReportAsync } from './report'
@@ -11,8 +12,8 @@ import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
 
 const execFileAsync = promisify(execFile)
-const PACKAGE_DIR = path.resolve(process.cwd(), 'replay-server/.cache/packages')
-const IMPORT_DIR = path.resolve(process.cwd(), 'replay-server/.cache/imports')
+const PACKAGE_DIR = path.join(CACHE_DIR, 'packages')
+const IMPORT_DIR = path.join(CACHE_DIR, 'imports')
 const MANIFEST_NAME = 'diagnostic-package.json'
 
 export interface DiagnosticPackageManifest {

@@ -22,6 +22,32 @@
         </el-descriptions-item>
       </el-descriptions>
 
+      <div class="section-title">AI 分析结论</div>
+      <div class="ai-section">
+        <el-alert
+          v-if="!ticketStore.currentTicket.aiEnabled"
+          title="未开启 AI 介入分析"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-else-if="ticketStore.currentTicket.status === 'analyzing' || !ticketStore.currentTicket.aiConclusion"
+          title="AI 分析中或等待分析完成"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <div v-else class="ai-conclusion">
+          <div class="ai-header">
+            <el-tag :type="ticketStore.currentTicket.aiOffline ? 'warning' : 'success'" size="small">
+              {{ ticketStore.currentTicket.aiOffline ? '离线回答' : 'AI 回答' }}
+            </el-tag>
+          </div>
+          <div class="ai-body">{{ aiAnswerText }}</div>
+        </div>
+      </div>
+
       <div class="section-title">操作</div>
       <div class="actions">
         <el-button
@@ -147,6 +173,15 @@ onMounted(() => {
 })
 
 const ticket = computed(() => ticketStore.currentTicket)
+const aiAnswerText = computed(() => {
+  if (!ticket.value?.aiConclusion) return ''
+  try {
+    const parsed = JSON.parse(ticket.value.aiConclusion)
+    return parsed.answer || String(parsed)
+  } catch {
+    return ticket.value.aiConclusion
+  }
+})
 const canVerify = computed(() => {
   if (!ticket.value) return false
   return auth.isAfterSales && ['analyzed', 'needs_rd'].includes(ticket.value.status)
@@ -298,5 +333,23 @@ function statusType(status: TicketStatus) {
   font-size: 12px;
   color: #6b7280;
   white-space: pre-wrap;
+}
+.ai-section {
+  margin-bottom: 16px;
+}
+.ai-conclusion {
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+}
+.ai-header {
+  margin-bottom: 8px;
+}
+.ai-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.6;
 }
 </style>

@@ -36,6 +36,9 @@ export interface Ticket {
   logDir: string
   mapDir: string | null
   mapFile: string | null
+  aiEnabled: boolean
+  aiConclusion: string | null
+  aiOffline: boolean
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -53,12 +56,14 @@ export async function createTicket(form: {
   description: string
   logs: File
   map?: File
+  aiEnabled?: boolean
 }): Promise<Ticket> {
   const data = new FormData()
   data.append('title', form.title)
   data.append('description', form.description)
   data.append('logs', form.logs)
   if (form.map) data.append('map', form.map)
+  data.append('aiEnabled', form.aiEnabled ? 'true' : 'false')
   const { data: res } = await ticketHttp.post('/tickets', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })

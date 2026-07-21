@@ -1,10 +1,11 @@
 import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR } from '../paths'
 import type { ErrorCodeDefinition, ErrorOccurrence, ParsedLogLine, ReplayFrame } from '../types'
 
 export const LOG_INDEX_VERSION = 1
-const INDEX_DIR = path.resolve(process.cwd(), 'replay-server/.cache/indexes')
+const INDEX_DIR = path.join(CACHE_DIR, 'indexes')
 
 export interface LogIndexPayload {
   version: number

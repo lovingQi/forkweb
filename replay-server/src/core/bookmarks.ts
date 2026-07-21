@@ -1,9 +1,10 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { randomUUID } from 'crypto'
+import { CACHE_DIR } from '../paths'
 import type { ReplayBookmark } from '../types'
 
-const BOOKMARK_FILE = path.resolve(process.cwd(), 'replay-server/.cache/bookmarks.json')
+const BOOKMARK_FILE = path.join(CACHE_DIR, 'bookmarks.json')
 
 export async function readBookmarks(): Promise<ReplayBookmark[]> {
   try {

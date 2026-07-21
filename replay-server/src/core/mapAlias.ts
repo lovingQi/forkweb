@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CONFIG_DIR } from '../paths'
 
 export interface MapAlias {
   id: string
@@ -30,7 +31,7 @@ export interface MapAliasImportResult {
   conflicts: MapAliasConflict[]
 }
 
-const ALIAS_FILE = path.resolve(process.cwd(), 'replay-server/config/map-alias.json')
+const ALIAS_FILE = path.join(CONFIG_DIR, 'map-alias.json')
 
 export async function readMapAliases(): Promise<MapAlias[]> {
   try {

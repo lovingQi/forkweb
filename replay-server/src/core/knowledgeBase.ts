@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR, CONFIG_DIR } from '../paths'
 import type {
   KnowledgeEvidencePattern,
   KnowledgeLibrary,
@@ -14,8 +15,8 @@ import type {
   VehicleStateName
 } from '../types'
 
-const KNOWLEDGE_FILE = path.resolve(process.cwd(), 'replay-server/config/knowledge-base.json')
-const KNOWLEDGE_HITS_FILE = path.resolve(process.cwd(), 'replay-server/.cache/knowledge-hits.json')
+const KNOWLEDGE_FILE = path.join(CONFIG_DIR, 'knowledge-base.json')
+const KNOWLEDGE_HITS_FILE = path.join(CACHE_DIR, 'knowledge-hits.json')
 const MAX_EVIDENCE_LINES = 50
 const STOP_WORDS = new Set([
   'the',

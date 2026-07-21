@@ -1,10 +1,11 @@
 import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR } from '../paths'
 import type { ReplaySessionData } from '../types'
 
 const CACHE_VERSION = 3
-const CACHE_DIR = path.resolve(process.cwd(), 'replay-server/.cache')
+const CACHE_ROOT_DIR = CACHE_DIR
 const DEFAULT_MAX_AGE_DAYS = 14
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
 
@@ -63,7 +64,7 @@ export async function readSessionCache(key: string): Promise<ReplaySessionData |
 }
 
 export async function writeSessionCache(key: string, data: ReplaySessionData): Promise<boolean> {
-  await fs.mkdir(CACHE_DIR, { recursive: true })
+  await fs.mkdir(CACHE_ROOT_DIR, { recursive: true })
   const target = cacheFile(key)
   const temporary = `${target}.${process.pid}.tmp`
   try {
@@ -80,7 +81,7 @@ export async function writeSessionCache(key: string, data: ReplaySessionData): P
 
 export async function getCacheSummary(): Promise<CacheSummary> {
   const buckets = await Promise.all(cacheBuckets().map(async (bucket) => summarizeBucket(bucket)))
-  const files = await listFiles(CACHE_DIR)
+  const files = await listFiles(CACHE_ROOT_DIR)
   let bytes = 0
   for (const file of files) {
     const stat = await fs.stat(file).catch(() => null)
@@ -88,7 +89,7 @@ export async function getCacheSummary(): Promise<CacheSummary> {
   }
   return {
     version: CACHE_VERSION,
-    dir: CACHE_DIR,
+    dir: CACHE_ROOT_DIR,
     files: files.length,
     bytes,
     maxAgeDays: Number(process.env.REPLAY_CACHE_MAX_AGE_DAYS || DEFAULT_MAX_AGE_DAYS),
@@ -109,13 +110,13 @@ export async function clearReplayCache(bucketKey?: string): Promise<void> {
     }
     return
   }
-  await fs.rm(CACHE_DIR, { recursive: true, force: true })
+  await fs.rm(CACHE_ROOT_DIR, { recursive: true, force: true })
 }
 
 export async function cleanupReplayCache(maxAgeDays = Number(process.env.REPLAY_CACHE_MAX_AGE_DAYS || DEFAULT_MAX_AGE_DAYS)): Promise<void> {
   const maxAgeMs = Math.max(1, maxAgeDays) * 24 * 60 * 60 * 1000
   const now = Date.now()
-  for (const file of await listFiles(CACHE_DIR)) {
+  for (const file of await listFiles(CACHE_ROOT_DIR)) {
     const stat = await fs.stat(file).catch(() => null)
     if (stat && now - stat.mtimeMs > maxAgeMs) await fs.rm(file, { force: true }).catch(() => undefined)
   }
@@ -123,7 +124,7 @@ export async function cleanupReplayCache(maxAgeDays = Number(process.env.REPLAY_
 }
 
 function cacheFile(key: string): string {
-  return path.join(CACHE_DIR, `session-${key}.json`)
+  return path.join(CACHE_ROOT_DIR, `session-${key}.json`)
 }
 
 async function listFiles(dir: string): Promise<string[]> {
@@ -139,12 +140,12 @@ async function listFiles(dir: string): Promise<string[]> {
 
 function cacheBuckets(): CacheBucketSummary[] {
   return [
-    { key: 'sessions', label: '会话缓存', dir: CACHE_DIR, files: 0, bytes: 0 },
-    { key: 'indexes', label: '日志索引缓存', dir: path.join(CACHE_DIR, 'indexes'), files: 0, bytes: 0 },
-    { key: 'packages', label: '导出诊断包', dir: path.join(CACHE_DIR, 'packages'), files: 0, bytes: 0 },
-    { key: 'imports', label: '导入诊断包', dir: path.join(CACHE_DIR, 'imports'), files: 0, bytes: 0 },
-    { key: 'feedback', label: '根因反馈', dir: CACHE_DIR, files: 0, bytes: 0 },
-    { key: 'other', label: '其他缓存', dir: CACHE_DIR, files: 0, bytes: 0 }
+    { key: 'sessions', label: '会话缓存', dir: CACHE_ROOT_DIR, files: 0, bytes: 0 },
+    { key: 'indexes', label: '日志索引缓存', dir: path.join(CACHE_ROOT_DIR, 'indexes'), files: 0, bytes: 0 },
+    { key: 'packages', label: '导出诊断包', dir: path.join(CACHE_ROOT_DIR, 'packages'), files: 0, bytes: 0 },
+    { key: 'imports', label: '导入诊断包', dir: path.join(CACHE_ROOT_DIR, 'imports'), files: 0, bytes: 0 },
+    { key: 'feedback', label: '根因反馈', dir: CACHE_ROOT_DIR, files: 0, bytes: 0 },
+    { key: 'other', label: '其他缓存', dir: CACHE_ROOT_DIR, files: 0, bytes: 0 }
   ]
 }
 
@@ -160,7 +161,7 @@ async function summarizeBucket(bucket: CacheBucketSummary): Promise<CacheBucketS
 }
 
 function bucketContainsFile(key: string, file: string): boolean {
-  const relative = path.relative(CACHE_DIR, file)
+  const relative = path.relative(CACHE_ROOT_DIR, file)
   if (key === 'sessions') return /^session-.*\.json$/.test(relative)
   if (key === 'indexes') return relative.startsWith('indexes/')
   if (key === 'packages') return relative.startsWith('packages/')
@@ -177,7 +178,7 @@ function bucketContainsFile(key: string, file: string): boolean {
 }
 
 async function cleanupBySize(maxBytes: number): Promise<void> {
-  const files = await listFiles(CACHE_DIR)
+  const files = await listFiles(CACHE_ROOT_DIR)
   const stats = await Promise.all(files.map(async (file) => ({ file, stat: await fs.stat(file).catch(() => null) })))
   let total = stats.reduce((sum, item) => sum + (item.stat?.size || 0), 0)
   if (total <= maxBytes) return

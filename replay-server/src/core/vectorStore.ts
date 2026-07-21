@@ -1,11 +1,12 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR } from '../paths'
 import type { VectorDocumentChunk, VectorSearchResult } from '../types'
 import { readCaseMeta } from './caseMeta'
 import { buildCaseMetaChunks, buildKnowledgeRuleChunks, rankChunks } from './knowledgeEmbedding'
 import { readKnowledgeLibrary } from './knowledgeBase'
 
-const VECTOR_STORE_FILE = path.resolve(process.cwd(), 'replay-server/.cache/vector-store.json')
+const VECTOR_STORE_FILE = path.join(CACHE_DIR, 'vector-store.json')
 
 export interface VectorStoreData {
   version: 1

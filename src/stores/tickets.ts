@@ -39,7 +39,7 @@ export const useTicketStore = defineStore('tickets', () => {
     }
   }
 
-  async function createTicket(form: { title: string; description: string; logs: File; map?: File }) {
+  async function createTicket(form: { title: string; description: string; logs: File; map?: File; aiEnabled?: boolean }) {
     const ticket = await apiCreate(form)
     tickets.value.unshift(ticket)
     return ticket

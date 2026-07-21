@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import {
   assignTicket,
@@ -17,7 +18,7 @@ import {
 const router = Router();
 
 const upload = multer({
-  dest: path.resolve(process.cwd(), 'replay-server/.cache/uploads'),
+  dest: path.join(CACHE_DIR, 'uploads'),
   limits: { fileSize: 500 * 1024 * 1024 }
 });
 
@@ -53,6 +54,7 @@ router.post(
       }
 
       const mapFile = files?.map?.[0];
+      const aiEnabled = req.body.aiEnabled === 'true' || req.body.aiEnabled === true;
 
       const ticket = await createTicketWithUploads({
         title,
@@ -60,7 +62,8 @@ router.post(
         logArchivePath: logFile.path,
         logOriginalName: logFile.originalname,
         mapFilePath: mapFile?.path,
-        reporter: req.user!
+        reporter: req.user!,
+        aiEnabled
       });
 
       // 清理上传临时文件
@@ -229,6 +232,9 @@ function serializeTicket(ticket: Awaited<ReturnType<typeof listUserTickets>>[num
     logDir: ticket.log_dir,
     mapDir: ticket.map_dir,
     mapFile: ticket.map_file,
+    aiEnabled: ticket.ai_enabled === 1,
+    aiConclusion: ticket.ai_conclusion,
+    aiOffline: ticket.ai_offline === 1,
     createdAt: ticket.created_at,
     updatedAt: ticket.updated_at,
     resolvedAt: ticket.resolved_at

@@ -39,6 +39,10 @@
             </template>
           </el-upload>
         </el-form-item>
+        <el-form-item label="AI 介入分析">
+          <el-switch v-model="form.aiEnabled" active-text="开启" inactive-text="关闭" />
+          <div class="ai-tip">开启后会调用大模型基于日志上下文和问题描述生成 AI 分析结论，耗时可能较长</div>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="submitting" @click="onSubmit">提交工单</el-button>
           <el-button @click="router.back()">取消</el-button>
@@ -64,7 +68,8 @@ const form = reactive({
   title: '',
   description: '',
   logs: null as File | null,
-  map: null as File | null
+  map: null as File | null,
+  aiEnabled: false
 })
 
 function onLogChange(file: UploadFile) {
@@ -91,7 +96,8 @@ async function onSubmit() {
       title: form.title.trim(),
       description: form.description.trim(),
       logs: form.logs,
-      map: form.map || undefined
+      map: form.map || undefined,
+      aiEnabled: form.aiEnabled
     })
     router.push(`/tickets/${ticket.id}`)
   } catch (e) {
@@ -106,5 +112,10 @@ async function onSubmit() {
 .new-header {
   font-size: 16px;
   font-weight: 600;
+}
+.ai-tip {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #6b7280;
 }
 </style>

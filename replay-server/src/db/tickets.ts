@@ -22,6 +22,9 @@ export interface DbTicket {
   log_dir: string;
   map_dir: string | null;
   map_file: string | null;
+  ai_enabled: number;
+  ai_conclusion: string | null;
+  ai_offline: number | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -35,13 +38,14 @@ export interface CreateTicketInput {
   logDir: string;
   mapDir?: string;
   mapFile?: string;
+  aiEnabled?: boolean;
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<DbTicket> {
   const db = await getDb();
   const stmt = db.prepare(
-    `INSERT INTO tickets (ticket_no, title, description, reporter_id, status, log_dir, map_dir, map_file)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tickets (ticket_no, title, description, reporter_id, status, log_dir, map_dir, map_file, ai_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const result = stmt.run(
     input.ticketNo,
@@ -51,7 +55,8 @@ export async function createTicket(input: CreateTicketInput): Promise<DbTicket> 
     'pending_analysis',
     input.logDir,
     input.mapDir || null,
-    input.mapFile || null
+    input.mapFile || null,
+    input.aiEnabled ? 1 : 0
   );
   return getTicketById(Number(result.lastInsertRowid)) as Promise<DbTicket>;
 }
@@ -74,6 +79,9 @@ export async function updateTicket(
       | 'log_dir'
       | 'map_dir'
       | 'map_file'
+      | 'ai_enabled'
+      | 'ai_conclusion'
+      | 'ai_offline'
       | 'resolved_at'
     >
   >

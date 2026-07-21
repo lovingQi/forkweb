@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR } from '../paths'
 
 export interface RootCauseFeedback {
   id: string
@@ -8,7 +9,7 @@ export interface RootCauseFeedback {
   createdAt: string
 }
 
-const FEEDBACK_FILE = path.resolve(process.cwd(), 'replay-server/.cache/root-cause-feedback.json')
+const FEEDBACK_FILE = path.join(CACHE_DIR, 'root-cause-feedback.json')
 
 export async function addRootCauseFeedback(input: {
   id: string

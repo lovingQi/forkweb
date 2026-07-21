@@ -1,10 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CONFIG_DIR } from '../paths'
 import type { ErrorCodeDefinition } from '../types'
 import { enrichDictionarySource } from './errorDictionarySources'
 
 export const ERROR_CODE_RE = /E?ERROR\d{4,5}/g
-const MANUAL_DICTIONARY_FILE = path.resolve(process.cwd(), 'replay-server/config/manual-error-dictionary.json')
+const MANUAL_DICTIONARY_FILE = path.join(CONFIG_DIR, 'manual-error-dictionary.json')
 const DEFAULT_SOURCE_DIR = '/home/xbl/Desktop/jarvis-fork'
 const MAX_FILES = 3000
 const MAX_FILE_SIZE = 2_000_000

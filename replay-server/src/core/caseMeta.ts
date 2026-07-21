@@ -1,8 +1,9 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { CACHE_DIR } from '../paths'
 import type { ReplayCaseMeta } from '../types'
 
-const CASE_META_FILE = path.resolve(process.cwd(), 'replay-server/.cache/case-meta.json')
+const CASE_META_FILE = path.join(CACHE_DIR, 'case-meta.json')
 
 export async function readCaseMeta(): Promise<ReplayCaseMeta> {
   try {
