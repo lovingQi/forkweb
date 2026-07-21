@@ -12,16 +12,14 @@
       "enabled": true,
       "scope": {},
       "pattern": {
-        "requiredKeywords": [
-          "date"
+        "requiredLineRegexes": [
+          "laser\\s*\\[[^\\]\\r\\n]+\\]\\s*date\\s+outof\\s+date\\s*,?\\s*stop\\s+robot\\b"
         ],
+        "requiredKeywords": [],
         "anyKeywords": [
-          "date",
-          "midfront_up",
           "laser",
           "outof",
-          "robot",
-          "stop"
+          "stop robot"
         ],
         "excludedKeywords": [],
         "modules": [
@@ -42,12 +40,12 @@
           },
           {
             "type": "keyword",
-            "value": "date",
+            "value": "outof",
             "weight": 0.06
           },
           {
             "type": "keyword",
-            "value": "midfront_up",
+            "value": "stop robot",
             "weight": 0.06
           },
           {

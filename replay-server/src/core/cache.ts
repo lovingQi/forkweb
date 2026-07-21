@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import type { ReplaySessionData } from '../types'
 
-const CACHE_VERSION = 2
+const CACHE_VERSION = 3
 const CACHE_DIR = path.resolve(process.cwd(), 'replay-server/.cache')
 const DEFAULT_MAX_AGE_DAYS = 14
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
@@ -32,6 +32,7 @@ export interface CacheInput {
   files: string[]
   mapDir?: string
   mapFile?: string
+  knowledgeFingerprint?: string
 }
 
 export async function buildCacheKey(input: CacheInput): Promise<string> {
@@ -44,7 +45,8 @@ export async function buildCacheKey(input: CacheInput): Promise<string> {
     version: CACHE_VERSION,
     files: fileStats,
     mapDir: input.mapDir || '',
-    mapFile: input.mapFile || ''
+    mapFile: input.mapFile || '',
+    knowledgeFingerprint: input.knowledgeFingerprint || ''
   })
   return crypto.createHash('sha1').update(payload).digest('hex')
 }

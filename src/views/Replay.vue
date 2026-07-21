@@ -736,6 +736,14 @@
           <el-form-item label="处理办法">
             <el-input v-model="knowledgeDraft.solution" type="textarea" :rows="2" />
           </el-form-item>
+          <el-form-item label="核心行正则">
+            <el-input
+              v-model="patternText.requiredLineRegexes"
+              type="textarea"
+              :rows="3"
+              placeholder="一行一个正则；任意一条必须在同一日志行内命中"
+            />
+          </el-form-item>
           <el-form-item label="必选词">
             <el-input v-model="patternText.requiredKeywords" placeholder="逗号分隔" />
           </el-form-item>
@@ -918,6 +926,7 @@ const knowledgeQuery = ref({ keyword: '', severity: '' })
 const knowledgeDraft = ref<any>(emptyKnowledgeDraft())
 const knowledgeTagText = ref('')
 const patternText = ref({
+  requiredLineRegexes: '',
   requiredKeywords: '',
   anyKeywords: '',
   excludedKeywords: '',
@@ -1906,6 +1915,7 @@ function buildKnowledgeDraft(input: { title: string; description: string; rootCa
     enabled: true,
     scope: {},
     pattern: {
+      requiredLineRegexes: input.seed?.pattern?.requiredLineRegexes || [],
       requiredKeywords: [],
       anyKeywords: [],
       excludedKeywords: [],
@@ -1957,6 +1967,7 @@ function emptyKnowledgeShape() {
     enabled: true,
     scope: {},
     pattern: {
+      requiredLineRegexes: [] as string[],
       requiredKeywords: [] as string[],
       anyKeywords: [] as string[],
       excludedKeywords: [] as string[],
@@ -1976,6 +1987,7 @@ function emptyKnowledgeShape() {
 function syncPatternTextFromDraft() {
   const pattern = knowledgeDraft.value.pattern || {}
   patternText.value = {
+    requiredLineRegexes: (pattern.requiredLineRegexes || []).join('\n'),
     requiredKeywords: (pattern.requiredKeywords || []).join(','),
     anyKeywords: (pattern.anyKeywords || []).join(','),
     excludedKeywords: (pattern.excludedKeywords || []).join(','),
@@ -1988,6 +2000,7 @@ function syncPatternTextFromDraft() {
 function draftWithPatternText() {
   const draft = JSON.parse(JSON.stringify(knowledgeDraft.value))
   draft.tags = splitList(knowledgeTagText.value)
+  draft.pattern.requiredLineRegexes = splitLines(patternText.value.requiredLineRegexes)
   draft.pattern.requiredKeywords = splitList(patternText.value.requiredKeywords)
   draft.pattern.anyKeywords = splitList(patternText.value.anyKeywords)
   draft.pattern.excludedKeywords = splitList(patternText.value.excludedKeywords)
@@ -1999,6 +2012,10 @@ function draftWithPatternText() {
 
 function splitList(text: string) {
   return String(text || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function splitLines(text: string) {
+  return String(text || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
 }
 
 function highlightLogMessage(text: string) {

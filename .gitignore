@@ -11,3 +11,5 @@ replay-server/config/llm.local.json
 replay-server/.cache/
 replay-server/dist/
 replay-server/config/knowledge-base.json.bak
+playwright-report/
+test-results/

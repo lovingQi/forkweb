@@ -317,6 +317,7 @@ function buildKnowledgeDraftFromAnswer() {
       createdAt: new Date().toISOString()
     }],
     pattern: {
+      requiredLineRegexes: [],
       requiredKeywords: [],
       anyKeywords: [],
       excludedKeywords: [],

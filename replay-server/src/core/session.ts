@@ -26,7 +26,7 @@ import { readLogIndex, writeLogIndex, fileFingerprint } from './logIndex'
 import { shouldReplaceDefinition } from './errorDictionarySources'
 import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
-import { matchKnowledgeRules } from './knowledgeBase'
+import { getKnowledgeLibraryFingerprint, matchKnowledgeRules } from './knowledgeBase'
 
 const EMPTY_OVERVIEW: OverviewSummary = {
   loaded: false,
@@ -122,7 +122,8 @@ export class ReplaySession {
     await cleanupReplayCache()
     await step('查找日志文件', 5)
     const files = await findLogFiles(input.logDir)
-    const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile })
+    const knowledgeFingerprint = await getKnowledgeLibraryFingerprint()
+    const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile, knowledgeFingerprint })
     if (!input.forceReload) {
       await step('检查缓存', 8)
       const cached = await readSessionCache(cacheKey)

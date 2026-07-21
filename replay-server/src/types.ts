@@ -177,6 +177,7 @@ export interface KnowledgeConfidenceWeight {
 }
 
 export interface KnowledgeEvidencePattern {
+  requiredLineRegexes: string[]
   requiredKeywords: string[]
   anyKeywords: string[]
   excludedKeywords: string[]
@@ -246,6 +247,7 @@ export interface KnowledgePatternSuggestion {
   modules: string[]
   levels: LogLevel[]
   errorCodes: string[]
+  requiredLineRegexes: string[]
   requiredKeywords: string[]
   anyKeywords: string[]
   excludedKeywords: string[]

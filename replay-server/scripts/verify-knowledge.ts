@@ -13,6 +13,7 @@ import {
 } from '../src/core/knowledgeBase'
 import { buildJsonReport, buildMarkdownReportAsync } from '../src/core/report'
 import { ReplaySession } from '../src/core/session'
+import { parseLogLine } from '../src/parser/logLine'
 
 const LOG_DIR = '/home/xbl/Desktop'
 const MAP_DIR = '/home/xbl/Desktop/jarvis-fork/params/map'
@@ -25,6 +26,8 @@ async function main() {
   try {
     baselineMtime = (await fs.stat(KNOWLEDGE_PATH).catch(() => null))?.mtime || null
     await writeKnowledgeLibrary({ version: 1, updatedAt: '', rules: [] })
+
+    verifyStrictLaserRule(backup)
 
     const baselineSession = new ReplaySession()
     const baseline = await baselineSession.load({ logDir: LOG_DIR, mapDir: MAP_DIR, forceReload: true })
@@ -71,7 +74,7 @@ async function main() {
     const disabled = await toggleKnowledgeRule(expectedIds[0], false)
     assert(disabled?.enabled === false, '应能禁用知识规则')
     const afterDisabledSession = new ReplaySession()
-    const afterDisabled = await afterDisabledSession.load({ logDir: LOG_DIR, mapDir: MAP_DIR, forceReload: true })
+    const afterDisabled = await afterDisabledSession.load({ logDir: LOG_DIR, mapDir: MAP_DIR })
     assert(!afterDisabled.knowledgeMatches?.some((item) => item.ruleId === expectedIds[0]), '禁用后的知识规则不应参与诊断')
     assert(afterDisabled.knowledgeMatches?.some((item) => item.ruleId === expectedIds[1]), '禁用单条规则不应影响其他规则命中')
 
@@ -118,6 +121,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       tags: ['acceptance', 'map'],
       lines: pickEvidence(rawLines, ['obs: the map', 'IO sheild area'], 3),
       pattern: {
+        requiredLineRegexes: [],
         requiredKeywords: ['obs: the map'],
         anyKeywords: ['IO sheild area'],
         modules: ['JObs'],
@@ -142,6 +146,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       tags: ['acceptance', 'battery'],
       lines: pickEvidence(rawLines, ['get battery failed'], 3),
       pattern: {
+        requiredLineRegexes: [],
         requiredKeywords: ['get battery failed'],
         anyKeywords: ['battery does not exist'],
         modules: ['s_forklift'],
@@ -166,6 +171,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       tags: ['acceptance', 'task', 'error_code'],
       lines: pickEvidence(rawLines, ['current_task_error_code is', 'Invalid task error code'], 4),
       pattern: {
+        requiredLineRegexes: [],
         requiredKeywords: ['current_task_error_code is'],
         anyKeywords: ['Invalid task error code'],
         modules: ['error_code'],
@@ -182,6 +188,77 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       }
     })
   ]
+}
+
+function verifyStrictLaserRule(library: { rules: KnowledgeRule[] }) {
+  const rule = library.rules.find((item) => item.id === 'knowledge-bdd72dd5')
+  assert(rule, '知识库应包含激光无数据规则')
+
+  const falsePositiveLines = parseLines([
+    '2026-07-20 11:55:19.569     FltTask: 1062 [D] : there is no need to update path',
+    '2026-07-20 11:55:19.569  ltBackGoto: 1140 [D] : now the robot is going to path p77',
+    '2026-07-20 11:55:19.569  JActSecure:  200 [D] : JActSecure-clearance1: FrontMin 400.00',
+    '2026-07-20 11:55:20.269   FltStatus:  114 [D] : the estop is 0'
+  ])
+  assert(!matchKnowledgeRule(rule, falsePositiveLines), 'update/date、estop/stop、robot、JActSecure 和 D 级别组合不应误报激光无数据')
+
+  const splitKeywordLines = parseLines([
+    '2026-07-20 11:55:19.569  JActSecure:  108 [D] : laser[midfront_up] is enabled',
+    '2026-07-20 11:55:19.669  JActSecure:  108 [D] : date outof date',
+    '2026-07-20 11:55:19.769  JActSecure:  108 [D] : stop robot'
+  ])
+  assert(!matchKnowledgeRule(rule, splitKeywordLines), '核心关键词分散在不同日志行时不应命中激光无数据')
+
+  const realFaultLine = parseLines([
+    '2026-07-20 11:55:19.569  JActSecure:  108 [D] : laser[midfront_up] date outof date, stop robot'
+  ])
+  const match = matchKnowledgeRule(rule, realFaultLine)
+  assert(match, '真实激光超时日志应命中激光无数据')
+  assert(match.evidenceLines.length === 1 && match.evidenceLines[0].line === 1, '激光无数据证据应只包含核心故障日志行')
+  assert(match.matchedPatterns.some((item) => item.startsWith('核心正则 ')), '命中结果应说明核心正则已触发')
+
+  const duplicatedContext = [
+    ...realFaultLine,
+    ...Array.from({ length: 100 }, (_, index) => parseLine(
+      `2026-07-20 11:55:20.${String(index).padStart(3, '0')}  JActSecure:  200 [D] : normal debug line ${index}`,
+      index + 2
+    ))
+  ]
+  const duplicateMatch = matchKnowledgeRule(rule, duplicatedContext)
+  assert(duplicateMatch, '增加重复 D 级别上下文后真实故障仍应命中')
+  assert(duplicateMatch.confidence === match.confidence, '重复 D 日志和模块上下文不应虚增置信度')
+
+  const duplicatedWeightsRule: KnowledgeRule = {
+    ...rule,
+    pattern: {
+      ...rule.pattern,
+      confidenceWeights: [
+        { type: 'module', value: 'JActSecure', weight: 0.08 },
+        { type: 'module', value: 'JActSecure', weight: 0.08 }
+      ]
+    }
+  }
+  const singleWeightRule: KnowledgeRule = {
+    ...duplicatedWeightsRule,
+    pattern: {
+      ...duplicatedWeightsRule.pattern,
+      confidenceWeights: [{ type: 'module', value: 'JActSecure', weight: 0.08 }]
+    }
+  }
+  assert(
+    matchKnowledgeRule(duplicatedWeightsRule, realFaultLine)?.confidence === matchKnowledgeRule(singleWeightRule, realFaultLine)?.confidence,
+    '重复置信度权重只能计算一次'
+  )
+}
+
+function parseLines(rawLines: string[]): ParsedLogLine[] {
+  return rawLines.map((raw, index) => parseLine(raw, index + 1))
+}
+
+function parseLine(raw: string, line: number): ParsedLogLine {
+  const parsed = parseLogLine(raw, '/tmp/verify-knowledge.log', line)
+  assert(parsed, `测试日志应能解析: ${raw}`)
+  return parsed
 }
 
 function buildRule(input: Omit<KnowledgeRule, 'enabled' | 'scope' | 'examples' | 'hitCount' | 'recentHits' | 'createdAt' | 'updatedAt' | 'createdBy'> & {

@@ -23,6 +23,7 @@ export function buildKnowledgeRuleChunks(rules: KnowledgeRule[]): VectorDocument
       `处理办法: ${rule.solution}`,
       `等级: ${rule.severity}`,
       `标签: ${rule.tags.join(', ')}`,
+      `核心行正则: ${rule.pattern.requiredLineRegexes.join(', ')}`,
       `关键词: ${[...rule.pattern.requiredKeywords, ...rule.pattern.anyKeywords, ...rule.pattern.errorCodes, ...rule.pattern.modules].join(', ')}`,
       ...rule.examples.flatMap((example) => (example.lines || []).slice(0, 12).map((line) => `证据: ${line.raw}`))
     ].filter(Boolean).join('\n'),

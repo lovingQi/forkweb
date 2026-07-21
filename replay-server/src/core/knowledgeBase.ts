@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import type {
@@ -80,6 +80,11 @@ export async function readKnowledgeLibraryWithHits(): Promise<KnowledgeLibrary> 
   return { ...library, updatedAt: hitsData.updatedAt || library.updatedAt, rules: mergeHitsIntoRules(library.rules, hitsData) }
 }
 
+export async function getKnowledgeLibraryFingerprint(): Promise<string> {
+  const text = await fs.readFile(KNOWLEDGE_FILE, 'utf8').catch(() => '')
+  return createHash('sha1').update(text).digest('hex')
+}
+
 export async function writeKnowledgeLibrary(library: KnowledgeLibrary): Promise<KnowledgeLibrary> {
   const normalized = normalizeLibrary({ ...library, updatedAt: new Date().toISOString() })
   const cleaned = { ...normalized, rules: normalized.rules.map(stripRuntimeFields) }
@@ -121,6 +126,7 @@ export async function createKnowledgeRule(input: Partial<KnowledgeRule>): Promis
     id: input.id || `knowledge-${randomUUID().slice(0, 8)}`,
     createdAt: input.createdAt || new Date().toISOString()
   })
+  validateKnowledgePattern(rule.pattern)
   library.rules.push(rule)
   await writeKnowledgeLibrary(library)
   return rule
@@ -137,6 +143,7 @@ export async function updateKnowledgeRule(id: string, input: Partial<KnowledgeRu
     createdAt: library.rules[index].createdAt,
     updatedAt: new Date().toISOString()
   })
+  validateKnowledgePattern(next.pattern)
   library.rules[index] = next
   await writeKnowledgeLibrary(library)
   return next
@@ -183,7 +190,9 @@ export async function importKnowledgeLibraryPayload(input: unknown, overwrite = 
       continue
     }
     if (sameIdIndex >= 0) {
-      rules[sameIdIndex] = normalizeRule({ ...rule, updatedAt: new Date().toISOString() })
+      const next = normalizeRule({ ...rule, updatedAt: new Date().toISOString() })
+      validateKnowledgePattern(next.pattern)
+      rules[sameIdIndex] = next
       updated += 1
       continue
     }
@@ -193,6 +202,7 @@ export async function importKnowledgeLibraryPayload(input: unknown, overwrite = 
       createdAt: rule.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     })
+    validateKnowledgePattern(next.pattern)
     rules.push(next)
     imported += 1
   }
@@ -211,6 +221,7 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
     modules,
     levels,
     errorCodes,
+    requiredLineRegexes: [],
     requiredKeywords: keywords.slice(0, 2),
     anyKeywords: keywords.slice(0, 8),
     excludedKeywords: [],
@@ -239,59 +250,35 @@ export async function matchKnowledgeRules(rawLines: ParsedLogLine[], logDir = ''
 }
 
 function preFilterRules(rules: KnowledgeRule[], rawLines: ParsedLogLine[]): KnowledgeRule[] {
-  const allTerms = new Set<string>()
-  for (const rule of rules) {
-    const p = rule.pattern || {}
-    for (const kw of (p as any).requiredKeywords || []) if (kw) allTerms.add(kw)
-    for (const code of (p as any).errorCodes || []) if (code) allTerms.add(code)
-  }
-
-  const foundTerms = new Set<string>()
-  const remaining = new Set(allTerms)
-  for (const line of rawLines) {
-    if (remaining.size === 0) break
-    for (const term of remaining) {
-      if (line.raw.includes(term)) {
-        foundTerms.add(term)
-        remaining.delete(term)
-      }
-    }
-  }
-
-  const existingModules = new Set<string>()
-  for (const line of rawLines) {
-    if (line.module) existingModules.add(line.module)
-  }
-
   return rules.filter((rule) => {
     const p = normalizeRule(rule).pattern
-    if (p.requiredKeywords.length > 0 && p.requiredKeywords.some((kw) => kw && !foundTerms.has(kw))) return false
-    if (p.errorCodes.length > 0 && !p.errorCodes.some((code) => foundTerms.has(code))) return false
-    if (p.modules.length > 0 && p.requiredKeywords.length === 0 && p.errorCodes.length === 0) {
-      const hasModule = p.modules.some((mod) => {
-        for (const existing of existingModules) {
-          if (existing.includes(mod)) return true
-        }
-        return false
-      })
-      if (!hasModule) return false
-    }
-    return true
+    const regexes = compileRequiredLineRegexes(p.requiredLineRegexes)
+    if (regexes.length > 0 && !rawLines.some((line) => matchesAnyRegex(line.raw, regexes))) return false
+    if (p.requiredKeywords.some((keyword) => !rawLines.some((line) => matchesKeyword(line.raw, keyword)))) return false
+    if (p.errorCodes.length > 0 && !rawLines.some((line) => p.errorCodes.some((code) => matchesKeyword(line.raw, code)))) return false
+    return regexes.length > 0 || hasTextCore(p)
   })
 }
 
 export function matchKnowledgeRule(rule: KnowledgeRule, rawLines: ParsedLogLine[]): KnowledgeMatch | null {
   const normalized = normalizeRule(rule)
   const candidateLines = rawLines.filter((line) => !hasExcludedKeyword(line, normalized.pattern.excludedKeywords))
-  const anchorLines = candidateLines.filter((line) => lineMatchesAnyPositiveCondition(line, normalized.pattern))
+  const requiredRegexes = compileRequiredLineRegexes(normalized.pattern.requiredLineRegexes)
+  const anchorLines = requiredRegexes.length > 0
+    ? candidateLines.filter((line) => matchesAnyRegex(line.raw, requiredRegexes))
+    : candidateLines.filter((line) => lineMatchesTextCore(line, normalized.pattern))
+  if (anchorLines.length === 0) return null
   const windows = buildCandidateWindows(candidateLines, anchorLines, normalized.pattern.windowSeconds || 0)
   let best: { lines: ParsedLogLine[]; matchedPatterns: string[]; confidence: number } | null = null
   for (const windowLines of windows) {
-    const matchedPatterns: string[] = []
-    const evidence = filterEvidenceLines(windowLines, normalized.pattern, matchedPatterns)
+    const evidence = requiredRegexes.length > 0
+      ? windowLines.filter((line) => matchesAnyRegex(line.raw, requiredRegexes))
+      : windowLines.filter((line) => lineMatchesTextCore(line, normalized.pattern))
     if (evidence.length < Math.max(1, normalized.pattern.minOccurrences || 1)) continue
     if (!requiredKeywordsMatched(windowLines, normalized.pattern.requiredKeywords)) continue
     if (!anyKeywordsMatched(windowLines, normalized.pattern.anyKeywords)) continue
+    if (!errorCodesMatched(windowLines, normalized.pattern.errorCodes)) continue
+    const matchedPatterns = collectMatchedPatterns(normalized.pattern, windowLines, evidence, requiredRegexes)
     const confidence = calculateConfidence(normalized.pattern, windowLines, matchedPatterns)
     if (!best || confidence > best.confidence || evidence.length > best.lines.length) {
       best = { lines: evidence.slice(0, MAX_EVIDENCE_LINES), matchedPatterns, confidence }
@@ -355,61 +342,107 @@ async function recordKnowledgeHits(matches: KnowledgeMatch[], logDir: string) {
   await writeKnowledgeHits(hitsData)
 }
 
-function filterEvidenceLines(lines: ParsedLogLine[], pattern: KnowledgeEvidencePattern, matchedPatterns: string[]): ParsedLogLine[] {
-  return lines.filter((line) => {
-    let matched = false
-    if (pattern.modules.length && pattern.modules.some((moduleName) => line.module.includes(moduleName))) {
-      matchedPatterns.push(`模块 ${line.module}`)
-      matched = true
-    }
-    if (pattern.levels.length && pattern.levels.includes(line.level)) {
-      matchedPatterns.push(`等级 ${line.level}`)
-      matched = true
-    }
-    for (const code of pattern.errorCodes) {
-      if (line.raw.includes(code)) {
-        matchedPatterns.push(`错误码 ${code}`)
-        matched = true
-      }
-    }
-    for (const keyword of [...pattern.requiredKeywords, ...pattern.anyKeywords]) {
-      if (keyword && line.raw.includes(keyword)) {
-        matchedPatterns.push(`关键词 ${keyword}`)
-        matched = true
-      }
-    }
-    return matched || patternIsLoose(pattern)
-  })
-}
-
 function requiredKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
-  return keywords.every((keyword) => lines.some((line) => line.raw.includes(keyword)))
+  return keywords.every((keyword) => lines.some((line) => matchesKeyword(line.raw, keyword)))
 }
 
 function anyKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
-  return keywords.length === 0 || keywords.some((keyword) => lines.some((line) => line.raw.includes(keyword)))
+  return keywords.length === 0 || keywords.some((keyword) => lines.some((line) => matchesKeyword(line.raw, keyword)))
+}
+
+function errorCodesMatched(lines: ParsedLogLine[], errorCodes: string[]) {
+  return errorCodes.length === 0 || errorCodes.some((code) => lines.some((line) => matchesKeyword(line.raw, code)))
 }
 
 function hasExcludedKeyword(line: ParsedLogLine, keywords: string[]) {
-  return keywords.some((keyword) => keyword && line.raw.includes(keyword))
+  return keywords.some((keyword) => matchesKeyword(line.raw, keyword))
+}
+
+function collectMatchedPatterns(
+  pattern: KnowledgeEvidencePattern,
+  lines: ParsedLogLine[],
+  evidence: ParsedLogLine[],
+  requiredRegexes: RegExp[]
+): string[] {
+  const matched = new Set<string>()
+  for (let i = 0; i < requiredRegexes.length; i++) {
+    if (evidence.some((line) => requiredRegexes[i].test(line.raw))) {
+      matched.add(`核心正则 ${pattern.requiredLineRegexes[i]}`)
+    }
+  }
+  for (const moduleName of pattern.modules) {
+    if (lines.some((line) => matchesModule(line.module, moduleName))) matched.add(`模块 ${moduleName}`)
+  }
+  for (const level of pattern.levels) {
+    if (lines.some((line) => line.level === level)) matched.add(`等级 ${level}`)
+  }
+  for (const code of pattern.errorCodes) {
+    if (lines.some((line) => matchesKeyword(line.raw, code))) matched.add(`错误码 ${code}`)
+  }
+  for (const keyword of [...pattern.requiredKeywords, ...pattern.anyKeywords]) {
+    if (lines.some((line) => matchesKeyword(line.raw, keyword))) matched.add(`关键词 ${keyword}`)
+  }
+  return Array.from(matched)
+}
+
+function matchesKeyword(text: string, keyword: string): boolean {
+  const value = String(keyword || '').trim()
+  if (!value) return false
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    const boundary = `(^|[^A-Za-z0-9_])${escapeRegExp(value)}(?=$|[^A-Za-z0-9_])`
+    return new RegExp(boundary, 'i').test(text)
+  }
+  if (/^[\x00-\x7F]+$/.test(value)) return text.toLowerCase().includes(value.toLowerCase())
+  return text.includes(value)
+}
+
+function matchesModule(moduleName: string, expected: string): boolean {
+  return moduleName.trim().toLowerCase() === expected.trim().toLowerCase()
+}
+
+function compileRequiredLineRegexes(sources: string[]): RegExp[] {
+  return sources.map((source) => {
+    try {
+      return new RegExp(source, 'i')
+    } catch (error) {
+      throw new Error(`核心行正则无效: ${source} (${error instanceof Error ? error.message : String(error)})`)
+    }
+  })
+}
+
+function matchesAnyRegex(text: string, regexes: RegExp[]): boolean {
+  return regexes.some((regex) => regex.test(text))
+}
+
+function validateKnowledgePattern(pattern: KnowledgeEvidencePattern): void {
+  compileRequiredLineRegexes(pattern.requiredLineRegexes)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function calculateConfidence(pattern: KnowledgeEvidencePattern, lines: ParsedLogLine[], matchedPatterns: string[]) {
   let confidence = pattern.confidenceBase ?? 0.6
+  const appliedWeights = new Set<string>()
   for (const weight of pattern.confidenceWeights || []) {
     const value = weight.value || ''
     if (!value) continue
+    const weightKey = `${weight.type}:${value.toLowerCase()}`
+    if (appliedWeights.has(weightKey)) continue
     const matched = lines.some((line) => {
-      if (weight.type === 'keyword') return line.raw.includes(value)
-      if (weight.type === 'module') return line.module.includes(value)
+      if (weight.type === 'keyword') return matchesKeyword(line.raw, value)
+      if (weight.type === 'module') return matchesModule(line.module, value)
       if (weight.type === 'level') return line.level === value
-      if (weight.type === 'errorCode') return line.raw.includes(value)
+      if (weight.type === 'errorCode') return matchesKeyword(line.raw, value)
       return false
     })
-    if (matched) confidence += Number(weight.weight || 0)
+    if (matched) {
+      confidence += Number(weight.weight || 0)
+      appliedWeights.add(weightKey)
+    }
   }
-  confidence += Math.min(0.12, matchedPatterns.length * 0.01)
-  confidence += Math.min(0.08, lines.length * 0.004)
+  confidence += Math.min(0.12, new Set(matchedPatterns).size * 0.01)
   return Math.max(0.05, Math.min(0.98, confidence))
 }
 
@@ -427,20 +460,21 @@ function* iterateWindows(lines: ParsedLogLine[], windowSeconds: number): Generat
 }
 
 function patternIsLoose(pattern: KnowledgeEvidencePattern) {
-  return pattern.requiredKeywords.length === 0 &&
+  return pattern.requiredLineRegexes.length === 0 &&
+    pattern.requiredKeywords.length === 0 &&
     pattern.anyKeywords.length === 0 &&
     pattern.modules.length === 0 &&
     pattern.levels.length === 0 &&
     pattern.errorCodes.length === 0
 }
 
-function lineMatchesAnyPositiveCondition(line: ParsedLogLine, pattern: KnowledgeEvidencePattern): boolean {
-  if (patternIsLoose(pattern)) return true
-  if (pattern.modules.some((moduleName) => line.module.includes(moduleName))) return true
-  if (pattern.levels.includes(line.level)) return true
-  if (pattern.errorCodes.some((code) => line.raw.includes(code))) return true
-  if ([...pattern.requiredKeywords, ...pattern.anyKeywords].some((keyword) => keyword && line.raw.includes(keyword))) return true
-  return false
+function hasTextCore(pattern: KnowledgeEvidencePattern): boolean {
+  return pattern.requiredKeywords.length > 0 || pattern.anyKeywords.length > 0 || pattern.errorCodes.length > 0
+}
+
+function lineMatchesTextCore(line: ParsedLogLine, pattern: KnowledgeEvidencePattern): boolean {
+  return [...pattern.requiredKeywords, ...pattern.anyKeywords, ...pattern.errorCodes]
+    .some((value) => matchesKeyword(line.raw, value))
 }
 
 function buildCandidateWindows(lines: ParsedLogLine[], anchors: ParsedLogLine[], windowSeconds: number): ParsedLogLine[][] {
@@ -510,6 +544,7 @@ function normalizeRule(input: Partial<KnowledgeRule>): KnowledgeRule {
 
 function normalizePattern(pattern?: Partial<KnowledgeEvidencePattern>): KnowledgeEvidencePattern {
   return {
+    requiredLineRegexes: normalizeStringArray(pattern?.requiredLineRegexes),
     requiredKeywords: normalizeStringArray(pattern?.requiredKeywords),
     anyKeywords: normalizeStringArray(pattern?.anyKeywords),
     excludedKeywords: normalizeStringArray(pattern?.excludedKeywords),
