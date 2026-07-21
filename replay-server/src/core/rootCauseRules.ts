@@ -30,21 +30,21 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
     build(ctx) {
       const configEvents = ctx.events.filter((event) => event.category === 'config').slice(0, 10)
       const mapLines = ctx.rawLines
-        .filter((line) => /map|地图|params|does not exist|configure error/i.test(line.message))
+        .filter((line) => /\b(map|地图|params|configure error|config fail|参数|配置)\b/i.test(line.message))
         .slice(0, 10)
-      if (ctx.mapMatch.confidence >= 0.8 && configEvents.length < 5 && mapLines.length < 5) return null
+      if (ctx.mapMatch.confidence >= 0.8 && configEvents.length < 3 && mapLines.length < 3) return null
       return {
         id: 'map-config',
-        title: '地图或配置可信度不足',
-        confidence: ctx.mapMatch.confidence < 0.8 ? 0.82 : 0.58,
+        title: '地图匹配度较低，建议核对地图文件',
+        confidence: 0.72,
         severity: ctx.mapMatch.confidence < 0.8 ? 'warning' : 'info',
         evidenceEvents: configEvents,
         evidenceLines: mapLines,
-        suggestion: '确认现场地图文件是否与日志一致，并优先处理启动阶段参数缺失或错误码配置提醒。',
+        suggestion: '未能精确匹配到日志对应的地图文件，请确认地图目录中是否包含正确版本的地图；若该日志来自测试/演示环境，可忽略本条提示。',
         triggeredRules: ['map-config'],
-        positiveEvidence: [`地图匹配置信度 ${Math.round(ctx.mapMatch.confidence * 100)}%`, `配置/地图相关事件 ${configEvents.length} 个`],
+        positiveEvidence: [`地图匹配策略: ${ctx.mapMatch.matchStrategy}`, `地图匹配置信度 ${Math.round(ctx.mapMatch.confidence * 100)}%`],
         negativeEvidence: ctx.mapMatch.confidence >= 0.8 ? ['地图匹配置信度较高'] : [],
-        confidenceFactors: ['地图匹配置信度', '配置类事件数量', '地图/参数日志数量']
+        confidenceFactors: [`地图匹配策略 ${ctx.mapMatch.matchStrategy}`, '地图匹配置信度']
       }
     }
   },
