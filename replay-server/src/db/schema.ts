@@ -12,6 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS sites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tickets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_no TEXT UNIQUE NOT NULL,
@@ -19,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   description TEXT NOT NULL,
   reporter_id INTEGER NOT NULL,
   assignee_id INTEGER,
+  site_id INTEGER,
   status TEXT NOT NULL CHECK(status IN ('pending_analysis', 'analyzing', 'analyzed', 'verifying', 'resolved', 'needs_rd')),
   conclusion TEXT,
   report_path TEXT,
@@ -33,7 +41,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   resolved_at TEXT,
   FOREIGN KEY (reporter_id) REFERENCES users(id),
-  FOREIGN KEY (assignee_id) REFERENCES users(id)
+  FOREIGN KEY (assignee_id) REFERENCES users(id),
+  FOREIGN KEY (site_id) REFERENCES sites(id)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_events (
@@ -50,6 +59,7 @@ CREATE TABLE IF NOT EXISTS ticket_events (
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_reporter ON tickets(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_site ON tickets(site_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events(ticket_id);
 
 CREATE TABLE IF NOT EXISTS json_stores (

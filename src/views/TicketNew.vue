@@ -8,6 +8,25 @@
         <el-form-item label="标题">
           <el-input v-model="form.title" placeholder="一句话概括问题" />
         </el-form-item>
+        <el-form-item label="项目现场">
+          <el-select
+            v-model="form.siteId"
+            placeholder="请选择项目现场"
+            style="width: 100%"
+            :loading="loadingSites"
+            clearable
+          >
+            <el-option
+              v-for="site in sites"
+              :key="site.id"
+              :label="site.name"
+              :value="site.id"
+            />
+          </el-select>
+          <div v-if="!loadingSites && sites.length === 0" class="site-tip">
+            暂无可用现场，请联系管理员或研发预设
+          </div>
+        </el-form-item>
         <el-form-item label="问题描述">
           <el-input v-model="form.description" type="textarea" :rows="4" placeholder="请简要描述当前遇到的问题" />
         </el-form-item>
@@ -54,9 +73,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTicketStore } from '@/stores/tickets'
+import { listSites, type Site } from '@/api/sites'
 import type { UploadFile } from 'element-plus'
 
 const router = useRouter()
@@ -67,9 +87,24 @@ const error = ref('')
 const form = reactive({
   title: '',
   description: '',
+  siteId: undefined as number | undefined,
   logs: null as File | null,
   map: null as File | null,
   aiEnabled: false
+})
+
+const sites = ref<Site[]>([])
+const loadingSites = ref(false)
+
+onMounted(async () => {
+  loadingSites.value = true
+  try {
+    sites.value = await listSites()
+  } catch (e) {
+    console.error('加载现场列表失败', e)
+  } finally {
+    loadingSites.value = false
+  }
 })
 
 function onLogChange(file: UploadFile) {
@@ -86,6 +121,10 @@ async function onSubmit() {
     error.value = '标题和描述不能为空'
     return
   }
+  if (!form.siteId) {
+    error.value = '请选择项目现场'
+    return
+  }
   if (!form.logs) {
     error.value = '请上传日志压缩包'
     return
@@ -95,6 +134,7 @@ async function onSubmit() {
     const ticket = await ticketStore.createTicket({
       title: form.title.trim(),
       description: form.description.trim(),
+      siteId: form.siteId,
       logs: form.logs,
       map: form.map || undefined,
       aiEnabled: form.aiEnabled
@@ -117,5 +157,10 @@ async function onSubmit() {
   margin-left: 12px;
   font-size: 12px;
   color: #6b7280;
+}
+.site-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ef4444;
 }
 </style>

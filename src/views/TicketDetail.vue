@@ -15,6 +15,7 @@
 
       <el-descriptions :column="2" border>
         <el-descriptions-item label="描述">{{ ticketStore.currentTicket.description }}</el-descriptions-item>
+        <el-descriptions-item label="项目现场">{{ ticketStore.currentTicket.siteName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ ticketStore.currentTicket.createdAt }}</el-descriptions-item>
         <el-descriptions-item label="更新时间">{{ ticketStore.currentTicket.updatedAt }}</el-descriptions-item>
         <el-descriptions-item label="自动分析结论">

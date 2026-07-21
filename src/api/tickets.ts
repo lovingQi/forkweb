@@ -29,6 +29,8 @@ export interface Ticket {
   description: string
   reporterId: number
   reporterName?: string
+  siteId?: number
+  siteName?: string
   assigneeId: number | null
   status: TicketStatus
   conclusion: string | null
@@ -55,6 +57,7 @@ export interface TicketEvent {
 export async function createTicket(form: {
   title: string
   description: string
+  siteId: number
   logs: File
   map?: File
   aiEnabled?: boolean
@@ -62,6 +65,7 @@ export async function createTicket(form: {
   const data = new FormData()
   data.append('title', form.title)
   data.append('description', form.description)
+  data.append('siteId', String(form.siteId))
   data.append('logs', form.logs)
   if (form.map) data.append('map', form.map)
   data.append('aiEnabled', form.aiEnabled ? 'true' : 'false')
@@ -72,10 +76,11 @@ export async function createTicket(form: {
   return res.ticket
 }
 
-export async function listTickets(filters?: { status?: string; reporterId?: number }): Promise<Ticket[]> {
+export async function listTickets(filters?: { status?: string; reporterId?: number; siteId?: number }): Promise<Ticket[]> {
   const params: Record<string, string> = {}
   if (filters?.status) params.status = filters.status
   if (filters?.reporterId !== undefined) params.reporterId = String(filters.reporterId)
+  if (filters?.siteId !== undefined) params.siteId = String(filters.siteId)
   const { data } = await ticketHttp.get('/tickets', { params })
   if (!data.succeed) throw new Error(data.error || '获取工单失败')
   return data.tickets

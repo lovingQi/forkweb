@@ -60,6 +60,12 @@ const routes = [
     name: 'users',
     component: () => import('@/views/UserManagement.vue'),
     meta: { title: '用户管理', requiresAdmin: true }
+  },
+  {
+    path: '/sites',
+    name: 'sites',
+    component: () => import('@/views/SiteManage.vue'),
+    meta: { title: '现场管理', requiresRd: true }
   }
 ]
 

@@ -5,6 +5,7 @@ import fs from 'fs/promises';
 import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
+import { getSiteById } from '../db/sites';
 import {
   assignTicket,
   createKnowledgeFromTicket,
@@ -56,6 +57,15 @@ router.post(
 
       const mapFile = files?.map?.[0];
       const aiEnabled = req.body.aiEnabled === 'true' || req.body.aiEnabled === true;
+      const rawSiteId = req.body.siteId ? Number(req.body.siteId) : undefined;
+      const siteId = Number.isFinite(rawSiteId) && rawSiteId! > 0 ? rawSiteId : undefined;
+      if (siteId) {
+        const site = await getSiteById(siteId);
+        if (!site) {
+          res.status(400).json({ succeed: false, error: '所选项目现场不存在' });
+          return;
+        }
+      }
 
       const ticket = await createTicketWithUploads({
         title,
@@ -64,6 +74,7 @@ router.post(
         logOriginalName: logFile.originalname,
         mapFilePath: mapFile?.path,
         reporter: req.user!,
+        siteId,
         aiEnabled
       });
 
@@ -86,9 +97,11 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const status = parseStatusQuery(req.query.status);
     const reporterId = req.query.reporterId ? Number(req.query.reporterId) : undefined;
+    const siteId = req.query.siteId ? Number(req.query.siteId) : undefined;
     const tickets = await listUserTickets(req.user!, {
       status,
-      reporterId: Number.isFinite(reporterId) ? reporterId : undefined
+      reporterId: Number.isFinite(reporterId) ? reporterId : undefined,
+      siteId: Number.isFinite(siteId) && siteId! > 0 ? siteId : undefined
     });
     res.json({ succeed: true, tickets: tickets.map(serializeTicket) });
   } catch (e) {
@@ -117,6 +130,12 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const ticketId = Number(req.params.id);
     const { ticket, events } = await getTicketDetail(ticketId);
+    if (ticket.site_id) {
+      const site = await getSiteById(ticket.site_id);
+      if (site) {
+        (ticket as DbTicket & { site_name?: string }).site_name = site.name;
+      }
+    }
     if (req.user!.role === 'after_sales' && ticket.reporter_id !== req.user!.id) {
       res.status(403).json({ succeed: false, error: '无权查看该工单' });
       return;
@@ -240,14 +259,16 @@ router.get('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
 });
 
 function serializeTicket(ticket: DbTicket) {
-  const withReporter = ticket as DbTicket & { reporter_username?: string };
+  const withExtra = ticket as DbTicket & { reporter_username?: string; site_name?: string };
   return {
     id: ticket.id,
     ticketNo: ticket.ticket_no,
     title: ticket.title,
     description: ticket.description,
     reporterId: ticket.reporter_id,
-    reporterName: withReporter.reporter_username || '',
+    reporterName: withExtra.reporter_username || '',
+    siteId: ticket.site_id ?? undefined,
+    siteName: withExtra.site_name || undefined,
     assigneeId: ticket.assignee_id,
     status: ticket.status,
     conclusion: ticket.conclusion,

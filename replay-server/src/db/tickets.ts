@@ -15,6 +15,7 @@ export interface DbTicket {
   description: string;
   reporter_id: number;
   assignee_id: number | null;
+  site_id: number | null;
   status: TicketStatus;
   conclusion: string | null;
   report_path: string | null;
@@ -35,6 +36,7 @@ export interface CreateTicketInput {
   title: string;
   description: string;
   reporterId: number;
+  siteId?: number;
   logDir: string;
   mapDir?: string;
   mapFile?: string;
@@ -44,14 +46,15 @@ export interface CreateTicketInput {
 export async function createTicket(input: CreateTicketInput): Promise<DbTicket> {
   const db = await getDb();
   const stmt = db.prepare(
-    `INSERT INTO tickets (ticket_no, title, description, reporter_id, status, log_dir, map_dir, map_file, ai_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, log_dir, map_dir, map_file, ai_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const result = stmt.run(
     input.ticketNo,
     input.title,
     input.description,
     input.reporterId,
+    input.siteId ?? null,
     'pending_analysis',
     input.logDir,
     input.mapDir || null,
@@ -79,6 +82,7 @@ export async function updateTicket(
       | 'log_dir'
       | 'map_dir'
       | 'map_file'
+      | 'site_id'
       | 'ai_enabled'
       | 'ai_conclusion'
       | 'ai_offline'
@@ -108,6 +112,7 @@ export async function updateTicket(
 
 export interface TicketWithReporter extends DbTicket {
   reporter_username: string;
+  site_name?: string;
 }
 
 export async function listTickets(filters?: {
@@ -156,6 +161,7 @@ export async function listTicketsWithReporter(filters?: {
   reporterId?: number;
   status?: TicketStatus | TicketStatus[];
   assigneeId?: number | null;
+  siteId?: number;
   limit?: number;
   offset?: number;
 }): Promise<TicketWithReporter[]> {
@@ -183,9 +189,14 @@ export async function listTicketsWithReporter(filters?: {
       values.push(filters.assigneeId);
     }
   }
+  if (filters?.siteId !== undefined) {
+    where.push('t.site_id = ?');
+    values.push(filters.siteId);
+  }
   const sql =
-    'SELECT t.*, u.username as reporter_username FROM tickets t' +
+    'SELECT t.*, u.username as reporter_username, s.name as site_name FROM tickets t' +
     ' JOIN users u ON t.reporter_id = u.id' +
+    ' LEFT JOIN sites s ON t.site_id = s.id' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ' ORDER BY t.updated_at DESC' +
     (filters?.limit ? ' LIMIT ?' : '') +

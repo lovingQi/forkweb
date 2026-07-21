@@ -43,6 +43,7 @@ import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
 import authRoutes, { ensureAdminUser } from './users/routes'
 import ticketRoutes from './tickets/routes'
+import siteRoutes from './sites/routes'
 
 const app = express()
 const server = http.createServer(app)
@@ -56,6 +57,7 @@ app.use(express.json({ limit: '80mb' }))
 // 工单系统路由
 app.use('/api/auth', authRoutes)
 app.use('/api/tickets', ticketRoutes)
+app.use('/api/sites', siteRoutes)
 
 app.post('/api/replay/session', async (req, res) => {
   try {

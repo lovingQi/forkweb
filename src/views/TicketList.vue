@@ -33,6 +33,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="title" label="标题" />
+        <el-table-column prop="siteName" label="项目现场" width="160">
+          <template #default="{ row }">
+            {{ row.siteName || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column v-if="auth.isRd" prop="reporterName" label="提单人" width="140" />
         <el-table-column prop="status" label="状态" width="140">
           <template #default="{ row }">

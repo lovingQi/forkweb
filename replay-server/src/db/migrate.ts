@@ -23,6 +23,23 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE users ADD COLUMN last_login_at TEXT;
     `
+  },
+  {
+    id: 'create_sites_table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS sites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `
+  },
+  {
+    id: 'ticket_site_field',
+    sql: `
+      ALTER TABLE tickets ADD COLUMN site_id INTEGER REFERENCES sites(id);
+    `
   }
 ];
 
@@ -92,6 +109,12 @@ export async function runMigrations(db: Database.Database): Promise<void> {
       continue;
     }
     if (migration.id === 'user_last_login_at' && columnExists(db, 'users', 'last_login_at')) {
+      continue;
+    }
+    if (migration.id === 'create_sites_table' && tableExists(db, 'sites')) {
+      continue;
+    }
+    if (migration.id === 'ticket_site_field' && columnExists(db, 'tickets', 'site_id')) {
       continue;
     }
     try {

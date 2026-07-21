@@ -27,6 +27,7 @@ export interface CreateTicketServiceInput {
   logOriginalName?: string;
   mapFilePath?: string;
   reporter: AuthUser;
+  siteId?: number;
   aiEnabled?: boolean;
 }
 
@@ -39,6 +40,7 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     title: input.title,
     description: input.description,
     reporterId: input.reporter.id,
+    siteId: input.siteId,
     logDir: '', // 稍后更新
     aiEnabled: input.aiEnabled
   });
@@ -344,10 +346,11 @@ export async function getTicketDetail(ticketId: number): Promise<{
 
 export async function listUserTickets(
   user: AuthUser,
-  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[] }
-): Promise<Array<DbTicket & { reporter_username: string }>> {
+  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[]; siteId?: number }
+): Promise<Array<DbTicket & { reporter_username: string; site_name?: string }>> {
   const baseFilters: Parameters<typeof listTicketsWithReporter>[0] = { limit: 200 };
   if (filters?.status !== undefined) baseFilters.status = filters.status;
+  if (filters?.siteId !== undefined) baseFilters.siteId = filters.siteId;
 
   if (user.role === 'rd' || user.role === 'admin') {
     if (filters?.reporterId !== undefined) baseFilters.reporterId = filters.reporterId;

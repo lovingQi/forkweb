@@ -19,7 +19,7 @@ export const useTicketStore = defineStore('tickets', () => {
   const currentEvents = ref<TicketEvent[]>([])
   const loading = ref(false)
 
-  async function loadTickets(filters?: { status?: string; reporterId?: number }) {
+  async function loadTickets(filters?: { status?: string; reporterId?: number; siteId?: number }) {
     loading.value = true
     try {
       tickets.value = await apiList(filters)
@@ -39,7 +39,7 @@ export const useTicketStore = defineStore('tickets', () => {
     }
   }
 
-  async function createTicket(form: { title: string; description: string; logs: File; map?: File; aiEnabled?: boolean }) {
+  async function createTicket(form: { title: string; description: string; siteId: number; logs: File; map?: File; aiEnabled?: boolean }) {
     const ticket = await apiCreate(form)
     tickets.value.unshift(ticket)
     return ticket
