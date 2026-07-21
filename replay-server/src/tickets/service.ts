@@ -3,7 +3,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { createTicketEvent, listTicketEvents } from '../db/events';
-import { createTicket, getTicketById, listTickets, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
+import { createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, extractLogArchive, getTicketDir, getTicketLogDir, getTicketMapDir, saveMapFile } from '../upload/handler';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
@@ -342,11 +342,19 @@ export async function getTicketDetail(ticketId: number): Promise<{
   return { ticket, events };
 }
 
-export async function listUserTickets(user: AuthUser): Promise<DbTicket[]> {
+export async function listUserTickets(
+  user: AuthUser,
+  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[] }
+): Promise<Array<DbTicket & { reporter_username: string }>> {
+  const baseFilters: Parameters<typeof listTicketsWithReporter>[0] = { limit: 200 };
+  if (filters?.status !== undefined) baseFilters.status = filters.status;
+
   if (user.role === 'rd' || user.role === 'admin') {
-    return listTickets({ limit: 200 });
+    if (filters?.reporterId !== undefined) baseFilters.reporterId = filters.reporterId;
+    return listTicketsWithReporter(baseFilters);
   }
-  return listTickets({ reporterId: user.id, limit: 200 });
+  baseFilters.reporterId = user.id;
+  return listTicketsWithReporter(baseFilters);
 }
 
 function summarizeRootCauses(rootCauses: any[]): string {

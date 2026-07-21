@@ -19,10 +19,10 @@ export const useTicketStore = defineStore('tickets', () => {
   const currentEvents = ref<TicketEvent[]>([])
   const loading = ref(false)
 
-  async function loadTickets() {
+  async function loadTickets(filters?: { status?: string; reporterId?: number }) {
     loading.value = true
     try {
-      tickets.value = await apiList()
+      tickets.value = await apiList(filters)
     } finally {
       loading.value = false
     }

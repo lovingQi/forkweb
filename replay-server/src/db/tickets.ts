@@ -106,6 +106,10 @@ export async function updateTicket(
   return getTicketById(id);
 }
 
+export interface TicketWithReporter extends DbTicket {
+  reporter_username: string;
+}
+
 export async function listTickets(filters?: {
   reporterId?: number;
   status?: TicketStatus | TicketStatus[];
@@ -146,4 +150,47 @@ export async function listTickets(filters?: {
   if (filters?.limit) values.push(filters.limit);
   if (filters?.offset) values.push(filters.offset);
   return db.prepare(sql).all(...values) as DbTicket[];
+}
+
+export async function listTicketsWithReporter(filters?: {
+  reporterId?: number;
+  status?: TicketStatus | TicketStatus[];
+  assigneeId?: number | null;
+  limit?: number;
+  offset?: number;
+}): Promise<TicketWithReporter[]> {
+  const db = await getDb();
+  const where: string[] = [];
+  const values: unknown[] = [];
+  if (filters?.reporterId !== undefined) {
+    where.push('t.reporter_id = ?');
+    values.push(filters.reporterId);
+  }
+  if (filters?.status !== undefined) {
+    if (Array.isArray(filters.status)) {
+      where.push(`t.status IN (${filters.status.map(() => '?').join(', ')})`);
+      values.push(...filters.status);
+    } else {
+      where.push('t.status = ?');
+      values.push(filters.status);
+    }
+  }
+  if (filters?.assigneeId !== undefined) {
+    if (filters.assigneeId === null) {
+      where.push('t.assignee_id IS NULL');
+    } else {
+      where.push('t.assignee_id = ?');
+      values.push(filters.assigneeId);
+    }
+  }
+  const sql =
+    'SELECT t.*, u.username as reporter_username FROM tickets t' +
+    ' JOIN users u ON t.reporter_id = u.id' +
+    (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+    ' ORDER BY t.updated_at DESC' +
+    (filters?.limit ? ' LIMIT ?' : '') +
+    (filters?.offset ? ' OFFSET ?' : '');
+  if (filters?.limit) values.push(filters.limit);
+  if (filters?.offset) values.push(filters.offset);
+  return db.prepare(sql).all(...values) as TicketWithReporter[];
 }

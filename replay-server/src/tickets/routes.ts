@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
+import type { DbTicket, TicketStatus } from '../db/tickets';
 import {
   assignTicket,
   createKnowledgeFromTicket,
@@ -83,12 +84,33 @@ router.post(
 // 工单列表
 router.get('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const tickets = await listUserTickets(req.user!);
+    const status = parseStatusQuery(req.query.status);
+    const reporterId = req.query.reporterId ? Number(req.query.reporterId) : undefined;
+    const tickets = await listUserTickets(req.user!, {
+      status,
+      reporterId: Number.isFinite(reporterId) ? reporterId : undefined
+    });
     res.json({ succeed: true, tickets: tickets.map(serializeTicket) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+function parseStatusQuery(value: unknown): TicketStatus | TicketStatus[] | undefined {
+  if (!value) return undefined;
+  const validStatuses: TicketStatus[] = [
+    'pending_analysis',
+    'analyzing',
+    'analyzed',
+    'verifying',
+    'resolved',
+    'needs_rd'
+  ];
+  const items = String(value).split(',').map((s) => s.trim()).filter(Boolean);
+  const statuses = items.filter((s): s is TicketStatus => validStatuses.includes(s as TicketStatus));
+  if (statuses.length === 0) return undefined;
+  return statuses.length === 1 ? statuses[0] : statuses;
+}
 
 // 工单详情
 router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
@@ -217,13 +239,15 @@ router.get('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-function serializeTicket(ticket: Awaited<ReturnType<typeof listUserTickets>>[number]) {
+function serializeTicket(ticket: DbTicket) {
+  const withReporter = ticket as DbTicket & { reporter_username?: string };
   return {
     id: ticket.id,
     ticketNo: ticket.ticket_no,
     title: ticket.title,
     description: ticket.description,
     reporterId: ticket.reporter_id,
+    reporterName: withReporter.reporter_username || '',
     assigneeId: ticket.assignee_id,
     status: ticket.status,
     conclusion: ticket.conclusion,

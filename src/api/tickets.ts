@@ -28,6 +28,7 @@ export interface Ticket {
   title: string
   description: string
   reporterId: number
+  reporterName?: string
   assigneeId: number | null
   status: TicketStatus
   conclusion: string | null
@@ -71,8 +72,11 @@ export async function createTicket(form: {
   return res.ticket
 }
 
-export async function listTickets(): Promise<Ticket[]> {
-  const { data } = await ticketHttp.get('/tickets')
+export async function listTickets(filters?: { status?: string; reporterId?: number }): Promise<Ticket[]> {
+  const params: Record<string, string> = {}
+  if (filters?.status) params.status = filters.status
+  if (filters?.reporterId !== undefined) params.reporterId = String(filters.reporterId)
+  const { data } = await ticketHttp.get('/tickets', { params })
   if (!data.succeed) throw new Error(data.error || '获取工单失败')
   return data.tickets
 }
