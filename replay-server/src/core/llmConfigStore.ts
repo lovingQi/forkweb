@@ -1,21 +1,14 @@
-import fs from 'fs/promises'
-import path from 'path'
-import { CONFIG_DIR } from '../paths'
+import { deleteJsonStore, readJsonStore, writeJsonStore } from '../db/jsonStore'
 import type { LlmConfigUpdateRequest, LlmPublicConfig, LlmRuntimeConfig } from '../types'
 
-const LLM_LOCAL_FILE = path.join(CONFIG_DIR, 'llm.local.json')
+const KEY = 'llmLocalConfig'
 
 export interface LlmLocalConfig extends LlmConfigUpdateRequest {
   updatedAt?: string
 }
 
 export async function readLlmLocalConfig(): Promise<LlmLocalConfig | null> {
-  try {
-    const text = await fs.readFile(LLM_LOCAL_FILE, 'utf8')
-    return normalizeLocalConfig(JSON.parse(text))
-  } catch {
-    return null
-  }
+  return readJsonStore<LlmLocalConfig | null>(KEY, null)
 }
 
 export async function writeLlmLocalConfig(input: LlmConfigUpdateRequest): Promise<LlmLocalConfig> {
@@ -26,13 +19,12 @@ export async function writeLlmLocalConfig(input: LlmConfigUpdateRequest): Promis
     apiKey: input.apiKey === '' || input.apiKey === undefined ? current?.apiKey : input.apiKey,
     updatedAt: new Date().toISOString()
   })
-  await fs.mkdir(path.dirname(LLM_LOCAL_FILE), { recursive: true })
-  await fs.writeFile(LLM_LOCAL_FILE, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KEY, next)
   return next
 }
 
 export async function clearLlmLocalConfig(): Promise<void> {
-  await fs.rm(LLM_LOCAL_FILE, { force: true })
+  await deleteJsonStore(KEY)
 }
 
 export function toPublicLlmConfig(config: LlmRuntimeConfig, updatedAt = ''): LlmPublicConfig {

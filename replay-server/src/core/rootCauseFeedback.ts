@@ -1,6 +1,4 @@
-import fs from 'fs/promises'
-import path from 'path'
-import { CACHE_DIR } from '../paths'
+import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 
 export interface RootCauseFeedback {
   id: string
@@ -9,7 +7,7 @@ export interface RootCauseFeedback {
   createdAt: string
 }
 
-const FEEDBACK_FILE = path.join(CACHE_DIR, 'root-cause-feedback.json')
+const KEY = 'rootCauseFeedback'
 
 export async function addRootCauseFeedback(input: {
   id: string
@@ -24,17 +22,10 @@ export async function addRootCauseFeedback(input: {
     createdAt: new Date().toISOString()
   }
   all.push(item)
-  await fs.mkdir(path.dirname(FEEDBACK_FILE), { recursive: true })
-  await fs.writeFile(FEEDBACK_FILE, `${JSON.stringify(all, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KEY, all)
   return item
 }
 
 export async function readRootCauseFeedback(): Promise<RootCauseFeedback[]> {
-  try {
-    const text = await fs.readFile(FEEDBACK_FILE, 'utf8')
-    const data = JSON.parse(text)
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
+  return readJsonStore<RootCauseFeedback[]>(KEY, [])
 }

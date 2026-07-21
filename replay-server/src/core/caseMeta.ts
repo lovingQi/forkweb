@@ -1,21 +1,14 @@
-import fs from 'fs/promises'
-import path from 'path'
-import { CACHE_DIR } from '../paths'
+import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 import type { ReplayCaseMeta } from '../types'
 
-const CASE_META_FILE = path.join(CACHE_DIR, 'case-meta.json')
+const KEY = 'caseMeta'
 
 export async function readCaseMeta(): Promise<ReplayCaseMeta> {
-  try {
-    return JSON.parse(await fs.readFile(CASE_META_FILE, 'utf8')) as ReplayCaseMeta
-  } catch {
-    return {}
-  }
+  return readJsonStore<ReplayCaseMeta>(KEY, {})
 }
 
 export async function writeCaseMeta(input: ReplayCaseMeta): Promise<ReplayCaseMeta> {
   const meta = { ...input, updatedAt: new Date().toISOString() }
-  await fs.mkdir(path.dirname(CASE_META_FILE), { recursive: true })
-  await fs.writeFile(CASE_META_FILE, `${JSON.stringify(meta, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KEY, meta)
   return meta
 }

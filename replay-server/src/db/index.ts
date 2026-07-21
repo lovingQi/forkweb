@@ -15,7 +15,7 @@ export async function getDb(): Promise<Database.Database> {
   await fs.mkdir(DB_DIR, { recursive: true });
   db = new Database(DB_FILE);
   db.exec(SCHEMA_SQL);
-  runMigrations(db);
+  await runMigrations(db);
   db.pragma('journal_mode = WAL');
   return db;
 }

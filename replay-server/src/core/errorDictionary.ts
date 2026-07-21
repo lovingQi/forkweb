@@ -1,11 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { CONFIG_DIR } from '../paths'
+import { readJsonStore } from '../db/jsonStore'
 import type { ErrorCodeDefinition } from '../types'
 import { enrichDictionarySource } from './errorDictionarySources'
 
 export const ERROR_CODE_RE = /E?ERROR\d{4,5}/g
-const MANUAL_DICTIONARY_FILE = path.join(CONFIG_DIR, 'manual-error-dictionary.json')
+const MANUAL_DICTIONARY_KEY = 'manualErrorDictionary'
 const DEFAULT_SOURCE_DIR = '/home/xbl/Desktop/jarvis-fork'
 const MAX_FILES = 3000
 const MAX_FILE_SIZE = 2_000_000
@@ -47,12 +47,8 @@ export async function loadSourceErrorDictionary(sourceDir = DEFAULT_SOURCE_DIR):
 
 export async function loadManualErrorDictionary(): Promise<Map<string, ErrorCodeDefinition>> {
   const result = new Map<string, ErrorCodeDefinition>()
-  let payload: any
-  try {
-    payload = JSON.parse(await fs.readFile(MANUAL_DICTIONARY_FILE, 'utf8'))
-  } catch {
-    return result
-  }
+  const payload = await readJsonStore<Record<string, unknown> | null>(MANUAL_DICTIONARY_KEY, null)
+  if (!payload) return result
   const codes = Array.isArray(payload.codes) ? payload.codes : []
   for (const item of codes) {
     const code = String(item.code || '').trim()
@@ -69,7 +65,7 @@ export async function loadManualErrorDictionary(): Promise<Map<string, ErrorCode
       severity: normalizeSeverity(item.severity),
       notes: stringOrUndefined(item.notes),
       source: 'source',
-      sourceFile: MANUAL_DICTIONARY_FILE,
+      sourceFile: 'json_stores:manualErrorDictionary',
       dictionaryConfidence: 1,
       raw: item
     }, 'manual', '人工维护错误码字典')

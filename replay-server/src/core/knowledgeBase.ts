@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
-import fs from 'fs/promises'
 import path from 'path'
-import { CACHE_DIR, CONFIG_DIR } from '../paths'
+import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 import type {
   KnowledgeEvidencePattern,
   KnowledgeLibrary,
@@ -15,8 +14,8 @@ import type {
   VehicleStateName
 } from '../types'
 
-const KNOWLEDGE_FILE = path.join(CONFIG_DIR, 'knowledge-base.json')
-const KNOWLEDGE_HITS_FILE = path.join(CACHE_DIR, 'knowledge-hits.json')
+const KNOWLEDGE_KEY = 'knowledgeBase'
+const HITS_KEY = 'knowledgeHits'
 const MAX_EVIDENCE_LINES = 50
 const STOP_WORDS = new Set([
   'the',
@@ -42,17 +41,11 @@ interface KnowledgeHitsData {
 }
 
 async function readKnowledgeHits(): Promise<KnowledgeHitsData> {
-  try {
-    const text = await fs.readFile(KNOWLEDGE_HITS_FILE, 'utf8')
-    return JSON.parse(text)
-  } catch {
-    return { updatedAt: '', hits: {} }
-  }
+  return readJsonStore<KnowledgeHitsData>(HITS_KEY, { updatedAt: '', hits: {} })
 }
 
 async function writeKnowledgeHits(data: KnowledgeHitsData): Promise<void> {
-  await fs.mkdir(path.dirname(KNOWLEDGE_HITS_FILE), { recursive: true })
-  await fs.writeFile(KNOWLEDGE_HITS_FILE, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+  await writeJsonStore(HITS_KEY, data)
 }
 
 function stripRuntimeFields(rule: KnowledgeRule): KnowledgeRule {
@@ -69,12 +62,7 @@ function mergeHitsIntoRules(rules: KnowledgeRule[], hitsData: KnowledgeHitsData)
 }
 
 export async function readKnowledgeLibrary(): Promise<KnowledgeLibrary> {
-  try {
-    const text = await fs.readFile(KNOWLEDGE_FILE, 'utf8')
-    return normalizeLibrary(JSON.parse(text))
-  } catch {
-    return { version: 1, updatedAt: '', rules: [] }
-  }
+  return normalizeLibrary(await readJsonStore<KnowledgeLibrary>(KNOWLEDGE_KEY, { version: 1, updatedAt: '', rules: [] }))
 }
 
 export async function readKnowledgeLibraryWithHits(): Promise<KnowledgeLibrary> {
@@ -84,15 +72,14 @@ export async function readKnowledgeLibraryWithHits(): Promise<KnowledgeLibrary> 
 }
 
 export async function getKnowledgeLibraryFingerprint(): Promise<string> {
-  const text = await fs.readFile(KNOWLEDGE_FILE, 'utf8').catch(() => '')
-  return createHash('sha1').update(text).digest('hex')
+  const library = await readKnowledgeLibrary()
+  return createHash('sha1').update(JSON.stringify(library)).digest('hex')
 }
 
 export async function writeKnowledgeLibrary(library: KnowledgeLibrary): Promise<KnowledgeLibrary> {
   const normalized = normalizeLibrary({ ...library, updatedAt: new Date().toISOString() })
   const cleaned = { ...normalized, rules: normalized.rules.map(stripRuntimeFields) }
-  await fs.mkdir(path.dirname(KNOWLEDGE_FILE), { recursive: true })
-  await fs.writeFile(KNOWLEDGE_FILE, `${JSON.stringify(cleaned, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KNOWLEDGE_KEY, cleaned)
   return normalized
 }
 

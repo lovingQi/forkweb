@@ -1,6 +1,5 @@
-import fs from 'fs/promises'
 import path from 'path'
-import { CONFIG_DIR } from '../paths'
+import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 
 export interface MapAlias {
   id: string
@@ -31,16 +30,10 @@ export interface MapAliasImportResult {
   conflicts: MapAliasConflict[]
 }
 
-const ALIAS_FILE = path.join(CONFIG_DIR, 'map-alias.json')
+const KEY = 'mapAliases'
 
 export async function readMapAliases(): Promise<MapAlias[]> {
-  try {
-    const text = await fs.readFile(ALIAS_FILE, 'utf8')
-    const data = JSON.parse(text) as MapAliasFile
-    return Array.isArray(data.aliases) ? data.aliases : []
-  } catch {
-    return []
-  }
+  return readJsonStore<MapAlias[]>(KEY, [])
 }
 
 export async function upsertMapAlias(input: {
@@ -175,8 +168,7 @@ export function matchMapAlias(arg: {
 }
 
 async function writeMapAliases(aliases: MapAlias[]): Promise<void> {
-  await fs.mkdir(path.dirname(ALIAS_FILE), { recursive: true })
-  await fs.writeFile(ALIAS_FILE, `${JSON.stringify({ aliases }, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KEY, aliases)
 }
 
 function aliasId(detectedMapName: string, robotName?: string): string {

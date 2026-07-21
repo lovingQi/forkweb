@@ -1,19 +1,11 @@
-import fs from 'fs/promises'
-import path from 'path'
 import { randomUUID } from 'crypto'
-import { CACHE_DIR } from '../paths'
+import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 import type { ReplayBookmark } from '../types'
 
-const BOOKMARK_FILE = path.join(CACHE_DIR, 'bookmarks.json')
+const KEY = 'bookmarks'
 
 export async function readBookmarks(): Promise<ReplayBookmark[]> {
-  try {
-    const text = await fs.readFile(BOOKMARK_FILE, 'utf8')
-    const data = JSON.parse(text)
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
+  return readJsonStore<ReplayBookmark[]>(KEY, [])
 }
 
 export async function addBookmark(input: Omit<ReplayBookmark, 'id' | 'createdAt'> & { id?: string }): Promise<ReplayBookmark> {
@@ -29,7 +21,7 @@ export async function addBookmark(input: Omit<ReplayBookmark, 'id' | 'createdAt'
     createdAt: new Date().toISOString()
   }
   bookmarks.push(bookmark)
-  await writeBookmarks(bookmarks)
+  await writeJsonStore(KEY, bookmarks)
   return bookmark
 }
 
@@ -37,11 +29,10 @@ export async function deleteBookmark(id: string): Promise<boolean> {
   const bookmarks = await readBookmarks()
   const next = bookmarks.filter((bookmark) => bookmark.id !== id)
   if (next.length === bookmarks.length) return false
-  await writeBookmarks(next)
+  await writeJsonStore(KEY, next)
   return true
 }
 
 export async function writeBookmarks(bookmarks: ReplayBookmark[]): Promise<void> {
-  await fs.mkdir(path.dirname(BOOKMARK_FILE), { recursive: true })
-  await fs.writeFile(BOOKMARK_FILE, `${JSON.stringify(bookmarks, null, 2)}\n`, 'utf8')
+  await writeJsonStore(KEY, bookmarks)
 }
