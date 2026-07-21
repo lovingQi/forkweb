@@ -54,6 +54,8 @@ async function main() {
         createdAt: new Date().toISOString()
       }],
       pattern: {
+        requiredLineRegexes: [],
+        requiredVehicleStates: [],
         requiredKeywords: ['get battery failed'],
         anyKeywords: ['battery does not exist'],
         excludedKeywords: [],

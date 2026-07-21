@@ -272,7 +272,11 @@ app.post('/api/replay/knowledge/suggest-pattern', (req, res) => {
 
 app.post('/api/replay/knowledge/test', async (req, res) => {
   const rule = req.body.rule || req.body
-  const match = matchKnowledgeRule(rule, session.data.rawLines)
+  const match = matchKnowledgeRule(rule, {
+    rawLines: session.data.rawLines,
+    errorOccurrences: session.data.errorOccurrences,
+    vehicleStateOccurrences: session.data.vehicleStateOccurrences
+  })
   res.json({ match, matched: !!match })
 })
 

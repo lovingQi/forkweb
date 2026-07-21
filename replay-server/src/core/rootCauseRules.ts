@@ -99,7 +99,10 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
     build(ctx) {
       const safetyEvents = ctx.events.filter((event) => ['estop'].includes(event.category || '')).slice(0, 10)
       const safetyFrames = ctx.frames.filter((frame) => frame.estop).slice(0, 10)
-      const safetyLines = ctx.rawLines.filter((line) => /estop|急停|alarm/i.test(line.message)).slice(0, 10)
+      const safetyLines = ctx.rawLines.filter((line) =>
+        /(?:EStopHard|EStopSoft|CollisionStrip)\s*(?:=|:|is)\s*(?:1|true)\b/i.test(line.message) ||
+        /(?:急停|防撞条).*(?:触发|按下)/.test(line.message)
+      ).slice(0, 10)
       if (safetyEvents.length === 0 && safetyFrames.length === 0 && safetyLines.length === 0) return null
       return {
         id: 'safety',
@@ -121,10 +124,14 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
     weight: 1,
     build(ctx) {
       const failedTasks = ctx.tasks
-        .filter((task) => task.lastFinishedTaskSuccess === false || task.errors.length > 0 || hasValue(task.unfinishedPath))
+        .filter((task) => task.lastFinishedTaskSuccess === false || task.errors.some((error) => /^E?ERROR\d{4,5}$/.test(error)))
         .slice(0, 10)
       const taskLines = ctx.rawLines
-        .filter((line) => /current_task_error_code|unfinished_path|task failed|last_finished_task_is_success.*false/i.test(line.message))
+        .filter((line) =>
+          /current_task_error_code\s+is\s+E?ERROR\d{4,5}\b/i.test(line.message) ||
+          /task failed/i.test(line.message) ||
+          /last_finished_task_is_success["']?\s*[:=]\s*false/i.test(line.message)
+        )
         .slice(0, 10)
       if (failedTasks.length === 0 && taskLines.length === 0) return null
       return {
@@ -138,15 +145,8 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         triggeredRules: ['task-failure'],
         positiveEvidence: [`失败候选任务 ${failedTasks.length} 个`, `任务失败相关日志 ${taskLines.length} 行`],
         negativeEvidence: failedTasks.length === 0 ? ['未解析到明确失败任务段'] : [],
-        confidenceFactors: ['任务成功标记', '任务错误码', 'unfinished_path', '任务失败日志']
+        confidenceFactors: ['任务成功标记', '真实任务错误码', '任务失败日志']
       }
     }
   }
 ]
-
-function hasValue(value: unknown): boolean {
-  if (value === undefined || value === null) return false
-  if (typeof value === 'string') return value !== '' && value !== 'Null' && value !== 'null'
-  if (Array.isArray(value)) return value.length > 0
-  return true
-}

@@ -797,6 +797,11 @@
           <el-option value="warning" label="警告" />
           <el-option value="info" label="信息" />
         </el-select>
+        <el-select v-model="knowledgeQuery.verificationStatus" clearable placeholder="验证状态" class="filter-item">
+          <el-option value="sample_verified" label="样本已验证" />
+          <el-option value="structure_guarded" label="结构已保护" />
+          <el-option value="pending" label="待验证" />
+        </el-select>
         <el-button size="small" @click="refreshKnowledgeWithQuery">筛选</el-button>
         <el-button size="small" @click="openBlankKnowledgeDraft">新增</el-button>
         <el-button size="small" @click="openKnowledgeExport">导出</el-button>
@@ -807,6 +812,13 @@
       <el-table :data="replay.knowledgeRules" height="420" size="small">
         <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
         <el-table-column prop="severity" label="严重度" width="80" />
+        <el-table-column label="验证状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="verificationTagType(row.verificationStatus)" size="small">
+              {{ verificationStatusText(row.verificationStatus) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="标签" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ (row.tags || []).join(', ') }}</template>
         </el-table-column>
@@ -922,7 +934,7 @@ const packageExportForm = ref({
 })
 const compareLeftManifest = ref<any>(null)
 const compareRightManifest = ref<any>(null)
-const knowledgeQuery = ref({ keyword: '', severity: '' })
+const knowledgeQuery = ref({ keyword: '', severity: '', verificationStatus: '' })
 const knowledgeDraft = ref<any>(emptyKnowledgeDraft())
 const knowledgeTagText = ref('')
 const patternText = ref({
@@ -1913,9 +1925,11 @@ function buildKnowledgeDraft(input: { title: string; description: string; rootCa
     severity: input.severity || 'warning',
     tags: input.seed?.tags || [],
     enabled: true,
+    verificationStatus: input.seed?.verificationStatus || 'pending',
     scope: {},
     pattern: {
       requiredLineRegexes: input.seed?.pattern?.requiredLineRegexes || [],
+      requiredVehicleStates: input.seed?.pattern?.requiredVehicleStates || [],
       requiredKeywords: [],
       anyKeywords: [],
       excludedKeywords: [],
@@ -1965,9 +1979,11 @@ function emptyKnowledgeShape() {
     severity: 'warning',
     tags: [] as string[],
     enabled: true,
+    verificationStatus: 'pending',
     scope: {},
     pattern: {
       requiredLineRegexes: [] as string[],
+      requiredVehicleStates: [] as string[],
       requiredKeywords: [] as string[],
       anyKeywords: [] as string[],
       excludedKeywords: [] as string[],
@@ -2016,6 +2032,18 @@ function splitList(text: string) {
 
 function splitLines(text: string) {
   return String(text || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+}
+
+function verificationStatusText(status: string) {
+  if (status === 'sample_verified') return '样本已验证'
+  if (status === 'structure_guarded') return '结构已保护'
+  return '待验证'
+}
+
+function verificationTagType(status: string) {
+  if (status === 'sample_verified') return 'success'
+  if (status === 'structure_guarded') return 'primary'
+  return 'warning'
 }
 
 function highlightLogMessage(text: string) {

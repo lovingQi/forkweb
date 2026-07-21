@@ -22,6 +22,8 @@ async function main() {
       tags: ['verify', 'map'],
       enabled: true,
       pattern: {
+        requiredLineRegexes: [],
+        requiredVehicleStates: [],
         requiredKeywords: ['obs: the map'],
         anyKeywords: ['IO sheild area', 'IO shield area'],
         excludedKeywords: [],

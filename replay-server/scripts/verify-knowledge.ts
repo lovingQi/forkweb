@@ -14,6 +14,8 @@ import {
 import { buildJsonReport, buildMarkdownReportAsync } from '../src/core/report'
 import { ReplaySession } from '../src/core/session'
 import { parseLogLine } from '../src/parser/logLine'
+import { writeSessionCache } from '../src/core/cache'
+import { parseVehicleState } from '../src/parser/vehicleState'
 
 const LOG_DIR = '/home/xbl/Desktop'
 const MAP_DIR = '/home/xbl/Desktop/jarvis-fork/params/map'
@@ -28,6 +30,8 @@ async function main() {
     await writeKnowledgeLibrary({ version: 1, updatedAt: '', rules: [] })
 
     verifyStrictLaserRule(backup)
+    verifyStructuredRules(backup.rules)
+    await verifyCacheFallback()
 
     const baselineSession = new ReplaySession()
     const baseline = await baselineSession.load({ logDir: LOG_DIR, mapDir: MAP_DIR, forceReload: true })
@@ -122,6 +126,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       lines: pickEvidence(rawLines, ['obs: the map', 'IO sheild area'], 3),
       pattern: {
         requiredLineRegexes: [],
+        requiredVehicleStates: [],
         requiredKeywords: ['obs: the map'],
         anyKeywords: ['IO sheild area'],
         modules: ['JObs'],
@@ -147,6 +152,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       lines: pickEvidence(rawLines, ['get battery failed'], 3),
       pattern: {
         requiredLineRegexes: [],
+        requiredVehicleStates: [],
         requiredKeywords: ['get battery failed'],
         anyKeywords: ['battery does not exist'],
         modules: ['s_forklift'],
@@ -172,6 +178,7 @@ function buildRulesFromEvidence(rawLines: ParsedLogLine[]): KnowledgeRule[] {
       lines: pickEvidence(rawLines, ['current_task_error_code is', 'Invalid task error code'], 4),
       pattern: {
         requiredLineRegexes: [],
+        requiredVehicleStates: [],
         requiredKeywords: ['current_task_error_code is'],
         anyKeywords: ['Invalid task error code'],
         modules: ['error_code'],
@@ -261,7 +268,7 @@ function parseLine(raw: string, line: number): ParsedLogLine {
   return parsed
 }
 
-function buildRule(input: Omit<KnowledgeRule, 'enabled' | 'scope' | 'examples' | 'hitCount' | 'recentHits' | 'createdAt' | 'updatedAt' | 'createdBy'> & {
+function buildRule(input: Omit<KnowledgeRule, 'enabled' | 'verificationStatus' | 'scope' | 'examples' | 'hitCount' | 'recentHits' | 'createdAt' | 'updatedAt' | 'createdBy'> & {
   lines: ParsedLogLine[]
 }): KnowledgeRule {
   assert(input.lines.length > 0, `${input.title} 应从原始日志中选到证据`)
@@ -269,6 +276,7 @@ function buildRule(input: Omit<KnowledgeRule, 'enabled' | 'scope' | 'examples' |
   return {
     ...input,
     enabled: true,
+    verificationStatus: 'sample_verified',
     scope: {},
     examples: [{
       id: `${input.id}-example`,
@@ -283,6 +291,64 @@ function buildRule(input: Omit<KnowledgeRule, 'enabled' | 'scope' | 'examples' |
     updatedAt: now,
     createdBy: 'verify-knowledge'
   }
+}
+
+function verifyStructuredRules(rules: KnowledgeRule[]) {
+  const codeRules = rules.filter((rule) => rule.pattern.errorCodes.length > 0)
+  assert(codeRules.length === 52, '应有 52 条结构化错误码规则')
+  for (const rule of codeRules) {
+    const code = rule.pattern.errorCodes[0]
+    const definition = parseLine(`2026-07-21 10:00:00.000  error_code:  36 [I] : error_name,error_str=${code},{"error_description":"definition"}`, 1)
+    const config = parseLine(`2026-07-21 10:00:00.100  JFault:  361 [W] : GrmFault: configure error for device error_code code ${code}.`, 2)
+    assert(!matchKnowledgeRule(rule, {
+      rawLines: [definition, config],
+      errorOccurrences: [{ code, timestamp: config.timestamp, timeMs: config.timeMs, source: 'config_notice', kind: 'config_notice', line: config }],
+      vehicleStateOccurrences: []
+    }), `${rule.title} 不应被定义行或配置提醒触发`)
+    const real = parseLine(`2026-07-21 10:00:01.000  error_code:  218 [I] : current_code is ${code}`, 3)
+    const match = matchKnowledgeRule(rule, {
+      rawLines: [real],
+      errorOccurrences: [{ code, timestamp: real.timestamp, timeMs: real.timeMs, source: 'current_code', kind: 'real_fault', line: real }],
+      vehicleStateOccurrences: []
+    })
+    assert(match?.evidenceLines[0]?.line === 3, `${rule.title} 应由真实错误码 occurrence 触发并返回真实证据`)
+  }
+
+  const stateRules = rules.filter((rule) => rule.pattern.requiredVehicleStates.length > 0)
+  assert(stateRules.length === 8, '应有 8 条结构化车辆状态规则')
+  for (const rule of stateRules) {
+    const state = rule.pattern.requiredVehicleStates[0]
+    const negative = parseLines([
+      `2026-07-21 10:00:00.000  JFltState:  100 [I] : ${state} = 0`,
+      '2026-07-21 10:00:00.100  JModeDrive:  212 [I] : No obs.Flt state is not FrontTruck or BackTruck or SideTruck or EStop.'
+    ])
+    assert(!matchKnowledgeRule(rule, negative), `${rule.title} 不应被正常值或否定文案触发`)
+    const code = stateCode(state)
+    const positive = parseLine(`2026-07-21 10:00:01.000  JFltState:  334 [D] : get flt state ${code}`, 3)
+    const occurrence = parseVehicleState(positive)
+    assert(occurrence, `${rule.title} 正样本车辆状态应可解析`)
+    assert(matchKnowledgeRule(rule, {
+      rawLines: [positive], errorOccurrences: [], vehicleStateOccurrences: [occurrence]
+    }), `${rule.title} 应由结构化车辆状态触发`)
+  }
+
+  const pending = rules.filter((rule) => rule.verificationStatus === 'pending')
+  assert(pending.length === 3 && pending.every((rule) => !rule.enabled), '3 条不可观测规则应标记待验证并禁用')
+}
+
+async function verifyCacheFallback() {
+  const circular: any = { overview: {} }
+  circular.self = circular
+  const written = await writeSessionCache('verify-cache-fallback', circular)
+  assert(written === false, '缓存序列化失败时应返回 false 而不是抛出异常')
+}
+
+function stateCode(state: string) {
+  const mapping: Record<string, number> = {
+    FrontTruck: 1, BackTruck: 2, SideTruck: 3, LeftTruck: 4, RightTruck: 5, LowPower: 12,
+    ForkTipActive: 19, EStopEnable: 24, CollisionStrip: 27, SaftyActive: 30, EStop: 37
+  }
+  return mapping[state]
 }
 
 function pickEvidence(rawLines: ParsedLogLine[], keywords: string[], limit: number): ParsedLogLine[] {

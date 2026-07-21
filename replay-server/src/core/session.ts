@@ -9,7 +9,8 @@ import type {
   ParsedLogLine,
   ReplayControlState,
   ReplayFrame,
-  ReplaySessionData
+  ReplaySessionData,
+  VehicleStateOccurrence
 } from '../types'
 import { buildCacheKey, cleanupReplayCache, readSessionCache, writeSessionCache } from './cache'
 import { loadManualErrorDictionary, loadSourceErrorDictionary } from './errorDictionary'
@@ -17,6 +18,7 @@ import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode
 import { parseFltStatus } from '../parser/fltStatus'
 import { parseInfoStatus } from '../parser/infoStatus'
 import { parseLogLine, sortLogLines } from '../parser/logLine'
+import { parseVehicleState } from '../parser/vehicleState'
 import { buildTaskSegments } from '../parser/task'
 import { foldNoise } from './noise'
 import { matchMapAlias, readMapAliases } from './mapAlias'
@@ -84,6 +86,7 @@ export class ReplaySession {
     events: [],
     errorDefinitions: [],
     errorOccurrences: [],
+    vehicleStateOccurrences: [],
     errorSummaries: [],
     tasks: [],
     foldedLogs: [],
@@ -154,6 +157,7 @@ export class ReplaySession {
     await step('解析日志行', 25)
     const definitions = new Map<string, ErrorCodeDefinition>()
     const frames: ReplayFrame[] = []
+    const vehicleStateOccurrences: VehicleStateOccurrence[] = []
     let currentTaskId = ''
     let robotName = ''
     let version = ''
@@ -163,6 +167,8 @@ export class ReplaySession {
     for (const line of rawLines) {
       const def = parseErrorDefinition(line)
       if (def && shouldReplaceDefinition(definitions.get(def.code), def)) definitions.set(def.code, def)
+      const vehicleState = parseVehicleState(line)
+      if (vehicleState) vehicleStateOccurrences.push(vehicleState)
       const flt = parseFltStatus(line)
       const info = parseInfoStatus(line)
       const frame = flt || info
@@ -211,7 +217,11 @@ export class ReplaySession {
     const mapLoadMs = Date.now() - mapStart
 
     await step('知识库匹配', 70)
-    const knowledgeMatches = await matchKnowledgeRules(rawLines, input.logDir)
+    const knowledgeMatches = await matchKnowledgeRules({
+      rawLines,
+      errorOccurrences: occurrences,
+      vehicleStateOccurrences
+    }, input.logDir)
 
     await step('构建根因分析', 80)
     const rootCauses = buildRootCauses({
@@ -256,6 +266,7 @@ export class ReplaySession {
       events,
       errorDefinitions: Array.from(definitions.values()),
       errorOccurrences: occurrences,
+      vehicleStateOccurrences,
       errorSummaries,
       tasks,
       foldedLogs: foldNoise(rawLines),
@@ -267,7 +278,8 @@ export class ReplaySession {
     this.control.currentMs = mergedFrames[0]?.timeMs || rawLines[0]?.timeMs || 0
     this.control.currentFrameIndex = 0
     this.control.playing = false
-    await writeSessionCache(cacheKey, this.data)
+    const cacheWritten = await writeSessionCache(cacheKey, this.data)
+    if (!cacheWritten) overview.dataWarnings.push('会话数据过大或缓存写入失败，本次分析结果未写入会话缓存。')
     timings['写入缓存'] = Date.now() - stepStart
     overview.parseStats.totalMs = Date.now() - loadStart
     overview.parseStats.stageTimings = timings

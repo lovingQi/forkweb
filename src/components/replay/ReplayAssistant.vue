@@ -299,6 +299,7 @@ function buildKnowledgeDraftFromAnswer() {
     severity: 'warning',
     tags: ['assistant'],
     enabled: true,
+    verificationStatus: 'pending',
     examples: [{
       id: `assistant-${Date.now()}`,
       title: 'AI 证据',
@@ -318,6 +319,7 @@ function buildKnowledgeDraftFromAnswer() {
     }],
     pattern: {
       requiredLineRegexes: [],
+      requiredVehicleStates: [],
       requiredKeywords: [],
       anyKeywords: [],
       excludedKeywords: [],

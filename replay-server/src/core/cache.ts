@@ -62,9 +62,20 @@ export async function readSessionCache(key: string): Promise<ReplaySessionData |
   }
 }
 
-export async function writeSessionCache(key: string, data: ReplaySessionData): Promise<void> {
+export async function writeSessionCache(key: string, data: ReplaySessionData): Promise<boolean> {
   await fs.mkdir(CACHE_DIR, { recursive: true })
-  await fs.writeFile(cacheFile(key), JSON.stringify({ version: CACHE_VERSION, data }), 'utf8')
+  const target = cacheFile(key)
+  const temporary = `${target}.${process.pid}.tmp`
+  try {
+    const payload = JSON.stringify({ version: CACHE_VERSION, data })
+    await fs.writeFile(temporary, payload, 'utf8')
+    await fs.rename(temporary, target)
+    return true
+  } catch {
+    await fs.rm(temporary, { force: true }).catch(() => undefined)
+    await fs.rm(target, { force: true }).catch(() => undefined)
+    return false
+  }
 }
 
 export async function getCacheSummary(): Promise<CacheSummary> {

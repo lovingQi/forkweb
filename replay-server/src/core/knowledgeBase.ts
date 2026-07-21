@@ -5,11 +5,13 @@ import type {
   KnowledgeEvidencePattern,
   KnowledgeLibrary,
   KnowledgeMatch,
+  KnowledgeMatchContext,
   KnowledgePatternSuggestion,
   KnowledgeRule,
   LogLevel,
   ParsedLogLine,
-  RootCauseCandidate
+  RootCauseCandidate,
+  VehicleStateName
 } from '../types'
 
 const KNOWLEDGE_FILE = path.resolve(process.cwd(), 'replay-server/config/knowledge-base.json')
@@ -98,6 +100,7 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
   const keyword = String(query.keyword || '').trim().toLowerCase()
   const severity = String(query.severity || '')
   const enabled = String(query.enabled || '')
+  const verificationStatus = String(query.verificationStatus || '')
   const tag = String(query.tag || '').trim().toLowerCase()
   const moduleName = String(query.module || '').trim().toLowerCase()
   const errorCode = String(query.errorCode || '').trim().toUpperCase()
@@ -105,6 +108,7 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
     .filter((rule) => !keyword || `${rule.title} ${rule.description} ${rule.rootCause} ${rule.solution}`.toLowerCase().includes(keyword))
     .filter((rule) => !severity || rule.severity === severity)
     .filter((rule) => !enabled || String(rule.enabled) === enabled)
+    .filter((rule) => !verificationStatus || rule.verificationStatus === verificationStatus)
     .filter((rule) => !tag || rule.tags.some((item) => item.toLowerCase().includes(tag)))
     .filter((rule) => !moduleName || rule.pattern.modules.some((item) => item.toLowerCase().includes(moduleName)))
     .filter((rule) => !errorCode || rule.pattern.errorCodes.some((item) => item.toUpperCase().includes(errorCode)))
@@ -222,6 +226,7 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
     levels,
     errorCodes,
     requiredLineRegexes: [],
+    requiredVehicleStates: [],
     requiredKeywords: keywords.slice(0, 2),
     anyKeywords: keywords.slice(0, 8),
     excludedKeywords: [],
@@ -236,49 +241,54 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
   }
 }
 
-export async function matchKnowledgeRules(rawLines: ParsedLogLine[], logDir = ''): Promise<KnowledgeMatch[]> {
+export async function matchKnowledgeRules(context: KnowledgeMatchContext, logDir = ''): Promise<KnowledgeMatch[]> {
   const library = await readKnowledgeLibrary()
   const enabledRules = library.rules.filter((rule) => rule.enabled)
-  if (enabledRules.length === 0 || rawLines.length === 0) return []
+  if (enabledRules.length === 0 || context.rawLines.length === 0) return []
 
-  const candidateRules = preFilterRules(enabledRules, rawLines)
+  const candidateRules = preFilterRules(enabledRules, context)
   const matches = candidateRules
-    .map((rule) => matchKnowledgeRule(rule, rawLines))
+    .map((rule) => matchKnowledgeRule(rule, context))
     .filter(Boolean) as KnowledgeMatch[]
   if (matches.length > 0) await recordKnowledgeHits(matches, logDir)
   return matches.sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
 }
 
-function preFilterRules(rules: KnowledgeRule[], rawLines: ParsedLogLine[]): KnowledgeRule[] {
+function preFilterRules(rules: KnowledgeRule[], context: KnowledgeMatchContext): KnowledgeRule[] {
   return rules.filter((rule) => {
     const p = normalizeRule(rule).pattern
     const regexes = compileRequiredLineRegexes(p.requiredLineRegexes)
-    if (regexes.length > 0 && !rawLines.some((line) => matchesAnyRegex(line.raw, regexes))) return false
-    if (p.requiredKeywords.some((keyword) => !rawLines.some((line) => matchesKeyword(line.raw, keyword)))) return false
-    if (p.errorCodes.length > 0 && !rawLines.some((line) => p.errorCodes.some((code) => matchesKeyword(line.raw, code)))) return false
-    return regexes.length > 0 || hasTextCore(p)
+    if (regexes.length > 0 && !context.rawLines.some((line) => matchesAnyRegex(line.raw, regexes))) return false
+    if (p.errorCodes.length > 0 && !context.errorOccurrences.some((item) => item.kind === 'real_fault' && p.errorCodes.includes(item.code))) return false
+    if (p.requiredVehicleStates.length > 0 && !context.vehicleStateOccurrences.some((item) => p.requiredVehicleStates.includes(item.state))) return false
+    if (!hasStructuredCore(p) && p.requiredKeywords.some((keyword) => !context.rawLines.some((line) => matchesKeyword(line.raw, keyword)))) return false
+    return hasStructuredCore(p) || hasTextCore(p)
   })
 }
 
-export function matchKnowledgeRule(rule: KnowledgeRule, rawLines: ParsedLogLine[]): KnowledgeMatch | null {
+export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeMatchContext | ParsedLogLine[]): KnowledgeMatch | null {
   const normalized = normalizeRule(rule)
+  const context = normalizeMatchContext(input)
+  const rawLines = context.rawLines
   const candidateLines = rawLines.filter((line) => !hasExcludedKeyword(line, normalized.pattern.excludedKeywords))
   const requiredRegexes = compileRequiredLineRegexes(normalized.pattern.requiredLineRegexes)
-  const anchorLines = requiredRegexes.length > 0
-    ? candidateLines.filter((line) => matchesAnyRegex(line.raw, requiredRegexes))
+  const structuredEvidence = collectStructuredEvidence(normalized.pattern, context, requiredRegexes)
+  const anchorLines = hasStructuredCore(normalized.pattern)
+    ? structuredEvidence
     : candidateLines.filter((line) => lineMatchesTextCore(line, normalized.pattern))
   if (anchorLines.length === 0) return null
   const windows = buildCandidateWindows(candidateLines, anchorLines, normalized.pattern.windowSeconds || 0)
   let best: { lines: ParsedLogLine[]; matchedPatterns: string[]; confidence: number } | null = null
   for (const windowLines of windows) {
-    const evidence = requiredRegexes.length > 0
-      ? windowLines.filter((line) => matchesAnyRegex(line.raw, requiredRegexes))
+    const evidence = hasStructuredCore(normalized.pattern)
+      ? structuredEvidence.filter((line) => windowLines.some((windowLine) => sameLine(windowLine, line)))
       : windowLines.filter((line) => lineMatchesTextCore(line, normalized.pattern))
     if (evidence.length < Math.max(1, normalized.pattern.minOccurrences || 1)) continue
-    if (!requiredKeywordsMatched(windowLines, normalized.pattern.requiredKeywords)) continue
-    if (!anyKeywordsMatched(windowLines, normalized.pattern.anyKeywords)) continue
-    if (!errorCodesMatched(windowLines, normalized.pattern.errorCodes)) continue
-    const matchedPatterns = collectMatchedPatterns(normalized.pattern, windowLines, evidence, requiredRegexes)
+    if (!hasStructuredCore(normalized.pattern)) {
+      if (!requiredKeywordsMatched(windowLines, normalized.pattern.requiredKeywords)) continue
+      if (!anyKeywordsMatched(windowLines, normalized.pattern.anyKeywords)) continue
+    }
+    const matchedPatterns = collectMatchedPatterns(normalized.pattern, windowLines, evidence, requiredRegexes, context)
     const confidence = calculateConfidence(normalized.pattern, windowLines, matchedPatterns)
     if (!best || confidence > best.confidence || evidence.length > best.lines.length) {
       best = { lines: evidence.slice(0, MAX_EVIDENCE_LINES), matchedPatterns, confidence }
@@ -362,7 +372,8 @@ function collectMatchedPatterns(
   pattern: KnowledgeEvidencePattern,
   lines: ParsedLogLine[],
   evidence: ParsedLogLine[],
-  requiredRegexes: RegExp[]
+  requiredRegexes: RegExp[],
+  context: KnowledgeMatchContext
 ): string[] {
   const matched = new Set<string>()
   for (let i = 0; i < requiredRegexes.length; i++) {
@@ -370,14 +381,17 @@ function collectMatchedPatterns(
       matched.add(`核心正则 ${pattern.requiredLineRegexes[i]}`)
     }
   }
+  for (const code of pattern.errorCodes) {
+    if (context.errorOccurrences.some((item) => item.kind === 'real_fault' && item.code === code)) matched.add(`真实错误码 ${code}`)
+  }
+  for (const state of pattern.requiredVehicleStates) {
+    if (context.vehicleStateOccurrences.some((item) => item.state === state)) matched.add(`车辆状态 ${state}`)
+  }
   for (const moduleName of pattern.modules) {
     if (lines.some((line) => matchesModule(line.module, moduleName))) matched.add(`模块 ${moduleName}`)
   }
   for (const level of pattern.levels) {
     if (lines.some((line) => line.level === level)) matched.add(`等级 ${level}`)
-  }
-  for (const code of pattern.errorCodes) {
-    if (lines.some((line) => matchesKeyword(line.raw, code))) matched.add(`错误码 ${code}`)
   }
   for (const keyword of [...pattern.requiredKeywords, ...pattern.anyKeywords]) {
     if (lines.some((line) => matchesKeyword(line.raw, keyword))) matched.add(`关键词 ${keyword}`)
@@ -461,6 +475,7 @@ function* iterateWindows(lines: ParsedLogLine[], windowSeconds: number): Generat
 
 function patternIsLoose(pattern: KnowledgeEvidencePattern) {
   return pattern.requiredLineRegexes.length === 0 &&
+    pattern.requiredVehicleStates.length === 0 &&
     pattern.requiredKeywords.length === 0 &&
     pattern.anyKeywords.length === 0 &&
     pattern.modules.length === 0 &&
@@ -470,6 +485,51 @@ function patternIsLoose(pattern: KnowledgeEvidencePattern) {
 
 function hasTextCore(pattern: KnowledgeEvidencePattern): boolean {
   return pattern.requiredKeywords.length > 0 || pattern.anyKeywords.length > 0 || pattern.errorCodes.length > 0
+}
+
+function hasStructuredCore(pattern: KnowledgeEvidencePattern): boolean {
+  return pattern.requiredLineRegexes.length > 0 || pattern.errorCodes.length > 0 || pattern.requiredVehicleStates.length > 0
+}
+
+function collectStructuredEvidence(
+  pattern: KnowledgeEvidencePattern,
+  context: KnowledgeMatchContext,
+  regexes: RegExp[]
+): ParsedLogLine[] {
+  const groups: ParsedLogLine[][] = []
+  if (regexes.length > 0) groups.push(context.rawLines.filter((line) => matchesAnyRegex(line.raw, regexes)))
+  if (pattern.errorCodes.length > 0) {
+    groups.push(context.errorOccurrences
+      .filter((item) => item.kind === 'real_fault' && pattern.errorCodes.includes(item.code))
+      .map((item) => item.line))
+  }
+  if (pattern.requiredVehicleStates.length > 0) {
+    groups.push(context.vehicleStateOccurrences
+      .filter((item) => pattern.requiredVehicleStates.includes(item.state))
+      .map((item) => item.line))
+  }
+  if (groups.some((group) => group.length === 0)) return []
+  return uniqueLines(groups.flat()).sort((a, b) => a.timeMs - b.timeMs || a.line - b.line)
+}
+
+function normalizeMatchContext(input: KnowledgeMatchContext | ParsedLogLine[]): KnowledgeMatchContext {
+  return Array.isArray(input)
+    ? { rawLines: input, errorOccurrences: [], vehicleStateOccurrences: [] }
+    : input
+}
+
+function uniqueLines(lines: ParsedLogLine[]): ParsedLogLine[] {
+  const seen = new Set<string>()
+  return lines.filter((line) => {
+    const key = `${line.file}:${line.line}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function sameLine(a: ParsedLogLine, b: ParsedLogLine): boolean {
+  return a.file === b.file && a.line === b.line
 }
 
 function lineMatchesTextCore(line: ParsedLogLine, pattern: KnowledgeEvidencePattern): boolean {
@@ -525,6 +585,7 @@ function normalizeRule(input: Partial<KnowledgeRule>): KnowledgeRule {
     severity: normalizeSeverity(input.severity),
     tags: normalizeStringArray(input.tags),
     enabled: input.enabled !== false,
+    verificationStatus: normalizeVerificationStatus(input.verificationStatus),
     scope: input.scope || {},
     pattern: normalizePattern(input.pattern),
     examples: Array.isArray(input.examples) ? input.examples.map((example) => ({
@@ -545,6 +606,7 @@ function normalizeRule(input: Partial<KnowledgeRule>): KnowledgeRule {
 function normalizePattern(pattern?: Partial<KnowledgeEvidencePattern>): KnowledgeEvidencePattern {
   return {
     requiredLineRegexes: normalizeStringArray(pattern?.requiredLineRegexes),
+    requiredVehicleStates: normalizeVehicleStates(pattern?.requiredVehicleStates),
     requiredKeywords: normalizeStringArray(pattern?.requiredKeywords),
     anyKeywords: normalizeStringArray(pattern?.anyKeywords),
     excludedKeywords: normalizeStringArray(pattern?.excludedKeywords),
@@ -566,6 +628,18 @@ function normalizePattern(pattern?: Partial<KnowledgeEvidencePattern>): Knowledg
 
 function normalizeSeverity(value: unknown): KnowledgeRule['severity'] {
   return value === 'error' || value === 'warning' || value === 'info' ? value : 'warning'
+}
+
+function normalizeVerificationStatus(value: unknown): KnowledgeRule['verificationStatus'] {
+  return value === 'sample_verified' || value === 'structure_guarded' || value === 'pending' ? value : 'pending'
+}
+
+function normalizeVehicleStates(value: unknown): VehicleStateName[] {
+  const allowed = new Set<VehicleStateName>([
+    'FrontTruck', 'BackTruck', 'SideTruck', 'LeftTruck', 'RightTruck', 'LowPower',
+    'ForkTipActive', 'EStopEnable', 'CollisionStrip', 'SaftyActive', 'EStop'
+  ])
+  return normalizeStringArray(value).filter((item): item is VehicleStateName => allowed.has(item as VehicleStateName))
 }
 
 function normalizeStringArray(value: unknown): string[] {

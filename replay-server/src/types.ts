@@ -3,6 +3,19 @@ export type ErrorOccurrenceKind = 'real_fault' | 'config_notice' | 'definition' 
 export type ReplayMode = 'realtime' | 'frame_compact'
 export type ErrorDictionarySourceKind = 'manual' | 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
 export type RootCauseSource = 'built_in' | 'knowledge_base' | 'llm'
+export type KnowledgeVerificationStatus = 'sample_verified' | 'structure_guarded' | 'pending'
+export type VehicleStateName =
+  | 'FrontTruck'
+  | 'BackTruck'
+  | 'SideTruck'
+  | 'LeftTruck'
+  | 'RightTruck'
+  | 'LowPower'
+  | 'ForkTipActive'
+  | 'EStopEnable'
+  | 'CollisionStrip'
+  | 'SaftyActive'
+  | 'EStop'
 
 export interface ParsedLogLine {
   file: string
@@ -80,6 +93,14 @@ export interface ErrorOccurrence {
   taskId?: string
   line: ParsedLogLine
   definition?: ErrorCodeDefinition
+}
+
+export interface VehicleStateOccurrence {
+  state: VehicleStateName
+  stateCode: number
+  timestamp: string
+  timeMs: number
+  line: ParsedLogLine
 }
 
 export interface TimelineEvent {
@@ -178,6 +199,7 @@ export interface KnowledgeConfidenceWeight {
 
 export interface KnowledgeEvidencePattern {
   requiredLineRegexes: string[]
+  requiredVehicleStates: VehicleStateName[]
   requiredKeywords: string[]
   anyKeywords: string[]
   excludedKeywords: string[]
@@ -207,6 +229,7 @@ export interface KnowledgeRule {
   severity: 'info' | 'warning' | 'error'
   tags: string[]
   enabled: boolean
+  verificationStatus: KnowledgeVerificationStatus
   scope?: KnowledgeRuleScope
   pattern: KnowledgeEvidencePattern
   examples: KnowledgeExample[]
@@ -243,11 +266,18 @@ export interface KnowledgeMatch {
   ruleSnapshot: KnowledgeRule
 }
 
+export interface KnowledgeMatchContext {
+  rawLines: ParsedLogLine[]
+  errorOccurrences: ErrorOccurrence[]
+  vehicleStateOccurrences: VehicleStateOccurrence[]
+}
+
 export interface KnowledgePatternSuggestion {
   modules: string[]
   levels: LogLevel[]
   errorCodes: string[]
   requiredLineRegexes: string[]
+  requiredVehicleStates: VehicleStateName[]
   requiredKeywords: string[]
   anyKeywords: string[]
   excludedKeywords: string[]
@@ -488,6 +518,7 @@ export interface ReplaySessionData {
   events: TimelineEvent[]
   errorDefinitions: ErrorCodeDefinition[]
   errorOccurrences: ErrorOccurrence[]
+  vehicleStateOccurrences: VehicleStateOccurrence[]
   errorSummaries: ErrorCodeSummary[]
   tasks: TaskSegment[]
   foldedLogs: FoldedLogGroup[]
