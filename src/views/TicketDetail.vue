@@ -75,7 +75,7 @@
           @click="openResolveDialog"
         >标记已解决</el-button>
         <el-button
-          v-if="canResolve"
+          v-if="canCreateKnowledge"
           type="primary"
           :loading="loadingAction === 'knowledge'"
           @click="openKnowledgeDialog"
@@ -193,6 +193,10 @@ const canAssign = computed(() => {
 const canResolve = computed(() => {
   if (!ticket.value) return false
   return auth.isRd && (ticket.value.status === 'verifying' || ticket.value.status === 'needs_rd')
+})
+const canCreateKnowledge = computed(() => {
+  if (!ticket.value) return false
+  return auth.isRd && ['analyzed', 'verifying', 'needs_rd'].includes(ticket.value.status)
 })
 
 async function onVerify(result: 'resolved' | 'needs_rd') {

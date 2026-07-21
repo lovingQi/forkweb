@@ -6,6 +6,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const loading = ref(false)
   const isLoggedIn = computed(() => !!user.value)
+  const isAdmin = computed(() => user.value?.role === 'admin')
   const isRd = computed(() => user.value?.role === 'rd' || user.value?.role === 'admin')
   const isAfterSales = computed(() => user.value?.role === 'after_sales' || user.value?.role === 'admin')
 
@@ -47,6 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     loading,
     isLoggedIn,
+    isAdmin,
     isRd,
     isAfterSales,
     login,

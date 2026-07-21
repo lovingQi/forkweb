@@ -1,7 +1,10 @@
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { chromium, expect, test } from '@playwright/test'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const replayApiBase = process.env.REPLAY_E2E_API_BASE || 'http://127.0.0.1:18082/api'
-const expectedLogDir = process.env.REPLAY_E2E_LOG_DIR || '/home/xbl/Desktop'
+const expectedLogDir = process.env.REPLAY_E2E_LOG_DIR || path.join(__dirname, 'fixtures', 'sample-log')
 const expectedMapDir = process.env.REPLAY_E2E_MAP_DIR || '/home/xbl/Desktop/jarvis-fork/params/map'
 
 test.describe.serial('日志回放诊断工具', () => {
@@ -179,7 +182,8 @@ test.describe.serial('日志回放诊断工具', () => {
     await questionInput.fill('这次问题最可能是什么？')
     await page.getByRole('button', { name: '提问' }).click()
 
-    await expect(page.getByText(/AI 辅助建议|离线/)).toBeVisible({ timeout: 60_000 })
+    const assistantPanel = page.locator('.assistant-panel')
+    await expect(assistantPanel.getByText(/AI 辅助建议/)).toBeVisible({ timeout: 60_000 })
 
     const similarTable = page.locator('.assistant-section').filter({ has: page.getByText('相似历史问题') }).locator('.el-table__body-wrapper .el-table__body')
     await expect(similarTable.locator('.el-table__row').first()).toBeVisible({ timeout: 15_000 })

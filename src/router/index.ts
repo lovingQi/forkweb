@@ -54,6 +54,12 @@ const routes = [
     name: 'ticketDetail',
     component: () => import('@/views/TicketDetail.vue'),
     meta: { title: '工单详情' }
+  },
+  {
+    path: '/users',
+    name: 'users',
+    component: () => import('@/views/UserManagement.vue'),
+    meta: { title: '用户管理', requiresAdmin: true }
   }
 ]
 
@@ -64,8 +70,13 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('forkweb_token')
+  const cachedUser = JSON.parse(localStorage.getItem('forkweb_user') || 'null')
   if (!to.meta.public && !token) {
     next('/login')
+    return
+  }
+  if (to.meta.requiresAdmin && cachedUser?.role !== 'admin') {
+    next('/tickets')
     return
   }
   if (to.path === '/login' && token) {

@@ -45,7 +45,7 @@ router.get('/me', authMiddleware, (req: AuthRequest, res) => {
   res.json({ succeed: true, user: req.user });
 });
 
-router.get('/users', authMiddleware, requireRole('admin', 'rd'), async (_req, res) => {
+router.get('/users', authMiddleware, requireRole('admin'), async (_req, res) => {
   try {
     const users = await listUsers();
     res.json({
