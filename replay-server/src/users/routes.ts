@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { hashPassword } from '../auth/password';
 import { authMiddleware, requireRole, signToken, type AuthRequest } from '../auth/middleware';
-import { countUsers, createUser, deleteUser, getUserById, getUserByUsername, listUsers, updateUser } from '../db/users';
+import { countUsers, createUser, deleteUser, getUserById, getUserByUsername, listUsers, updateUser, updateUserLastLogin } from '../db/users';
 import { verifyPassword } from '../auth/password';
 
 const router = Router();
@@ -22,6 +22,7 @@ router.post('/login', async (req, res) => {
       res.status(401).json({ succeed: false, error: '账号已被禁用' });
       return;
     }
+    await updateUserLastLogin(user.id);
     const token = signToken({
       id: user.id,
       username: user.username,
@@ -61,6 +62,7 @@ router.get('/users', authMiddleware, requireRole('admin'), async (_req, res) => 
         displayName: u.display_name,
         email: u.email,
         disabled: u.disabled === 1,
+        lastLoginAt: u.last_login_at,
         createdAt: u.created_at
       }))
     });
@@ -165,14 +167,15 @@ async function hasOtherAdmin(excludeUserId: number): Promise<boolean> {
   return users.some((u) => u.id !== excludeUserId && u.role === 'admin' && !u.disabled);
 }
 
-function serializeUser(user: { id: number; username: string; role: string; display_name: string | null; email: string | null; disabled?: number }) {
+function serializeUser(user: { id: number; username: string; role: string; display_name: string | null; email: string | null; disabled?: number; last_login_at?: string | null }) {
   return {
     id: user.id,
     username: user.username,
     role: user.role,
     displayName: user.display_name,
     email: user.email,
-    disabled: user.disabled === 1
+    disabled: user.disabled === 1,
+    lastLoginAt: user.last_login_at
   };
 }
 

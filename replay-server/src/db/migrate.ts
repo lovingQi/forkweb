@@ -17,6 +17,12 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
     `
+  },
+  {
+    id: 'user_last_login_at',
+    sql: `
+      ALTER TABLE users ADD COLUMN last_login_at TEXT;
+    `
   }
 ];
 
@@ -83,6 +89,9 @@ export async function runMigrations(db: Database.Database): Promise<void> {
       continue;
     }
     if (migration.id === 'user_disabled_field' && columnExists(db, 'users', 'disabled')) {
+      continue;
+    }
+    if (migration.id === 'user_last_login_at' && columnExists(db, 'users', 'last_login_at')) {
       continue;
     }
     try {

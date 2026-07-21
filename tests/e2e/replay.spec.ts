@@ -28,6 +28,12 @@ test.describe.serial('日志回放诊断工具', () => {
     })
     page.on('pageerror', (error: any) => unexpectedConsole.push(error.message))
 
+    await page.goto('/login')
+    await page.locator('input[placeholder="请输入用户名"]').fill('admin')
+    await page.locator('input[placeholder="请输入密码"]').fill('admin123')
+    await page.getByRole('button', { name: '登录' }).click()
+    await page.waitForURL(/\/tickets/)
+
     await page.goto('/replay')
     await expect(page.getByRole('button', { name: '加载诊断' })).toBeVisible()
 

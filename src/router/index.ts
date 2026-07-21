@@ -5,31 +5,31 @@ const routes = [
     path: '/',
     name: 'dashboard',
     component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '监控总览' }
+    meta: { title: '监控总览', requiresRd: true }
   },
   {
     path: '/laser',
     name: 'laser',
     component: () => import('@/views/LaserConfig.vue'),
-    meta: { title: '激光配置' }
+    meta: { title: '激光配置', requiresRd: true }
   },
   {
     path: '/avoid',
     name: 'avoid',
     component: () => import('@/views/AvoidConfig.vue'),
-    meta: { title: '避障配置' }
+    meta: { title: '避障配置', requiresRd: true }
   },
   {
     path: '/control',
     name: 'control',
     component: () => import('@/views/ControlPanel.vue'),
-    meta: { title: '控制面板' }
+    meta: { title: '控制面板', requiresRd: true }
   },
   {
     path: '/replay',
     name: 'replay',
     component: () => import('@/views/Replay.vue'),
-    meta: { title: '日志诊断', public: true }
+    meta: { title: '日志诊断', requiresRd: true }
   },
   {
     path: '/login',
@@ -76,6 +76,10 @@ router.beforeEach((to, _from, next) => {
     return
   }
   if (to.meta.requiresAdmin && cachedUser?.role !== 'admin') {
+    next('/tickets')
+    return
+  }
+  if (to.meta.requiresRd && !['admin', 'rd'].includes(cachedUser?.role)) {
     next('/tickets')
     return
   }

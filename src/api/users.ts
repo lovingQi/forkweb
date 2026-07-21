@@ -21,6 +21,7 @@ export interface User {
   displayName: string | null
   email: string | null
   disabled: boolean
+  lastLoginAt: string | null
   createdAt: string
 }
 

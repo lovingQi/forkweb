@@ -11,6 +11,7 @@ export interface DbUser {
   display_name: string | null;
   email: string | null;
   disabled: number;
+  last_login_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,6 +97,12 @@ export async function updateUser(
 
 export async function disableUser(id: number, disabled: boolean): Promise<DbUser | undefined> {
   return updateUser(id, { disabled });
+}
+
+export async function updateUserLastLogin(id: number): Promise<DbUser | undefined> {
+  const db = await getDb();
+  db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(id);
+  return getUserById(id);
 }
 
 export async function deleteUser(id: number): Promise<boolean> {

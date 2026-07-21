@@ -3,23 +3,23 @@
     <el-aside v-if="route.path !== '/login'" width="200px" class="app-aside">
       <div class="logo">forkweb</div>
       <el-menu :default-active="activeMenu" router class="app-menu">
-        <el-menu-item index="/">
+        <el-menu-item v-if="auth.isRd" index="/">
           <el-icon><Monitor /></el-icon>
           <span>监控总览</span>
         </el-menu-item>
-        <el-menu-item index="/laser">
+        <el-menu-item v-if="auth.isRd" index="/laser">
           <el-icon><Aim /></el-icon>
           <span>激光配置</span>
         </el-menu-item>
-        <el-menu-item index="/avoid">
+        <el-menu-item v-if="auth.isRd" index="/avoid">
           <el-icon><MagicStick /></el-icon>
           <span>避障配置</span>
         </el-menu-item>
-        <el-menu-item index="/control">
+        <el-menu-item v-if="auth.isRd" index="/control">
           <el-icon><Operation /></el-icon>
           <span>控制面板</span>
         </el-menu-item>
-        <el-menu-item index="/replay">
+        <el-menu-item v-if="auth.isRd" index="/replay">
           <el-icon><DataAnalysis /></el-icon>
           <span>日志诊断</span>
         </el-menu-item>
