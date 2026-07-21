@@ -20,6 +20,7 @@ export interface User {
   role: 'after_sales' | 'rd' | 'admin'
   displayName: string | null
   email: string | null
+  disabled: boolean
   createdAt: string
 }
 
@@ -29,6 +30,13 @@ export interface CreateUserInput {
   role: 'after_sales' | 'rd' | 'admin'
   displayName?: string
   email?: string
+}
+
+export interface UpdateUserInput {
+  role?: 'after_sales' | 'rd' | 'admin'
+  displayName?: string
+  email?: string
+  disabled?: boolean
 }
 
 export async function listUsers(): Promise<User[]> {
@@ -41,4 +49,27 @@ export async function createUser(input: CreateUserInput): Promise<User> {
   const { data } = await userHttp.post('/auth/users', input)
   if (!data.succeed) throw new Error(data.error || '创建用户失败')
   return data.user
+}
+
+export async function updateUser(id: number, input: UpdateUserInput): Promise<User> {
+  const { data } = await userHttp.put(`/auth/users/${id}`, input)
+  if (!data.succeed) throw new Error(data.error || '更新用户失败')
+  return data.user
+}
+
+export async function resetPassword(id: number, password: string): Promise<User> {
+  const { data } = await userHttp.put(`/auth/users/${id}`, { password })
+  if (!data.succeed) throw new Error(data.error || '重置密码失败')
+  return data.user
+}
+
+export async function toggleUserDisabled(id: number, disabled: boolean): Promise<User> {
+  const { data } = await userHttp.put(`/auth/users/${id}`, { disabled })
+  if (!data.succeed) throw new Error(data.error || '切换用户状态失败')
+  return data.user
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  const { data } = await userHttp.delete(`/auth/users/${id}`)
+  if (!data.succeed) throw new Error(data.error || '删除用户失败')
 }

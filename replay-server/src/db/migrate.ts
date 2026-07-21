@@ -11,6 +11,12 @@ const MIGRATIONS = [
       ALTER TABLE tickets ADD COLUMN ai_conclusion TEXT;
       ALTER TABLE tickets ADD COLUMN ai_offline INTEGER;
     `
+  },
+  {
+    id: 'user_disabled_field',
+    sql: `
+      ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+    `
   }
 ];
 
@@ -74,6 +80,9 @@ async function migrateLegacyJsonFiles(db: Database.Database): Promise<void> {
 export async function runMigrations(db: Database.Database): Promise<void> {
   for (const migration of MIGRATIONS) {
     if (migration.id === 'ticket_ai_fields' && columnExists(db, 'tickets', 'ai_enabled')) {
+      continue;
+    }
+    if (migration.id === 'user_disabled_field' && columnExists(db, 'users', 'disabled')) {
       continue;
     }
     try {

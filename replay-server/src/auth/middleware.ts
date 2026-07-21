@@ -47,15 +47,26 @@ export function verifyToken(token: string): AuthUser | null {
   }
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const user = token ? verifyToken(token) : null;
-  if (!user) {
+  const tokenUser = token ? verifyToken(token) : null;
+  if (!tokenUser) {
     res.status(401).json({ succeed: false, error: '未登录或 token 已过期' });
     return;
   }
-  req.user = user;
+  const dbUser = await getUserById(tokenUser.id);
+  if (!dbUser || dbUser.disabled) {
+    res.status(403).json({ succeed: false, error: '账号已被禁用或不存在' });
+    return;
+  }
+  req.user = {
+    id: dbUser.id,
+    username: dbUser.username,
+    role: dbUser.role as UserRole,
+    displayName: dbUser.display_name,
+    email: dbUser.email
+  };
   next();
 }
 
@@ -75,7 +86,7 @@ export function requireRole(...roles: UserRole[]) {
 
 export async function refreshUser(userId: number): Promise<AuthUser | null> {
   const user = await getUserById(userId);
-  if (!user) return null;
+  if (!user || user.disabled) return null;
   return {
     id: user.id,
     username: user.username,

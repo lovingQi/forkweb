@@ -10,6 +10,7 @@ export interface DbUser {
   role: UserRole;
   display_name: string | null;
   email: string | null;
+  disabled: number;
   created_at: string;
   updated_at: string;
 }
@@ -61,7 +62,7 @@ export async function countUsers(): Promise<number> {
 
 export async function updateUser(
   id: number,
-  input: Partial<Pick<CreateUserInput, 'displayName' | 'email' | 'role'>> & { passwordHash?: string }
+  input: Partial<Pick<CreateUserInput, 'displayName' | 'email' | 'role'>> & { passwordHash?: string; disabled?: boolean }
 ): Promise<DbUser | undefined> {
   const db = await getDb();
   const sets: string[] = [];
@@ -82,9 +83,23 @@ export async function updateUser(
     sets.push('password_hash = ?');
     values.push(input.passwordHash);
   }
+  if (input.disabled !== undefined) {
+    sets.push('disabled = ?');
+    values.push(input.disabled ? 1 : 0);
+  }
   if (sets.length === 0) return getUserById(id);
   sets.push("updated_at = datetime('now')");
   values.push(id);
   db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...values);
   return getUserById(id);
+}
+
+export async function disableUser(id: number, disabled: boolean): Promise<DbUser | undefined> {
+  return updateUser(id, { disabled });
+}
+
+export async function deleteUser(id: number): Promise<boolean> {
+  const db = await getDb();
+  const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  return result.changes > 0;
 }
