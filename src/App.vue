@@ -1,7 +1,7 @@
 <template>
   <el-container class="app-root">
-    <el-aside width="200px" class="app-aside">
-      <div class="logo">叉车单机监控</div>
+    <el-aside v-if="route.path !== '/login'" width="200px" class="app-aside">
+      <div class="logo">forkweb</div>
       <el-menu :default-active="activeMenu" router class="app-menu">
         <el-menu-item index="/">
           <el-icon><Monitor /></el-icon>
@@ -23,20 +23,28 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>日志诊断</span>
         </el-menu-item>
+        <el-menu-item index="/tickets">
+          <el-icon><Document /></el-icon>
+          <span>工单管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
     <el-container>
-      <el-header class="app-header">
+      <el-header v-if="route.path !== '/login'" class="app-header">
         <span class="title">{{ currentTitle }}</span>
         <div class="conn">
-          <span class="robot-name">{{ store.name || '未知设备' }}</span>
-          <el-tag :type="store.connected ? 'success' : 'danger'" size="small" effect="dark">
-            {{ store.connected ? '已连接' : '未连接' }}
-          </el-tag>
+          <span v-if="auth.isLoggedIn" class="user-name">{{ auth.user?.displayName || auth.user?.username }}</span>
+          <el-button v-if="auth.isLoggedIn" size="small" @click="onLogout">退出</el-button>
+          <template v-else>
+            <span class="robot-name">{{ store.name || '未知设备' }}</span>
+            <el-tag :type="store.connected ? 'success' : 'danger'" size="small" effect="dark">
+              {{ store.connected ? '已连接' : '未连接' }}
+            </el-tag>
+          </template>
         </div>
       </el-header>
-      <el-main class="app-main">
+      <el-main :class="route.path === '/login' ? 'login-main' : 'app-main'">
         <router-view />
       </el-main>
     </el-container>
@@ -45,17 +53,21 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRobotStore } from '@/stores/robot'
+import { useAuthStore } from '@/stores/auth'
 
 const store = useRobotStore()
+const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => (route.meta.title as string) || '叉车单机监控')
 
-onMounted(() => {
-  if (route.path === '/replay') return
+onMounted(async () => {
+  await auth.restoreSession()
+  if (route.path === '/replay' || route.path === '/login') return
   store.loadInitial()
   store.connectWs()
 })
@@ -63,16 +75,21 @@ onMounted(() => {
 watch(
   () => route.path,
   (path, oldPath) => {
-    if (path === '/replay') {
+    if (path === '/replay' || path === '/login') {
       store.disconnectWs()
       return
     }
-    if (oldPath === '/replay') {
+    if (oldPath === '/replay' || oldPath === '/login') {
       store.loadInitial()
       store.connectWs()
     }
   }
 )
+
+async function onLogout() {
+  await auth.logout()
+  router.push('/login')
+}
 
 onBeforeUnmount(() => {
   store.disconnectWs()
@@ -137,8 +154,15 @@ body,
   color: #6b7280;
   font-size: 14px;
 }
+.app-header .user-name {
+  color: #374151;
+  font-size: 14px;
+}
 .app-main {
   background: #f3f4f6;
   padding: 16px;
+}
+.login-main {
+  padding: 0;
 }
 </style>

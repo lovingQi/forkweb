@@ -41,6 +41,8 @@ import { getAssistantStatus, getPublicLlmConfig } from './core/llmConfig'
 import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
 import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
+import authRoutes, { ensureAdminUser } from './users/routes'
+import ticketRoutes from './tickets/routes'
 
 const app = express()
 const server = http.createServer(app)
@@ -50,6 +52,10 @@ const session = new ReplaySession()
 
 app.use(cors())
 app.use(express.json({ limit: '80mb' }))
+
+// 工单系统路由
+app.use('/api/auth', authRoutes)
+app.use('/api/tickets', ticketRoutes)
 
 app.post('/api/replay/session', async (req, res) => {
   try {
@@ -695,7 +701,8 @@ setInterval(() => {
   }
 }, 200)
 
-server.listen(port, host, () => {
+server.listen(port, host, async () => {
+  await ensureAdminUser()
   console.log(`replay server listening on http://${host}:${port}`)
 })
 

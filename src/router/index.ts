@@ -29,13 +29,50 @@ const routes = [
     path: '/replay',
     name: 'replay',
     component: () => import('@/views/Replay.vue'),
-    meta: { title: '日志诊断' }
+    meta: { title: '日志诊断', public: true }
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: '登录', public: true }
+  },
+  {
+    path: '/tickets',
+    name: 'tickets',
+    component: () => import('@/views/TicketList.vue'),
+    meta: { title: '工单管理' }
+  },
+  {
+    path: '/tickets/new',
+    name: 'ticketNew',
+    component: () => import('@/views/TicketNew.vue'),
+    meta: { title: '新建工单' }
+  },
+  {
+    path: '/tickets/:id',
+    name: 'ticketDetail',
+    component: () => import('@/views/TicketDetail.vue'),
+    meta: { title: '工单详情' }
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('forkweb_token')
+  if (!to.meta.public && !token) {
+    next('/login')
+    return
+  }
+  if (to.path === '/login' && token) {
+    next('/tickets')
+    return
+  }
+  next()
 })
 
 export default router
