@@ -13,3 +13,4 @@ replay-server/dist/
 replay-server/config/knowledge-base.json.bak
 playwright-report/
 test-results/
+.agents/
