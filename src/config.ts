@@ -25,6 +25,6 @@ const injected = window.__APP_CONFIG__ || {}
 export const config: AppConfig = {
   apiBase: injected.apiBase || '/api',
   wsBase: resolveWsBase(injected.wsBase),
-  replayApiBase: injected.replayApiBase || 'http://127.0.0.1:18080/api',
-  replayWsBase: resolveWsBase(injected.replayWsBase || 'ws://127.0.0.1:18080/ws')
+  replayApiBase: import.meta.env.VITE_REPLAY_API_BASE || injected.replayApiBase || 'http://127.0.0.1:18080/api',
+  replayWsBase: resolveWsBase(import.meta.env.VITE_REPLAY_WS_BASE || injected.replayWsBase || 'ws://127.0.0.1:18080/ws')
 }

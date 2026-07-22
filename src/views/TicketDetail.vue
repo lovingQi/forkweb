@@ -53,6 +53,11 @@
             </el-descriptions-item>
             <el-descriptions-item label="创建时间">{{ ticketStore.currentTicket.createdAt }}</el-descriptions-item>
             <el-descriptions-item label="更新时间">{{ ticketStore.currentTicket.updatedAt }}</el-descriptions-item>
+            <template v-if="ticketStore.currentTicket.status === 'self_solved'">
+              <el-descriptions-item label="自助解决方式">{{ selfServiceResultLabel(ticketStore.currentTicket.selfServiceResult) || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="向导反馈">{{ guideFeedbackLabel(ticketStore.currentTicket.guideFeedback) || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="补充说明">{{ ticketStore.currentTicket.selfServiceNote || '-' }}</el-descriptions-item>
+            </template>
           </el-descriptions>
 
           <div class="section-title">当前分析版本</div>
@@ -131,6 +136,11 @@
               :loading="loadingAction === 'knowledge'"
               @click="openKnowledgeDialog"
             >沉淀到知识库</el-button>
+            <el-button
+              v-if="canReanalyze"
+              :loading="loadingAction === 'reanalyze'"
+              @click="onReanalyze"
+            >重新分析</el-button>
             <el-button v-if="ticketStore.currentTicket.reportPath" @click="loadReport">查看报告</el-button>
           </div>
 
@@ -408,6 +418,11 @@ const canCreateKnowledge = computed(() => {
   if (!ticket.value) return false
   return auth.isRd && ['pending_field_troubleshooting', 'rd_working', 'resolved'].includes(ticket.value.status)
 })
+const canReanalyze = computed(() => {
+  if (!ticket.value) return false
+  if (auth.isAfterSales) return ticket.value.reporterId === auth.user?.id && ['pending_analysis', 'pending_field_troubleshooting', 'field_troubleshooting', 'self_solved', 'resolved'].includes(ticket.value.status)
+  return auth.isRd && ['pending_analysis', 'pending_field_troubleshooting', 'field_troubleshooting', 'self_solved', 'resolved'].includes(ticket.value.status)
+})
 const canEditIssueType = computed(() => {
   if (!ticket.value) return false
   return auth.isRd || auth.isAdmin || (auth.isAfterSales && ticket.value.reporterId === auth.user?.id)
@@ -438,6 +453,15 @@ async function onAssign() {
   loadingAction.value = 'assign'
   try {
     await ticketStore.assignTicket(ticketId.value)
+  } finally {
+    loadingAction.value = null
+  }
+}
+
+async function onReanalyze() {
+  loadingAction.value = 'reanalyze'
+  try {
+    await ticketStore.analyzeTicket(ticketId.value)
   } finally {
     loadingAction.value = null
   }
@@ -646,6 +670,14 @@ function occurredTimeText(t: Ticket) {
   if (!t.occurredStartAt && !t.occurredEndAt) return ''
   if (t.occurredStartAt && t.occurredEndAt) return `${t.occurredStartAt} 至 ${t.occurredEndAt}`
   return t.occurredStartAt || t.occurredEndAt
+}
+
+function selfServiceResultLabel(value?: string) {
+  return selfServiceResults.find((item) => item.value === value)?.label || value
+}
+
+function guideFeedbackLabel(value?: string) {
+  return guideFeedbacks.find((item) => item.value === value)?.label || value
 }
 </script>
 

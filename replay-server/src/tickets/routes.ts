@@ -5,11 +5,12 @@ import fs from 'fs/promises';
 import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
-import { getTicketById, updateTicket } from '../db/tickets';
+import { getTicketById } from '../db/tickets';
 import { getSiteById } from '../db/sites';
 import { getAnalysisVersionById, listAnalysisVersions, type DbAnalysisVersion } from '../db/analysisVersions';
 import { listTroubleshootingPaths } from '../db/troubleshootingPaths';
-import { listTroubleshootingSteps, listTroubleshootingStepsByPathIds } from '../db/troubleshootingSteps';
+import { listTroubleshootingStepsByPathIds } from '../db/troubleshootingSteps';
+import { listLatestStepEventsByStepIds } from '../db/stepEvents';
 import {
   assignTicket,
   createKnowledgeFromTicket,
@@ -246,7 +247,7 @@ router.get('/:id/analysis-versions/:versionId', authMiddleware, async (req: Auth
   }
 });
 
-// 切换当前展示的分析版本
+// 切换当前展示的分析版本。版本选择仅影响当前客户端展示，不改写工单最新分析版本。
 router.post('/:id/analysis-versions/:versionId/switch', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const ticketId = Number(req.params.id);
@@ -261,9 +262,7 @@ router.post('/:id/analysis-versions/:versionId/switch', authMiddleware, async (r
       res.status(404).json({ succeed: false, error: '版本不存在' });
       return;
     }
-    await updateTicket(ticketId, { latest_analysis_version_id: version.id });
-    const updatedTicket = await getTicketById(ticketId);
-    res.json({ succeed: true, ticket: serializeTicket(updatedTicket!), version: serializeAnalysisVersion(version) });
+    res.json({ succeed: true, ticket: serializeTicket(ticket), version: serializeAnalysisVersion(version) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
@@ -279,11 +278,23 @@ router.get('/:id/troubleshooting-paths', authMiddleware, async (req: AuthRequest
       res.status(403).json({ succeed: false, error: '无权查看该工单' });
       return;
     }
+    if (analysisVersionId !== undefined) {
+      const version = await getAnalysisVersionById(analysisVersionId);
+      if (!version || version.ticket_id !== ticketId) {
+        res.status(404).json({ succeed: false, error: '分析版本不存在' });
+        return;
+      }
+    }
     const paths = await listTroubleshootingPaths({
       ticketId,
       analysisVersionId: Number.isFinite(analysisVersionId) ? analysisVersionId : undefined
     });
     const steps = await listTroubleshootingStepsByPathIds(paths.map((p) => p.id));
+    const selectedVersionId = analysisVersionId ?? ticket.latest_analysis_version_id;
+    const latestEvents = selectedVersionId
+      ? await listLatestStepEventsByStepIds(selectedVersionId, steps.map((step) => step.id))
+      : [];
+    const latestEventByStepId = new Map(latestEvents.map((event) => [event.step_id, event]));
     res.json({
       succeed: true,
       paths: paths.map((p) => ({
@@ -295,7 +306,9 @@ router.get('/:id/troubleshooting-paths', authMiddleware, async (req: AuthRequest
         confidence: p.confidence,
         severity: p.severity,
         status: p.status,
-        steps: steps.filter((s) => s.path_id === p.id).map((s) => ({
+        steps: steps.filter((s) => s.path_id === p.id).map((s) => {
+          const latestEvent = latestEventByStepId.get(s.id);
+          return {
           id: s.id,
           stepNo: s.step_no,
           title: s.title,
@@ -305,8 +318,12 @@ router.get('/:id/troubleshooting-paths', authMiddleware, async (req: AuthRequest
           estimatedTime: s.estimated_time,
           evidenceConfig: safeJsonParse(s.evidence_config, null),
           isCritical: s.is_critical === 1,
-          failureAction: s.failure_action
-        }))
+          failureAction: s.failure_action,
+          status: latestEvent?.to_status || 'unchecked',
+          statusUpdatedAt: latestEvent?.created_at,
+          notApplicableReason: latestEvent?.to_status === 'not_applicable' ? latestEvent.reason : undefined
+        };
+        })
       }))
     });
   } catch (e) {
@@ -331,10 +348,11 @@ router.post('/:id/paths/:pathId/steps/:stepId/status', authMiddleware, requireRo
     const ticketId = Number(req.params.id);
     const pathId = Number(req.params.pathId);
     const stepId = Number(req.params.stepId);
-    const { status, reason } = req.body;
+    const { status, reason, analysisVersionId } = req.body;
     await recordStepStatus(ticketId, pathId, stepId, req.user!, {
       status: String(status),
-      reason: reason ? String(reason) : undefined
+      reason: reason ? String(reason) : undefined,
+      analysisVersionId: analysisVersionId ? Number(analysisVersionId) : undefined
     });
     res.json({ succeed: true });
   } catch (e) {
@@ -367,6 +385,11 @@ router.post('/:id/resolve-self-service', authMiddleware, requireRole('after_sale
       res.status(400).json({ succeed: false, error: 'result 和 guideFeedback 不能为空' });
       return;
     }
+    if (!['reboot', 'rewire', 'replace_hardware', 'adjust_config', 'refresh_logs', 'false_positive', 'other'].includes(String(result))
+      || !['useful', 'partial', 'useless'].includes(String(guideFeedback))) {
+      res.status(400).json({ succeed: false, error: '解决方式或向导反馈无效' });
+      return;
+    }
     const ticket = await resolveSelfService(ticketId, req.user!, {
       result: String(result),
       guideFeedback: String(guideFeedback),
@@ -385,6 +408,10 @@ router.post('/:id/escalate-to-rd', authMiddleware, requireRole('after_sales', 'a
     const { reason } = req.body;
     if (!reason) {
       res.status(400).json({ succeed: false, error: 'reason 不能为空' });
+      return;
+    }
+    if (!['guide_unresolved', 'no_permission_or_tool', 'software_defect', 'untrusted_conclusion', 'need_remote', 'other'].includes(String(reason))) {
+      res.status(400).json({ succeed: false, error: '升级原因无效' });
       return;
     }
     const ticket = await escalateToRd(ticketId, req.user!, String(reason), getBaseUrl(req));
@@ -488,6 +515,7 @@ function serializeTicket(ticket: DbTicket) {
     occurredStartAt: ticket.occurred_start_at ?? undefined,
     occurredEndAt: ticket.occurred_end_at ?? undefined,
     selfServiceResult: ticket.self_service_result ?? undefined,
+    selfServiceNote: ticket.self_service_note ?? undefined,
     guideFeedback: ticket.guide_feedback ?? undefined,
     escalationReason: ticket.escalation_reason ?? undefined,
     conclusion: ticket.conclusion,

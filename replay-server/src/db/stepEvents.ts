@@ -82,3 +82,26 @@ export async function listStepEvents(filters?: {
     ' ORDER BY created_at DESC';
   return db.prepare(sql).all(...values) as DbStepEvent[];
 }
+
+/**
+ * 返回指定分析版本中每个步骤的最后一次状态变更，用于恢复现场排查进度。
+ */
+export async function listLatestStepEventsByStepIds(
+  analysisVersionId: number,
+  stepIds: number[]
+): Promise<DbStepEvent[]> {
+  if (stepIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = stepIds.map(() => '?').join(', ');
+  const sql = `
+    SELECT e.*
+    FROM ticket_step_events e
+    INNER JOIN (
+      SELECT step_id, MAX(id) AS last_id
+      FROM ticket_step_events
+      WHERE analysis_version_id = ? AND step_id IN (${placeholders})
+      GROUP BY step_id
+    ) latest ON latest.last_id = e.id
+  `;
+  return db.prepare(sql).all(analysisVersionId, ...stepIds) as DbStepEvent[];
+}

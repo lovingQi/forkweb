@@ -12,9 +12,9 @@ import { exportDiagnosticPackage } from '../core/diagnosticPackage';
 import { classifyFromAnalysis } from '../core/issueClassifier';
 import { generateTroubleshootingPaths } from '../core/troubleshootingGuide';
 import { ReplaySession } from '../core/session';
-import { createKnowledgeRule } from '../core/knowledgeBase';
-import { createTroubleshootingPath } from '../db/troubleshootingPaths';
-import { createTroubleshootingStep } from '../db/troubleshootingSteps';
+import { createKnowledgeRule, recordKnowledgeRuleFeedback } from '../core/knowledgeBase';
+import { createTroubleshootingPath, getTroubleshootingPathById, listTroubleshootingPaths } from '../db/troubleshootingPaths';
+import { createTroubleshootingStep, getTroubleshootingStepById } from '../db/troubleshootingSteps';
 import { createStepEvent, listStepEvents } from '../db/stepEvents';
 import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
@@ -24,6 +24,28 @@ function generateTicketNo(): string {
   const prefix = now.toISOString().slice(0, 10).replace(/-/g, '');
   const suffix = uuidv4().slice(0, 6).toUpperCase();
   return `TK${prefix}-${suffix}`;
+}
+
+function canAccessTicket(ticket: DbTicket, actor: AuthUser): boolean {
+  return actor.role !== 'after_sales' || ticket.reporter_id === actor.id;
+}
+
+function assertTicketAccess(ticket: DbTicket, actor: AuthUser): void {
+  if (!canAccessTicket(ticket, actor)) throw new Error('无权操作该工单');
+}
+
+function assertFieldOperator(ticket: DbTicket, actor: AuthUser): void {
+  if (actor.role !== 'after_sales' && actor.role !== 'admin') throw new Error('仅现场人员或管理员可执行此操作');
+  assertTicketAccess(ticket, actor);
+}
+
+function assertRdOperator(ticket: DbTicket, actor: AuthUser): void {
+  if (actor.role !== 'rd' && actor.role !== 'admin') throw new Error('仅研发或管理员可执行此操作');
+  if (actor.role === 'rd' && ticket.assignee_id !== actor.id) throw new Error('仅工单认领人可处理该工单');
+}
+
+function assertStatus(ticket: DbTicket, expected: TicketStatus[], action: string): void {
+  if (!expected.includes(ticket.status)) throw new Error(`工单当前状态不允许${action}`);
 }
 
 export interface CreateTicketServiceInput {
@@ -87,7 +109,9 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
 export async function startTicketAnalysis(ticketId: number, actor: AuthUser): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
   if (ticket.status === 'analyzing') return ticket;
+  assertStatus(ticket, ['pending_analysis', 'pending_field_troubleshooting', 'field_troubleshooting', 'self_solved', 'resolved'], '重新分析');
 
   await updateTicket(ticketId, { status: 'analyzing' });
 
@@ -252,9 +276,7 @@ export async function updateTicketIssueType(
 ): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
-    throw new Error('无权操作该工单');
-  }
+  assertTicketAccess(ticket, actor);
 
   const updated = await updateTicket(ticketId, { issue_type: issueType });
   if (!updated) throw new Error('更新工单失败');
@@ -272,9 +294,8 @@ export async function updateTicketIssueType(
 export async function startFieldTroubleshooting(ticketId: number, actor: AuthUser): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  if (ticket.status !== 'pending_field_troubleshooting') {
-    throw new Error('工单状态不允许开始现场排查');
-  }
+  assertFieldOperator(ticket, actor);
+  assertStatus(ticket, ['pending_field_troubleshooting'], '开始现场排查');
   const updated = await updateTicket(ticketId, { status: 'field_troubleshooting' });
   if (!updated) throw new Error('更新工单失败');
 
@@ -293,13 +314,12 @@ export async function recordStepStatus(
   pathId: number,
   stepId: number,
   actor: AuthUser,
-  input: { status: string; reason?: string }
+  input: { status: string; reason?: string; analysisVersionId?: number }
 ): Promise<void> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
-    throw new Error('无权操作该工单');
-  }
+  assertFieldOperator(ticket, actor);
+  assertStatus(ticket, ['field_troubleshooting'], '记录排查步骤');
   const validStatuses = ['unchecked', 'passed', 'failed', 'not_applicable'];
   if (!validStatuses.includes(input.status)) {
     throw new Error('无效的步骤状态');
@@ -308,8 +328,16 @@ export async function recordStepStatus(
     throw new Error('不适用时必须选择原因');
   }
 
-  const analysisVersionId = ticket.latest_analysis_version_id;
+  const analysisVersionId = input.analysisVersionId ?? ticket.latest_analysis_version_id;
   if (!analysisVersionId) throw new Error('工单尚未生成分析版本');
+
+  const path = await getTroubleshootingPathById(pathId);
+  if (!path || path.ticket_id !== ticketId || path.analysis_version_id !== analysisVersionId) {
+    throw new Error('排查路径不属于该工单或分析版本');
+  }
+  const step = await getTroubleshootingStepById(stepId);
+  if (!step || step.path_id !== pathId) throw new Error('排查步骤不属于该排查路径');
+  const previousEvents = await listStepEvents({ ticketId, analysisVersionId, pathId, stepId });
 
   await createStepEvent({
     ticketId,
@@ -318,6 +346,7 @@ export async function recordStepStatus(
     stepId,
     actorId: actor.id,
     action: 'step_status_changed',
+    fromStatus: previousEvents[0]?.to_status || 'unchecked',
     toStatus: input.status,
     reason: input.reason
   });
@@ -334,9 +363,9 @@ export async function resolveSelfService(
 ): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
-    throw new Error('无权操作该工单');
-  }
+  assertFieldOperator(ticket, actor);
+  assertStatus(ticket, ['pending_field_troubleshooting', 'field_troubleshooting'], '确认自助解决');
+  if (!['useful', 'partial', 'useless'].includes(input.guideFeedback)) throw new Error('无效的向导反馈');
 
   const updated = await updateTicket(ticketId, {
     status: 'self_solved',
@@ -353,6 +382,26 @@ export async function resolveSelfService(
     payload: { previousStatus: ticket.status, result: input.result, guideFeedback: input.guideFeedback }
   });
 
+  const currentPaths = ticket.latest_analysis_version_id
+    ? await listTroubleshootingPaths({ ticketId, analysisVersionId: ticket.latest_analysis_version_id })
+    : [];
+  const updatedRules = await recordKnowledgeRuleFeedback(
+    currentPaths.map((path) => path.rule_id),
+    input.guideFeedback as 'useful' | 'partial' | 'useless'
+  );
+  if (updatedRules.length > 0) {
+    await createTicketEvent({
+      ticketId,
+      actorId: actor.id,
+      action: 'guide_feedback_recorded',
+      payload: {
+        guideFeedback: input.guideFeedback,
+        ruleIds: updatedRules.map((rule) => rule.id),
+        needsReviewRuleIds: updatedRules.filter((rule) => rule.publicationStatus === 'needs_review').map((rule) => rule.id)
+      }
+    });
+  }
+
   return updated;
 }
 
@@ -364,9 +413,8 @@ export async function escalateToRd(
 ): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
-    throw new Error('无权操作该工单');
-  }
+  assertFieldOperator(ticket, actor);
+  assertStatus(ticket, ['pending_field_troubleshooting', 'field_troubleshooting'], '升级研发');
 
   const updated = await updateTicket(ticketId, {
     status: 'pending_rd',
@@ -400,7 +448,12 @@ export async function escalateToRd(
 
   const ticketUrl = `${baseUrl}/tickets/${ticketId}`;
   try {
-    await sendRdNotificationEmail(updated, ticketUrl);
+    await sendRdNotificationEmail(updated, ticketUrl, {
+      analysisVersionId: ticket.latest_analysis_version_id,
+      stepStatusSummary,
+      reportPath: ticket.report_path,
+      packagePath: ticket.package_path
+    });
   } catch (e) {
     console.error('[ticket] 邮件通知失败:', e);
     await createTicketEvent({
@@ -430,6 +483,8 @@ export async function verifyTicket(
 export async function assignTicket(ticketId: number, assignee: AuthUser): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
+  if (assignee.role !== 'rd' && assignee.role !== 'admin') throw new Error('仅研发或管理员可认领工单');
+  assertStatus(ticket, ['pending_rd'], '认领');
   const updated = await updateTicket(ticketId, { assignee_id: assignee.id, status: 'rd_working' });
   if (!updated) throw new Error('更新工单失败');
 
@@ -470,6 +525,8 @@ export async function resolveTicket(
 ): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
+  assertRdOperator(ticket, actor);
+  assertStatus(ticket, ['rd_working'], '标记已解决');
   const updated = await updateTicket(ticketId, {
     status: 'resolved',
     conclusion: solution
@@ -647,4 +704,3 @@ function buildTroubleshootingPathsSnapshot(data: any): any {
   }));
   return { paths: knowledgePaths };
 }
-

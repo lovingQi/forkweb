@@ -42,6 +42,7 @@ import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
 import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
 import authRoutes, { ensureAdminUser } from './users/routes'
+import { authMiddleware, requireRole } from './auth/middleware'
 import ticketRoutes from './tickets/routes'
 import siteRoutes from './sites/routes'
 
@@ -226,11 +227,11 @@ app.post('/api/replay/case-meta', async (req, res) => {
   res.json({ succeed: true, caseMeta: await writeCaseMeta(req.body || {}) })
 })
 
-app.get('/api/replay/knowledge', async (req, res) => {
+app.get('/api/replay/knowledge', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
   res.json(await listKnowledgeRules(req.query))
 })
 
-app.post('/api/replay/knowledge', async (req, res) => {
+app.post('/api/replay/knowledge', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
   try {
     res.json({ succeed: true, rule: await createKnowledgeRule(req.body || {}), knowledge: await listKnowledgeRules() })
   } catch (e) {
@@ -238,8 +239,8 @@ app.post('/api/replay/knowledge', async (req, res) => {
   }
 })
 
-app.put('/api/replay/knowledge/:id', async (req, res) => {
-  const rule = await updateKnowledgeRule(req.params.id, req.body || {})
+app.put('/api/replay/knowledge/:id', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
+  const rule = await updateKnowledgeRule(String(req.params.id), req.body || {})
   if (!rule) {
     res.status(404).json({ succeed: false, error: 'knowledge rule not found' })
     return
@@ -247,12 +248,12 @@ app.put('/api/replay/knowledge/:id', async (req, res) => {
   res.json({ succeed: true, rule, knowledge: await listKnowledgeRules() })
 })
 
-app.delete('/api/replay/knowledge/:id', async (req, res) => {
-  res.json({ succeed: await deleteKnowledgeRule(req.params.id), knowledge: await listKnowledgeRules() })
+app.delete('/api/replay/knowledge/:id', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
+  res.json({ succeed: await deleteKnowledgeRule(String(req.params.id)), knowledge: await listKnowledgeRules() })
 })
 
-app.post('/api/replay/knowledge/:id/toggle', async (req, res) => {
-  const rule = await toggleKnowledgeRule(req.params.id, typeof req.body.enabled === 'boolean' ? req.body.enabled : undefined)
+app.post('/api/replay/knowledge/:id/toggle', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
+  const rule = await toggleKnowledgeRule(String(req.params.id), typeof req.body.enabled === 'boolean' ? req.body.enabled : undefined)
   if (!rule) {
     res.status(404).json({ succeed: false, error: 'knowledge rule not found' })
     return
@@ -260,12 +261,12 @@ app.post('/api/replay/knowledge/:id/toggle', async (req, res) => {
   res.json({ succeed: true, rule, knowledge: await listKnowledgeRules() })
 })
 
-app.get('/api/replay/knowledge/export', async (_req, res) => {
+app.get('/api/replay/knowledge/export', authMiddleware, requireRole('rd', 'admin'), async (_req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="knowledge-base.json"')
   res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibraryWithHits()))
 })
 
-app.post('/api/replay/knowledge/import', async (req, res) => {
+app.post('/api/replay/knowledge/import', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
   try {
     res.json({ succeed: true, ...(await importKnowledgeLibraryPayload(req.body.library || req.body, !!req.body.overwrite)) })
   } catch (e) {
@@ -273,12 +274,12 @@ app.post('/api/replay/knowledge/import', async (req, res) => {
   }
 })
 
-app.post('/api/replay/knowledge/suggest-pattern', (req, res) => {
+app.post('/api/replay/knowledge/suggest-pattern', authMiddleware, requireRole('rd', 'admin'), (req, res) => {
   const lines = Array.isArray(req.body.lines) ? req.body.lines : []
   res.json({ suggestion: suggestKnowledgePattern(lines) })
 })
 
-app.post('/api/replay/knowledge/test', async (req, res) => {
+app.post('/api/replay/knowledge/test', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
   const rule = req.body.rule || req.body
   const match = matchKnowledgeRule(rule, {
     rawLines: session.data.rawLines,

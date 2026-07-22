@@ -86,6 +86,11 @@
             <div v-if="step.failureAction" class="step-failure">
               <strong>未通过动作：</strong>{{ step.failureAction }}
             </div>
+            <el-collapse v-if="step.evidenceConfig" class="step-evidence">
+              <el-collapse-item title="关联证据" :name="`evidence-${step.id}`">
+                <pre>{{ JSON.stringify(step.evidenceConfig, null, 2) }}</pre>
+              </el-collapse-item>
+            </el-collapse>
 
             <div v-if="canExecuteSteps" class="step-actions">
               <el-radio-group :model-value="stepStatusMap[step.id]" size="small" @change="(val: string) => onStepStatusChange(step, val)">
@@ -120,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
 import type { TroubleshootingStep } from '@/api/tickets'
@@ -131,18 +136,18 @@ const paths = computed(() => ticketStore.troubleshootingPaths)
 const hasPaths = computed(() => paths.value.length > 0)
 const evidenceSummary = computed(() => ticketStore.currentAnalysisVersion?.evidenceSummary)
 const ticketStatus = computed(() => ticketStore.currentTicket?.status)
+const isLatestAnalysisVersion = computed(() =>
+  ticketStore.currentAnalysisVersion?.id === ticketStore.currentTicket?.latestAnalysisVersionId
+)
 
 const canStartTroubleshooting = computed(() =>
   auth.isAfterSales && ticketStatus.value === 'pending_field_troubleshooting'
 )
 const canExecuteSteps = computed(() =>
-  auth.isAfterSales && (ticketStatus.value === 'field_troubleshooting' || ticketStatus.value === 'pending_field_troubleshooting')
+  auth.isAfterSales && isLatestAnalysisVersion.value && ticketStatus.value === 'field_troubleshooting'
 )
 
 const expandedNames = ref<string[]>([])
-if (paths.value.length > 0) {
-  expandedNames.value = [String(paths.value[0].id)]
-}
 
 const stepStatusMap = reactive<Record<number, string>>({})
 const safetyDialogVisible = ref(false)
@@ -151,6 +156,17 @@ const pendingStep = ref<TroubleshootingStep | null>(null)
 const pendingStatus = ref('')
 const selectedReason = ref('')
 const confirmedFieldOperationSteps = reactive<Set<number>>(new Set())
+
+watch(paths, (nextPaths) => {
+  if (nextPaths.length > 0 && expandedNames.value.length === 0) {
+    expandedNames.value = [String(nextPaths[0].id)]
+  }
+  for (const path of nextPaths) {
+    for (const step of path.steps) {
+      stepStatusMap[step.id] = step.status || 'unchecked'
+    }
+  }
+}, { immediate: true })
 
 const notApplicableReasons = [
   { label: '现场无该传感器', value: 'no_sensor' },
@@ -244,7 +260,11 @@ async function submitStepStatus(step: TroubleshootingStep, status: string, reaso
   if (!ticketStore.currentTicket) return
   const path = paths.value.find((p) => p.steps.some((s) => s.id === step.id))
   if (!path) return
-  await ticketStore.recordStepStatus(ticketStore.currentTicket.id, path.id, step.id, { status, reason })
+  await ticketStore.recordStepStatus(ticketStore.currentTicket.id, path.id, step.id, {
+    status,
+    reason,
+    analysisVersionId: path.analysisVersionId
+  })
   stepStatusMap[step.id] = status
 }
 
@@ -347,6 +367,14 @@ function estimatedTimeText(value: string) {
 }
 .step-actions {
   margin-top: 10px;
+}
+.step-evidence {
+  margin-top: 8px;
+}
+.step-evidence pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .basic-evidence {
   margin-top: 12px;

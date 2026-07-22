@@ -169,7 +169,7 @@ export const useTicketStore = defineStore('tickets', () => {
     ticketId: number,
     pathId: number,
     stepId: number,
-    input: { status: string; reason?: string }
+    input: { status: string; reason?: string; analysisVersionId?: number }
   ) {
     await apiRecordStepStatus(ticketId, pathId, stepId, input)
     // Reload events after recording step status

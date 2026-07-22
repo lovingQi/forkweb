@@ -19,6 +19,7 @@ import type {
 const KNOWLEDGE_KEY = 'knowledgeBase'
 const HITS_KEY = 'knowledgeHits'
 const MAX_EVIDENCE_LINES = 50
+const USELESS_FEEDBACK_REVIEW_THRESHOLD = 3
 const STOP_WORDS = new Set([
   'the',
   'and',
@@ -143,6 +144,33 @@ export async function updateKnowledgeRule(id: string, input: Partial<KnowledgeRu
   library.rules[index] = next
   await writeKnowledgeLibrary(library)
   return next
+}
+
+export async function recordKnowledgeRuleFeedback(
+  ruleIds: string[],
+  feedback: 'useful' | 'partial' | 'useless'
+): Promise<KnowledgeRule[]> {
+  const uniqueRuleIds = Array.from(new Set(ruleIds.filter(Boolean)))
+  if (uniqueRuleIds.length === 0) return []
+  const library = await readKnowledgeLibrary()
+  const updated: KnowledgeRule[] = []
+  for (const rule of library.rules) {
+    if (!uniqueRuleIds.includes(rule.id)) continue
+    const feedbackStats = { ...rule.feedbackStats, [feedback]: rule.feedbackStats[feedback] + 1 }
+    const needsReview = feedback === 'useless' && feedbackStats.useless >= USELESS_FEEDBACK_REVIEW_THRESHOLD
+    const next = normalizeRule({
+      ...rule,
+      feedbackStats,
+      publicationStatus: needsReview ? 'needs_review' : rule.publicationStatus,
+      reviewReason: needsReview ? `累计收到 ${feedbackStats.useless} 次“没用”反馈` : rule.reviewReason,
+      updatedAt: new Date().toISOString()
+    })
+    const index = library.rules.findIndex((item) => item.id === rule.id)
+    library.rules[index] = next
+    updated.push(next)
+  }
+  if (updated.length > 0) await writeKnowledgeLibrary(library)
+  return updated
 }
 
 export async function deleteKnowledgeRule(id: string): Promise<boolean> {

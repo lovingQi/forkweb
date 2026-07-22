@@ -6,6 +6,14 @@ const replayHttp = axios.create({
   timeout: 30000
 })
 
+replayHttp.interceptors.request.use((req) => {
+  const token = localStorage.getItem('forkweb_token')
+  if (token && req.headers) {
+    req.headers.Authorization = `Bearer ${token}`
+  }
+  return req
+})
+
 export interface ReplaySessionInput {
   logDir: string
   mapDir?: string

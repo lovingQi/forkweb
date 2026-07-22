@@ -214,6 +214,9 @@ export interface TroubleshootingStep {
   evidenceConfig?: any
   isCritical: boolean
   failureAction?: string
+  status: 'unchecked' | 'passed' | 'failed' | 'not_applicable'
+  statusUpdatedAt?: string
+  notApplicableReason?: string
 }
 
 export interface TroubleshootingPath {
@@ -249,7 +252,7 @@ export async function recordStepStatus(
   ticketId: number,
   pathId: number,
   stepId: number,
-  input: { status: string; reason?: string }
+  input: { status: string; reason?: string; analysisVersionId?: number }
 ): Promise<void> {
   const { data } = await ticketHttp.post(`/tickets/${ticketId}/paths/${pathId}/steps/${stepId}/status`, input)
   if (!data.succeed) throw new Error(data.error || '记录步骤状态失败')

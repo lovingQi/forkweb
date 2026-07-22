@@ -15,7 +15,7 @@
             <el-icon><DataAnalysis /></el-icon>
             <span>日志诊断</span>
           </el-menu-item>
-          <el-menu-item index="/">
+          <el-menu-item index="/dashboard">
             <el-icon><Monitor /></el-icon>
             <span>监控总览</span>
           </el-menu-item>

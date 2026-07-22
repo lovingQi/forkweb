@@ -7,6 +7,12 @@ const routes = [
     redirect: '/tickets'
   },
   {
+    path: '/dashboard',
+    name: 'dashboardView',
+    component: () => import('@/views/Dashboard.vue'),
+    meta: { title: '监控总览', requiresRd: true }
+  },
+  {
     path: '/laser',
     name: 'laser',
     component: () => import('@/views/LaserConfig.vue'),

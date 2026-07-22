@@ -4,6 +4,12 @@ import { chromium, expect, test } from '@playwright/test'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const sampleLogPath = path.join(__dirname, 'fixtures', 'sample-log', 'log-20260715-084920.log')
+const requiredE2eBaseUrl = process.env.REPLAY_E2E_BASE_URL
+const requiredE2eApiBase = process.env.REPLAY_E2E_API_BASE
+
+if (!requiredE2eBaseUrl || !requiredE2eApiBase) {
+  throw new Error('请在隔离环境中设置 REPLAY_E2E_BASE_URL 和 REPLAY_E2E_API_BASE 后再运行工单 E2E 测试')
+}
 
 test.describe.serial('工单主流程', () => {
   let browser: any
@@ -40,7 +46,7 @@ test.describe.serial('工单主流程', () => {
     }
     const configText = await configRes.text()
     const match = configText.match(/replayApiBase:\s*['"]([^'"]+)['"]/)
-    apiBase = (match ? match[1] : (process.env.REPLAY_E2E_API_BASE || 'http://127.0.0.1:18080')).replace(/\/api$/, '')
+    apiBase = (process.env.REPLAY_E2E_API_BASE || match?.[1] || '').replace(/\/api$/, '')
     if (!apiBase) {
       throw new Error('无法确定后端 API 地址')
     }

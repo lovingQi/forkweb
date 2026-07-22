@@ -9,7 +9,7 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: process.env.REPLAY_E2E_BASE_URL || 'http://127.0.0.1:5173',
+    baseURL: process.env.REPLAY_E2E_BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure'
