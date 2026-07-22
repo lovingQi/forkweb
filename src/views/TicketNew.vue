@@ -30,31 +30,25 @@
         <el-form-item label="问题描述">
           <el-input v-model="form.description" type="textarea" :rows="4" placeholder="请简要描述当前遇到的问题" />
         </el-form-item>
-        <el-form-item label="日志压缩包">
+        <el-form-item label="上传文件">
           <el-upload
-            ref="logUpload"
-            accept=".zip,.tar.gz,.tgz"
+            ref="fileUpload"
+            v-model:file-list="fileList"
+            drag
+            multiple
             :auto-upload="false"
-            :limit="1"
-            :on-change="onLogChange"
+            :on-change="onFilesChange"
+            :on-remove="onFilesChange"
+            action="#"
           >
-            <el-button type="primary">选择日志压缩包</el-button>
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">
+              将文件拖到此处，或 <em>点击上传</em>
+            </div>
             <template #tip>
-              <div class="el-upload__tip">支持 zip / tar.gz，最大 500MB</div>
-            </template>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="地图文件">
-          <el-upload
-            ref="mapUpload"
-            accept=".json"
-            :auto-upload="false"
-            :limit="1"
-            :on-change="onMapChange"
-          >
-            <el-button>选择地图文件</el-button>
-            <template #tip>
-              <div class="el-upload__tip">可选，json 格式</div>
+              <div class="upload-tip">
+                支持 .zip / .tar.gz / .tgz 压缩包自动解压，自动识别 .log 日志与 .json 地图。可一次选择多个文件或目录。
+              </div>
             </template>
           </el-upload>
         </el-form-item>
@@ -75,9 +69,10 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { useTicketStore } from '@/stores/tickets'
 import { listSites, type Site } from '@/api/sites'
-import type { UploadFile } from 'element-plus'
+import type { UploadFile, UploadUserFile } from 'element-plus'
 
 const router = useRouter()
 const ticketStore = useTicketStore()
@@ -88,10 +83,10 @@ const form = reactive({
   title: '',
   description: '',
   siteId: undefined as number | undefined,
-  logs: null as File | null,
-  map: null as File | null,
   aiEnabled: false
 })
+
+const fileList = ref<UploadUserFile[]>([])
 
 const sites = ref<Site[]>([])
 const loadingSites = ref(false)
@@ -107,12 +102,8 @@ onMounted(async () => {
   }
 })
 
-function onLogChange(file: UploadFile) {
-  form.logs = file.raw || null
-}
-
-function onMapChange(file: UploadFile) {
-  form.map = file.raw || null
+function onFilesChange() {
+  // el-upload 会自动更新 fileList
 }
 
 async function onSubmit() {
@@ -125,8 +116,9 @@ async function onSubmit() {
     error.value = '请选择项目现场'
     return
   }
-  if (!form.logs) {
-    error.value = '请上传日志压缩包'
+  const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
+  if (rawFiles.length === 0) {
+    error.value = '请至少上传一个文件'
     return
   }
   submitting.value = true
@@ -135,8 +127,7 @@ async function onSubmit() {
       title: form.title.trim(),
       description: form.description.trim(),
       siteId: form.siteId,
-      logs: form.logs,
-      map: form.map || undefined,
+      files: rawFiles,
       aiEnabled: form.aiEnabled
     })
     router.push(`/tickets/${ticket.id}`)
@@ -162,5 +153,14 @@ async function onSubmit() {
   margin-top: 4px;
   font-size: 12px;
   color: #ef4444;
+}
+.upload-tip {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+:deep(.el-upload-dragger) {
+  width: 100%;
 }
 </style>

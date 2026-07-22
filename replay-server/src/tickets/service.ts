@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { createTicketEvent, listTicketEvents } from '../db/events';
 import { createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
-import { ensureTicketDirs, extractLogArchive, getTicketDir, getTicketLogDir, getTicketMapDir, saveMapFile } from '../upload/handler';
+import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
 import { exportDiagnosticPackage } from '../core/diagnosticPackage';
@@ -23,9 +23,8 @@ function generateTicketNo(): string {
 export interface CreateTicketServiceInput {
   title: string;
   description: string;
-  logArchivePath: string;
-  logOriginalName?: string;
-  mapFilePath?: string;
+  filePaths: string[];
+  originalNames?: string[];
   reporter: AuthUser;
   siteId?: number;
   aiEnabled?: boolean;
@@ -47,23 +46,17 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
 
   await ensureTicketDirs(ticket.id);
 
-  // 解压日志
-  const logDir = await extractLogArchive(ticket.id, input.logArchivePath, input.logOriginalName);
-
-  // 保存地图
-  let mapDir: string | undefined;
-  let mapFile: string | undefined;
-  if (input.mapFilePath) {
-    const savedMap = await saveMapFile(ticket.id, input.mapFilePath);
-    mapDir = getTicketMapDir(ticket.id);
-    mapFile = savedMap;
+  // 处理上传文件：自动解压、识别 .log 和 .json
+  const processed = await processUploadFiles(ticket.id, input.filePaths, input.originalNames);
+  if (processed.logCount === 0) {
+    throw new Error('未找到 .log 日志文件，请至少上传一个日志文件或包含日志的压缩包');
   }
 
   // 更新 ticket 路径信息
   const updated = await updateTicket(ticket.id, {
-    log_dir: logDir,
-    map_dir: mapDir || null,
-    map_file: mapFile || null
+    log_dir: processed.logDir,
+    map_dir: processed.mapDir || null,
+    map_file: processed.mapFile || null
   });
   if (!updated) throw new Error('更新工单路径失败');
 
@@ -71,7 +64,7 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     ticketId: ticket.id,
     actorId: input.reporter.id,
     action: 'created',
-    payload: { title: input.title, logDir, mapDir, mapFile }
+    payload: { title: input.title, logDir: processed.logDir, mapDir: processed.mapDir, mapFile: processed.mapFile, logCount: processed.logCount }
   });
 
   return updated;

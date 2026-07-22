@@ -35,10 +35,7 @@ router.post(
   '/',
   authMiddleware,
   requireRole('after_sales', 'admin'),
-  upload.fields([
-    { name: 'logs', maxCount: 1 },
-    { name: 'map', maxCount: 1 }
-  ]),
+  upload.array('files', 20),
   async (req: AuthRequest, res) => {
     try {
       const title = String(req.body.title || '').trim();
@@ -48,14 +45,12 @@ router.post(
         return;
       }
 
-      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
-      const logFile = files?.logs?.[0];
-      if (!logFile) {
-        res.status(400).json({ succeed: false, error: '日志压缩包必须上传' });
+      const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
+      if (uploadedFiles.length === 0) {
+        res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
         return;
       }
 
-      const mapFile = files?.map?.[0];
       const aiEnabled = req.body.aiEnabled === 'true' || req.body.aiEnabled === true;
       const rawSiteId = req.body.siteId ? Number(req.body.siteId) : undefined;
       const siteId = Number.isFinite(rawSiteId) && rawSiteId! > 0 ? rawSiteId : undefined;
@@ -70,17 +65,17 @@ router.post(
       const ticket = await createTicketWithUploads({
         title,
         description,
-        logArchivePath: logFile.path,
-        logOriginalName: logFile.originalname,
-        mapFilePath: mapFile?.path,
+        filePaths: uploadedFiles.map((f) => f.path),
+        originalNames: uploadedFiles.map((f) => f.originalname),
         reporter: req.user!,
         siteId,
         aiEnabled
       });
 
       // 清理上传临时文件
-      await fs.rm(logFile.path, { force: true });
-      if (mapFile) await fs.rm(mapFile.path, { force: true });
+      for (const file of uploadedFiles) {
+        await fs.rm(file.path, { force: true });
+      }
 
       // 自动触发分析
       startTicketAnalysis(ticket.id, req.user!);

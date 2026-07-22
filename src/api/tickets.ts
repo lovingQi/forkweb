@@ -58,16 +58,16 @@ export async function createTicket(form: {
   title: string
   description: string
   siteId: number
-  logs: File
-  map?: File
+  files: File[]
   aiEnabled?: boolean
 }): Promise<Ticket> {
   const data = new FormData()
   data.append('title', form.title)
   data.append('description', form.description)
   data.append('siteId', String(form.siteId))
-  data.append('logs', form.logs)
-  if (form.map) data.append('map', form.map)
+  for (const file of form.files) {
+    data.append('files', file)
+  }
   data.append('aiEnabled', form.aiEnabled ? 'true' : 'false')
   const { data: res } = await ticketHttp.post('/tickets', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
