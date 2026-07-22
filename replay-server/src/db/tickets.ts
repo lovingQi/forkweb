@@ -3,10 +3,12 @@ import { getDb } from './index';
 export type TicketStatus =
   | 'pending_analysis'
   | 'analyzing'
-  | 'analyzed'
-  | 'verifying'
-  | 'resolved'
-  | 'needs_rd';
+  | 'pending_field_troubleshooting'
+  | 'field_troubleshooting'
+  | 'self_solved'
+  | 'pending_rd'
+  | 'rd_working'
+  | 'resolved';
 
 export interface DbTicket {
   id: number;
@@ -17,6 +19,14 @@ export interface DbTicket {
   assignee_id: number | null;
   site_id: number | null;
   status: TicketStatus;
+  issue_type: string | null;
+  impact_level: string | null;
+  occurred_start_at: string | null;
+  occurred_end_at: string | null;
+  self_service_result: string | null;
+  self_service_note: string | null;
+  escalation_reason: string | null;
+  guide_feedback: string | null;
   conclusion: string | null;
   report_path: string | null;
   package_path: string | null;
@@ -26,6 +36,7 @@ export interface DbTicket {
   ai_enabled: number;
   ai_conclusion: string | null;
   ai_offline: number | null;
+  latest_analysis_version_id: number | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -37,6 +48,10 @@ export interface CreateTicketInput {
   description: string;
   reporterId: number;
   siteId?: number;
+  issueType?: string;
+  impactLevel?: string;
+  occurredStartAt?: string;
+  occurredEndAt?: string;
   logDir: string;
   mapDir?: string;
   mapFile?: string;
@@ -46,8 +61,8 @@ export interface CreateTicketInput {
 export async function createTicket(input: CreateTicketInput): Promise<DbTicket> {
   const db = await getDb();
   const stmt = db.prepare(
-    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, log_dir, map_dir, map_file, ai_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, issue_type, impact_level, occurred_start_at, occurred_end_at, log_dir, map_dir, map_file, ai_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const result = stmt.run(
     input.ticketNo,
@@ -56,6 +71,10 @@ export async function createTicket(input: CreateTicketInput): Promise<DbTicket> 
     input.reporterId,
     input.siteId ?? null,
     'pending_analysis',
+    input.issueType ?? null,
+    input.impactLevel ?? null,
+    input.occurredStartAt ?? null,
+    input.occurredEndAt ?? null,
     input.logDir,
     input.mapDir || null,
     input.mapFile || null,
@@ -76,6 +95,14 @@ export async function updateTicket(
       DbTicket,
       | 'status'
       | 'assignee_id'
+      | 'issue_type'
+      | 'impact_level'
+      | 'occurred_start_at'
+      | 'occurred_end_at'
+      | 'self_service_result'
+      | 'self_service_note'
+      | 'escalation_reason'
+      | 'guide_feedback'
       | 'conclusion'
       | 'report_path'
       | 'package_path'
@@ -86,6 +113,7 @@ export async function updateTicket(
       | 'ai_enabled'
       | 'ai_conclusion'
       | 'ai_offline'
+      | 'latest_analysis_version_id'
       | 'resolved_at'
     >
   >
@@ -119,6 +147,7 @@ export async function listTickets(filters?: {
   reporterId?: number;
   status?: TicketStatus | TicketStatus[];
   assigneeId?: number | null;
+  issueType?: string;
   limit?: number;
   offset?: number;
 }): Promise<DbTicket[]> {
@@ -146,6 +175,10 @@ export async function listTickets(filters?: {
       values.push(filters.assigneeId);
     }
   }
+  if (filters?.issueType !== undefined) {
+    where.push('issue_type = ?');
+    values.push(filters.issueType);
+  }
   const sql =
     'SELECT * FROM tickets' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
@@ -162,6 +195,7 @@ export async function listTicketsWithReporter(filters?: {
   status?: TicketStatus | TicketStatus[];
   assigneeId?: number | null;
   siteId?: number;
+  issueType?: string;
   limit?: number;
   offset?: number;
 }): Promise<TicketWithReporter[]> {
@@ -192,6 +226,10 @@ export async function listTicketsWithReporter(filters?: {
   if (filters?.siteId !== undefined) {
     where.push('t.site_id = ?');
     values.push(filters.siteId);
+  }
+  if (filters?.issueType !== undefined) {
+    where.push('t.issue_type = ?');
+    values.push(filters.issueType);
   }
   const sql =
     'SELECT t.*, u.username as reporter_username, s.name as site_name FROM tickets t' +

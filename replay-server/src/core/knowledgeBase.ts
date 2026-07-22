@@ -10,7 +10,9 @@ import type {
   KnowledgeRule,
   LogLevel,
   ParsedLogLine,
+  PublicationStatus,
   RootCauseCandidate,
+  TroubleshootingGuideStep,
   VehicleStateName
 } from '../types'
 
@@ -89,6 +91,7 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
   const severity = String(query.severity || '')
   const enabled = String(query.enabled || '')
   const verificationStatus = String(query.verificationStatus || '')
+  const publicationStatus = String(query.publicationStatus || '')
   const tag = String(query.tag || '').trim().toLowerCase()
   const moduleName = String(query.module || '').trim().toLowerCase()
   const errorCode = String(query.errorCode || '').trim().toUpperCase()
@@ -97,6 +100,7 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
     .filter((rule) => !severity || rule.severity === severity)
     .filter((rule) => !enabled || String(rule.enabled) === enabled)
     .filter((rule) => !verificationStatus || rule.verificationStatus === verificationStatus)
+    .filter((rule) => !publicationStatus || rule.publicationStatus === publicationStatus)
     .filter((rule) => !tag || rule.tags.some((item) => item.toLowerCase().includes(tag)))
     .filter((rule) => !moduleName || rule.pattern.modules.some((item) => item.toLowerCase().includes(moduleName)))
     .filter((rule) => !errorCode || rule.pattern.errorCodes.some((item) => item.toUpperCase().includes(errorCode)))
@@ -574,6 +578,10 @@ function normalizeRule(input: Partial<KnowledgeRule>): KnowledgeRule {
     tags: normalizeStringArray(input.tags),
     enabled: input.enabled !== false,
     verificationStatus: normalizeVerificationStatus(input.verificationStatus),
+    publicationStatus: normalizePublicationStatus(input.publicationStatus),
+    guideSteps: normalizeGuideSteps(input.guideSteps),
+    reviewReason: input.reviewReason ? String(input.reviewReason) : undefined,
+    feedbackStats: normalizeFeedbackStats(input.feedbackStats),
     scope: input.scope || {},
     pattern: normalizePattern(input.pattern),
     examples: Array.isArray(input.examples) ? input.examples.map((example) => ({
@@ -620,6 +628,37 @@ function normalizeSeverity(value: unknown): KnowledgeRule['severity'] {
 
 function normalizeVerificationStatus(value: unknown): KnowledgeRule['verificationStatus'] {
   return value === 'sample_verified' || value === 'structure_guarded' || value === 'pending' ? value : 'pending'
+}
+
+function normalizePublicationStatus(value: unknown): PublicationStatus {
+  return value === 'draft' || value === 'verified' || value === 'needs_review' || value === 'deprecated' ? value : 'draft'
+}
+
+function normalizeGuideSteps(value: unknown): TroubleshootingGuideStep[] {
+  if (!Array.isArray(value)) return []
+  return value.map((step, idx) => ({
+    stepNo: Number(step.stepNo) || idx + 1,
+    title: String(step.title || `步骤 ${idx + 1}`),
+    instruction: step.instruction ? String(step.instruction) : undefined,
+    criteria: step.criteria ? String(step.criteria) : undefined,
+    stepType: ['readonly_check', 'field_operation', 'rd_required'].includes(step.stepType) ? step.stepType : 'readonly_check',
+    estimatedTime: ['3_5_min', '10_min', 'long'].includes(step.estimatedTime) ? step.estimatedTime : undefined,
+    evidenceConfig: step.evidenceConfig && typeof step.evidenceConfig === 'object' ? step.evidenceConfig : undefined,
+    isCritical: step.isCritical === true,
+    failureAction: step.failureAction ? String(step.failureAction) : undefined
+  }))
+}
+
+function normalizeFeedbackStats(value: unknown): { useful: number; partial: number; useless: number } {
+  if (value && typeof value === 'object') {
+    const stats = value as Partial<{ useful: number; partial: number; useless: number }>
+    return {
+      useful: Number(stats.useful || 0),
+      partial: Number(stats.partial || 0),
+      useless: Number(stats.useless || 0)
+    }
+  }
+  return { useful: 0, partial: 0, useless: 0 }
 }
 
 function normalizeVehicleStates(value: unknown): VehicleStateName[] {

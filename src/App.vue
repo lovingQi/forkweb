@@ -3,34 +3,41 @@
     <el-aside v-if="route.path !== '/login'" width="200px" class="app-aside">
       <div class="logo">forkweb</div>
       <el-menu :default-active="activeMenu" router class="app-menu">
-        <el-menu-item v-if="auth.isRd" index="/">
-          <el-icon><Monitor /></el-icon>
-          <span>监控总览</span>
-        </el-menu-item>
-        <el-menu-item v-if="auth.isRd" index="/laser">
-          <el-icon><Aim /></el-icon>
-          <span>激光配置</span>
-        </el-menu-item>
-        <el-menu-item v-if="auth.isRd" index="/avoid">
-          <el-icon><MagicStick /></el-icon>
-          <span>避障配置</span>
-        </el-menu-item>
-        <el-menu-item v-if="auth.isRd" index="/control">
-          <el-icon><Operation /></el-icon>
-          <span>控制面板</span>
-        </el-menu-item>
-        <el-menu-item v-if="auth.isRd" index="/replay">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>日志诊断</span>
-        </el-menu-item>
+        <!-- 工单管理：所有角色可见 -->
         <el-menu-item index="/tickets">
           <el-icon><Document /></el-icon>
           <span>工单管理</span>
         </el-menu-item>
-        <el-menu-item v-if="auth.isRd" index="/sites">
-          <el-icon><OfficeBuilding /></el-icon>
-          <span>现场管理</span>
-        </el-menu-item>
+
+        <!-- 研发/管理员高级工具 -->
+        <template v-if="auth.isRd">
+          <el-menu-item index="/replay">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>日志诊断</span>
+          </el-menu-item>
+          <el-menu-item index="/">
+            <el-icon><Monitor /></el-icon>
+            <span>监控总览</span>
+          </el-menu-item>
+          <el-menu-item index="/laser">
+            <el-icon><Aim /></el-icon>
+            <span>激光配置</span>
+          </el-menu-item>
+          <el-menu-item index="/avoid">
+            <el-icon><MagicStick /></el-icon>
+            <span>避障配置</span>
+          </el-menu-item>
+          <el-menu-item index="/control">
+            <el-icon><Operation /></el-icon>
+            <span>控制面板</span>
+          </el-menu-item>
+          <el-menu-item index="/sites">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>现场管理</span>
+          </el-menu-item>
+        </template>
+
+        <!-- 管理员专属 -->
         <el-menu-item v-if="auth.isAdmin" index="/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>

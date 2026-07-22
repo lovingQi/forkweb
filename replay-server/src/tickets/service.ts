@@ -3,13 +3,19 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { createTicketEvent, listTicketEvents } from '../db/events';
+import { createAnalysisVersion } from '../db/analysisVersions';
 import { createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
 import { exportDiagnosticPackage } from '../core/diagnosticPackage';
+import { classifyFromAnalysis } from '../core/issueClassifier';
+import { generateTroubleshootingPaths } from '../core/troubleshootingGuide';
 import { ReplaySession } from '../core/session';
 import { createKnowledgeRule } from '../core/knowledgeBase';
+import { createTroubleshootingPath } from '../db/troubleshootingPaths';
+import { createTroubleshootingStep } from '../db/troubleshootingSteps';
+import { createStepEvent, listStepEvents } from '../db/stepEvents';
 import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
@@ -27,6 +33,10 @@ export interface CreateTicketServiceInput {
   originalNames?: string[];
   reporter: AuthUser;
   siteId?: number;
+  issueType?: string;
+  impactLevel?: string;
+  occurredStartAt?: string;
+  occurredEndAt?: string;
   aiEnabled?: boolean;
 }
 
@@ -40,6 +50,10 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     description: input.description,
     reporterId: input.reporter.id,
     siteId: input.siteId,
+    issueType: input.issueType,
+    impactLevel: input.impactLevel,
+    occurredStartAt: input.occurredStartAt,
+    occurredEndAt: input.occurredEndAt,
     logDir: '', // 稍后更新
     aiEnabled: input.aiEnabled
   });
@@ -107,7 +121,7 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser): void 
     } catch (e) {
       console.error('[ticket] 自动分析失败:', e);
       await updateTicket(ticketId, {
-        status: 'analyzed',
+        status: 'pending_field_troubleshooting',
         conclusion: `自动分析失败: ${e instanceof Error ? e.message : String(e)}`
       });
       await createTicketEvent({
@@ -140,12 +154,64 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
   await fs.copyFile(pkg.file, pkgDest);
 
   const conclusion = summarizeRootCauses(session.data.overview.rootCauses);
+  const inferredIssueType = classifyFromAnalysis({
+    rootCauses: session.data.overview.rootCauses,
+    knowledgeMatches: session.data.knowledgeMatches,
+    errorSummaries: session.data.errorSummaries
+  });
+
+  const paths = generateTroubleshootingPaths(session.data, ticket, {} as any);
+
+  const analysisVersion = await createAnalysisVersion({
+    ticketId,
+    inputLogDir: ticket.log_dir,
+    inputMapDir: ticket.map_dir || undefined,
+    inputMapFile: ticket.map_file || undefined,
+    inputPackageSource: pkgDest,
+    occurredStartAt: ticket.occurred_start_at || undefined,
+    occurredEndAt: ticket.occurred_end_at || undefined,
+    issueType: inferredIssueType,
+    topIssues: buildTopIssues(session.data),
+    troubleshootingPathsSnapshot: { paths },
+    evidenceSummary: buildEvidenceSummary(session.data),
+    reportPath: mdPath,
+    packagePath: pkgDest
+  });
+
+  // 保存排查路径与步骤
+  for (const path of paths) {
+    const savedPath = await createTroubleshootingPath({
+      ticketId,
+      analysisVersionId: analysisVersion.id,
+      ruleId: path.ruleId,
+      title: path.title,
+      priority: path.priority,
+      confidence: path.confidence,
+      severity: path.severity
+    });
+    for (const step of path.guideSteps) {
+      await createTroubleshootingStep({
+        pathId: savedPath.id,
+        stepNo: step.stepNo,
+        title: step.title,
+        instruction: step.instruction,
+        criteria: step.criteria,
+        stepType: step.stepType,
+        estimatedTime: step.estimatedTime,
+        evidenceConfig: step.evidenceConfig,
+        isCritical: step.isCritical,
+        failureAction: step.failureAction
+      });
+    }
+  }
 
   const updatePayload: Parameters<typeof updateTicket>[1] = {
-    status: 'analyzed',
+    status: 'pending_field_troubleshooting',
     conclusion,
     report_path: mdPath,
-    package_path: pkgDest
+    package_path: pkgDest,
+    latest_analysis_version_id: analysisVersion.id,
+    issue_type: inferredIssueType
   };
 
   if (ticket.ai_enabled) {
@@ -175,14 +241,125 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
     ticketId,
     actorId: actor.id,
     action: 'analysis_completed',
-    payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled }
+    payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled, analysisVersionId: analysisVersion.id }
   });
 }
 
-export async function verifyTicket(
+export async function updateTicketIssueType(
   ticketId: number,
-  result: 'resolved' | 'needs_rd',
   actor: AuthUser,
+  issueType: string
+): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
+    throw new Error('无权操作该工单');
+  }
+
+  const updated = await updateTicket(ticketId, { issue_type: issueType });
+  if (!updated) throw new Error('更新工单失败');
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'issue_type_updated',
+    payload: { issueType, previousIssueType: ticket.issue_type }
+  });
+
+  return updated;
+}
+
+export async function startFieldTroubleshooting(ticketId: number, actor: AuthUser): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (ticket.status !== 'pending_field_troubleshooting') {
+    throw new Error('工单状态不允许开始现场排查');
+  }
+  const updated = await updateTicket(ticketId, { status: 'field_troubleshooting' });
+  if (!updated) throw new Error('更新工单失败');
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'field_troubleshooting_started',
+    payload: { previousStatus: ticket.status }
+  });
+
+  return updated;
+}
+
+export async function recordStepStatus(
+  ticketId: number,
+  pathId: number,
+  stepId: number,
+  actor: AuthUser,
+  input: { status: string; reason?: string }
+): Promise<void> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
+    throw new Error('无权操作该工单');
+  }
+  const validStatuses = ['unchecked', 'passed', 'failed', 'not_applicable'];
+  if (!validStatuses.includes(input.status)) {
+    throw new Error('无效的步骤状态');
+  }
+  if (input.status === 'not_applicable' && !input.reason) {
+    throw new Error('不适用时必须选择原因');
+  }
+
+  const analysisVersionId = ticket.latest_analysis_version_id;
+  if (!analysisVersionId) throw new Error('工单尚未生成分析版本');
+
+  await createStepEvent({
+    ticketId,
+    analysisVersionId,
+    pathId,
+    stepId,
+    actorId: actor.id,
+    action: 'step_status_changed',
+    toStatus: input.status,
+    reason: input.reason
+  });
+}
+
+export async function resolveSelfService(
+  ticketId: number,
+  actor: AuthUser,
+  input: {
+    result: string;
+    guideFeedback: string;
+    note?: string;
+  }
+): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (ticket.reporter_id !== actor.id && actor.role !== 'rd' && actor.role !== 'admin') {
+    throw new Error('无权操作该工单');
+  }
+
+  const updated = await updateTicket(ticketId, {
+    status: 'self_solved',
+    self_service_result: input.result,
+    guide_feedback: input.guideFeedback,
+    self_service_note: input.note || null
+  });
+  if (!updated) throw new Error('更新工单失败');
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'self_solved',
+    payload: { previousStatus: ticket.status, result: input.result, guideFeedback: input.guideFeedback }
+  });
+
+  return updated;
+}
+
+export async function escalateToRd(
+  ticketId: number,
+  actor: AuthUser,
+  reason: string,
   baseUrl: string
 ): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
@@ -191,39 +368,69 @@ export async function verifyTicket(
     throw new Error('无权操作该工单');
   }
 
-  const status: TicketStatus = result === 'resolved' ? 'resolved' : 'needs_rd';
-  const updated = await updateTicket(ticketId, { status });
+  const updated = await updateTicket(ticketId, {
+    status: 'pending_rd',
+    escalation_reason: reason
+  });
   if (!updated) throw new Error('更新工单失败');
+
+  // 收集排查步骤状态和分析版本信息
+  const stepEvents = ticket.latest_analysis_version_id
+    ? await listStepEvents({ ticketId, analysisVersionId: ticket.latest_analysis_version_id })
+    : [];
+  const stepStatusSummary = stepEvents.reduce((acc, e) => {
+    const key = `${e.path_id}-${e.step_id}`;
+    acc[key] = { toStatus: e.to_status, reason: e.reason };
+    return acc;
+  }, {} as Record<string, { toStatus: string | null; reason: string | null }>);
 
   await createTicketEvent({
     ticketId,
     actorId: actor.id,
-    action: result === 'resolved' ? 'marked_resolved' : 'needs_rd',
-    payload: { previousStatus: ticket.status }
+    action: 'escalated_to_rd',
+    payload: {
+      previousStatus: ticket.status,
+      reason,
+      analysisVersionId: ticket.latest_analysis_version_id,
+      stepStatusSummary,
+      hasLog: !!ticket.log_dir,
+      hasReport: !!ticket.report_path
+    }
   });
 
-  if (result === 'needs_rd') {
-    const ticketUrl = `${baseUrl}/tickets/${ticketId}`;
-    try {
-      await sendRdNotificationEmail(updated, ticketUrl);
-    } catch (e) {
-      console.error('[ticket] 邮件通知失败:', e);
-      await createTicketEvent({
-        ticketId,
-        actorId: actor.id,
-        action: 'mail_failed',
-        payload: { error: e instanceof Error ? e.message : String(e) }
-      });
-    }
+  const ticketUrl = `${baseUrl}/tickets/${ticketId}`;
+  try {
+    await sendRdNotificationEmail(updated, ticketUrl);
+  } catch (e) {
+    console.error('[ticket] 邮件通知失败:', e);
+    await createTicketEvent({
+      ticketId,
+      actorId: actor.id,
+      action: 'mail_failed',
+      payload: { error: e instanceof Error ? e.message : String(e) }
+    });
   }
 
   return updated;
 }
 
+/** @deprecated 请使用 resolveSelfService 或 escalateToRd */
+export async function verifyTicket(
+  ticketId: number,
+  result: 'resolved' | 'needs_rd',
+  actor: AuthUser,
+  baseUrl: string
+): Promise<DbTicket> {
+  if (result === 'resolved') {
+    return resolveSelfService(ticketId, actor, { result: 'other', guideFeedback: 'partial' });
+  }
+  return escalateToRd(ticketId, actor, 'other', baseUrl);
+}
+
 export async function assignTicket(ticketId: number, assignee: AuthUser): Promise<DbTicket> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  const updated = await updateTicket(ticketId, { assignee_id: assignee.id, status: 'verifying' });
+  const updated = await updateTicket(ticketId, { assignee_id: assignee.id, status: 'rd_working' });
   if (!updated) throw new Error('更新工单失败');
 
   await createTicketEvent({
@@ -295,6 +502,9 @@ export async function createKnowledgeFromTicket(
     severity: 'error',
     tags: ['工单沉淀'],
     enabled: true,
+    publicationStatus: 'draft',
+    guideSteps: [],
+    feedbackStats: { useful: 0, partial: 0, useless: 0 },
     pattern: {
       requiredLineRegexes: [],
       requiredVehicleStates: [],
@@ -333,17 +543,37 @@ export async function getTicketDetail(ticketId: number): Promise<{
 }> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
-  const events = await listTicketEvents(ticketId);
-  return { ticket, events };
+  const ticketEvents = await listTicketEvents(ticketId);
+  const stepEvents = await listStepEvents({ ticketId });
+  const mergedEvents = [
+    ...ticketEvents,
+    ...stepEvents.map((e) => ({
+      id: e.id,
+      ticket_id: e.ticket_id,
+      actor_id: e.actor_id,
+      action: e.action,
+      payload: JSON.stringify({
+        analysisVersionId: e.analysis_version_id,
+        pathId: e.path_id,
+        stepId: e.step_id,
+        fromStatus: e.from_status,
+        toStatus: e.to_status,
+        reason: e.reason,
+      }),
+      created_at: e.created_at,
+    })),
+  ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return { ticket, events: mergedEvents };
 }
 
 export async function listUserTickets(
   user: AuthUser,
-  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[]; siteId?: number }
+  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[]; siteId?: number; issueType?: string }
 ): Promise<Array<DbTicket & { reporter_username: string; site_name?: string }>> {
   const baseFilters: Parameters<typeof listTicketsWithReporter>[0] = { limit: 200 };
   if (filters?.status !== undefined) baseFilters.status = filters.status;
   if (filters?.siteId !== undefined) baseFilters.siteId = filters.siteId;
+  if (filters?.issueType !== undefined) baseFilters.issueType = filters.issueType;
 
   if (user.role === 'rd' || user.role === 'admin') {
     if (filters?.reporterId !== undefined) baseFilters.reporterId = filters.reporterId;
@@ -357,5 +587,64 @@ function summarizeRootCauses(rootCauses: any[]): string {
   if (!rootCauses || rootCauses.length === 0) return '未识别到明确根因，请人工排查。';
   const top = rootCauses.slice(0, 3);
   return top.map((c) => `[${c.severity}] ${c.title}（置信度 ${Math.round(c.confidence * 100)}%）`).join('；');
+}
+
+function buildTopIssues(data: any): any[] {
+  const rootCauses = data.overview?.rootCauses || [];
+  if (rootCauses.length > 0) {
+    return rootCauses.slice(0, 3).map((c: any) => ({
+      title: c.title,
+      severity: c.severity,
+      confidence: c.confidence,
+      suggestion: c.suggestion
+    }));
+  }
+  const topIssues = data.overview?.topIssues || [];
+  return topIssues.slice(0, 3).map((e: any) => ({
+    title: e.title,
+    severity: e.level,
+    timestamp: e.timestamp,
+    detail: e.detail
+  }));
+}
+
+function buildEvidenceSummary(data: any): any {
+  return {
+    errorCount: data.overview?.errorCount ?? 0,
+    warningCount: data.overview?.warningCount ?? 0,
+    errorCodeCount: data.overview?.errorCodeCount ?? 0,
+    taskCount: data.overview?.taskCount ?? 0,
+    frameCount: data.overview?.frameCount ?? 0,
+    durationMs: data.overview?.durationMs ?? 0,
+    hasMap: data.overview?.hasMap ?? false,
+    mapMatch: data.overview?.mapMatch,
+    robotName: data.overview?.robotName,
+    version: data.overview?.version,
+    branch: data.overview?.branch
+  };
+}
+
+function buildTroubleshootingPathsSnapshot(data: any): any {
+  // 阶段 6 之前，先用根因候选和知识匹配作为排查路径快照占位
+  const rootCausePaths = (data.overview?.rootCauses || []).slice(0, 3).map((c: any, idx: number) => ({
+    priority: idx,
+    title: c.title,
+    severity: c.severity,
+    confidence: c.confidence,
+    suggestion: c.suggestion,
+    source: c.source || 'built_in',
+    ruleId: c.knowledgeRuleId
+  }));
+  if (rootCausePaths.length > 0) return { paths: rootCausePaths };
+  const knowledgePaths = (data.knowledgeMatches || []).slice(0, 3).map((m: any, idx: number) => ({
+    priority: idx,
+    title: m.title,
+    severity: m.severity,
+    confidence: m.confidence,
+    suggestion: m.suggestion,
+    source: 'knowledge_base',
+    ruleId: m.ruleId
+  }));
+  return { paths: knowledgePaths };
 }
 

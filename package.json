@@ -18,7 +18,9 @@
     "replay:verify:samples": "tsx replay-server/scripts/verify-samples.ts",
     "replay:collect": "node scripts/collect-replay-case.mjs",
     "test:e2e:replay": "npx -y -p node@20 -c 'playwright test tests/e2e/replay.spec.ts'",
-    "test:e2e:replay:headed": "npx -y -p node@20 -c 'playwright test tests/e2e/replay.spec.ts --headed'"
+    "test:e2e:replay:headed": "npx -y -p node@20 -c 'playwright test tests/e2e/replay.spec.ts --headed'",
+    "test:e2e:tickets": "npx -y -p node@20 -c 'playwright test tests/e2e/tickets.spec.ts'",
+    "test:e2e:tickets:headed": "npx -y -p node@20 -c 'playwright test tests/e2e/tickets.spec.ts --headed'"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

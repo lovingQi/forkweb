@@ -769,8 +769,37 @@
               <el-input-number v-model="knowledgeDraft.pattern.confidenceBase" :min="0" :max="1" :step="0.05" :controls="false" placeholder="基础置信度" />
             </div>
           </el-form-item>
-          <el-form-item label="启用">
-            <el-switch v-model="knowledgeDraft.enabled" />
+          <el-form-item label="产品化状态">
+            <el-select v-model="knowledgeDraft.publicationStatus">
+              <el-option value="draft" label="草稿" />
+              <el-option value="verified" label="已验证" />
+              <el-option value="needs_review" label="需复查" />
+              <el-option value="deprecated" label="已停用" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="knowledgeDraft.publicationStatus === 'needs_review'" label="复查原因">
+            <el-input v-model="knowledgeDraft.reviewReason" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item label="反馈统计">
+            <div class="feedback-stats">
+              有用 {{ knowledgeDraft.feedbackStats?.useful || 0 }} /
+              部分 {{ knowledgeDraft.feedbackStats?.partial || 0 }} /
+              没用 {{ knowledgeDraft.feedbackStats?.useless || 0 }}
+            </div>
+          </el-form-item>
+          <el-form-item label="排查步骤">
+            <div class="guide-steps">
+              <div v-for="(step, idx) in knowledgeDraft.guideSteps" :key="idx" class="guide-step-row">
+                <el-input v-model="step.title" placeholder="步骤标题" style="flex: 1" />
+                <el-select v-model="step.stepType" placeholder="类型" style="width: 120px; margin-left: 8px">
+                  <el-option value="readonly_check" label="只读检查" />
+                  <el-option value="field_operation" label="现场操作" />
+                  <el-option value="rd_required" label="需研发处理" />
+                </el-select>
+                <el-button type="danger" link size="small" style="margin-left: 8px" @click="removeGuideStep(idx)">删除</el-button>
+              </div>
+              <el-button size="small" @click="addGuideStep">添加步骤</el-button>
+            </div>
           </el-form-item>
         </el-form>
       </div>
@@ -802,6 +831,12 @@
           <el-option value="structure_guarded" label="结构已保护" />
           <el-option value="pending" label="待验证" />
         </el-select>
+        <el-select v-model="knowledgeQuery.publicationStatus" clearable placeholder="产品化状态" class="filter-item">
+          <el-option value="draft" label="草稿" />
+          <el-option value="verified" label="已验证" />
+          <el-option value="needs_review" label="需复查" />
+          <el-option value="deprecated" label="已停用" />
+        </el-select>
         <el-button size="small" @click="refreshKnowledgeWithQuery">筛选</el-button>
         <el-button size="small" @click="openBlankKnowledgeDraft">新增</el-button>
         <el-button size="small" @click="openKnowledgeExport">导出</el-button>
@@ -817,6 +852,18 @@
             <el-tag :type="verificationTagType(row.verificationStatus)" size="small">
               {{ verificationStatusText(row.verificationStatus) }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="产品化状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="publicationTagType(row.publicationStatus)" size="small">
+              {{ publicationStatusText(row.publicationStatus) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="反馈统计" width="120">
+          <template #default="{ row }">
+            {{ feedbackStatsText(row.feedbackStats) }}
           </template>
         </el-table-column>
         <el-table-column label="标签" min-width="120" show-overflow-tooltip>
@@ -934,7 +981,7 @@ const packageExportForm = ref({
 })
 const compareLeftManifest = ref<any>(null)
 const compareRightManifest = ref<any>(null)
-const knowledgeQuery = ref({ keyword: '', severity: '', verificationStatus: '' })
+const knowledgeQuery = ref({ keyword: '', severity: '', verificationStatus: '', publicationStatus: '' })
 const knowledgeDraft = ref<any>(emptyKnowledgeDraft())
 const knowledgeTagText = ref('')
 const patternText = ref({
@@ -1888,6 +1935,24 @@ async function saveKnowledgeDraft() {
   }
 }
 
+function addGuideStep() {
+  if (!Array.isArray(knowledgeDraft.value.guideSteps)) {
+    knowledgeDraft.value.guideSteps = []
+  }
+  knowledgeDraft.value.guideSteps.push({
+    stepNo: knowledgeDraft.value.guideSteps.length + 1,
+    title: '',
+    stepType: 'readonly_check',
+    isCritical: false
+  })
+}
+
+function removeGuideStep(idx: number) {
+  if (!Array.isArray(knowledgeDraft.value.guideSteps)) return
+  knowledgeDraft.value.guideSteps.splice(idx, 1)
+  knowledgeDraft.value.guideSteps.forEach((step: any, i: number) => (step.stepNo = i + 1))
+}
+
 function openKnowledgeExport() {
   window.open(replayKnowledgeExportUrl(), '_blank')
 }
@@ -1924,8 +1989,12 @@ function buildKnowledgeDraft(input: { title: string; description: string; rootCa
     solution: input.solution,
     severity: input.severity || 'warning',
     tags: input.seed?.tags || [],
-    enabled: true,
+    enabled: input.seed?.enabled !== false,
     verificationStatus: input.seed?.verificationStatus || 'pending',
+    publicationStatus: input.seed?.publicationStatus || 'draft',
+    guideSteps: input.seed?.guideSteps || [],
+    reviewReason: input.seed?.reviewReason || '',
+    feedbackStats: input.seed?.feedbackStats || { useful: 0, partial: 0, useless: 0 },
     scope: {},
     pattern: {
       requiredLineRegexes: input.seed?.pattern?.requiredLineRegexes || [],
@@ -1980,6 +2049,10 @@ function emptyKnowledgeShape() {
     tags: [] as string[],
     enabled: true,
     verificationStatus: 'pending',
+    publicationStatus: 'draft',
+    guideSteps: [] as any[],
+    reviewReason: '',
+    feedbackStats: { useful: 0, partial: 0, useless: 0 },
     scope: {},
     pattern: {
       requiredLineRegexes: [] as string[],
@@ -2044,6 +2117,25 @@ function verificationTagType(status: string) {
   if (status === 'sample_verified') return 'success'
   if (status === 'structure_guarded') return 'primary'
   return 'warning'
+}
+
+function publicationStatusText(status: string) {
+  if (status === 'verified') return '已验证'
+  if (status === 'needs_review') return '需复查'
+  if (status === 'deprecated') return '已停用'
+  return '草稿'
+}
+
+function publicationTagType(status: string) {
+  if (status === 'verified') return 'success'
+  if (status === 'needs_review') return 'warning'
+  if (status === 'deprecated') return 'info'
+  return ''
+}
+
+function feedbackStatsText(stats?: { useful?: number; partial?: number; useless?: number }) {
+  if (!stats) return '-'
+  return `有用 ${stats.useful || 0} / 部分 ${stats.partial || 0} / 没用 ${stats.useless || 0}`
 }
 
 function highlightLogMessage(text: string) {
@@ -2473,6 +2565,18 @@ onBeforeUnmount(() => {
 }
 .inline-controls :deep(.el-input-number) {
   width: 100px;
+}
+.guide-steps {
+  width: 100%;
+}
+.guide-step-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.feedback-stats {
+  color: #6b7280;
+  font-size: 13px;
 }
 .pager {
   margin-top: 8px;

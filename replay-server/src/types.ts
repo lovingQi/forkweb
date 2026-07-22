@@ -4,6 +4,17 @@ export type ReplayMode = 'realtime' | 'frame_compact'
 export type ErrorDictionarySourceKind = 'manual' | 'log_definition' | 'source_config' | 'source_scan' | 'text_guess'
 export type RootCauseSource = 'built_in' | 'knowledge_base' | 'llm'
 export type KnowledgeVerificationStatus = 'sample_verified' | 'structure_guarded' | 'pending'
+export type IssueType =
+  | 'positioning'
+  | 'laser'
+  | 'obstacle_avoidance'
+  | 'map'
+  | 'task_failure'
+  | 'charging'
+  | 'hardware_communication'
+  | 'fork_sensor'
+  | 'unknown'
+export type ImpactLevel = 'low' | 'medium' | 'high' | 'critical'
 export type VehicleStateName =
   | 'FrontTruck'
   | 'BackTruck'
@@ -220,6 +231,22 @@ export interface KnowledgeExample {
   createdAt: string
 }
 
+export type TroubleshootingGuideStepType = 'readonly_check' | 'field_operation' | 'rd_required'
+export type EstimatedTime = '3_5_min' | '10_min' | 'long'
+export type PublicationStatus = 'draft' | 'verified' | 'needs_review' | 'deprecated'
+
+export interface TroubleshootingGuideStep {
+  stepNo: number
+  title: string
+  instruction?: string
+  criteria?: string
+  stepType: TroubleshootingGuideStepType
+  estimatedTime?: EstimatedTime
+  evidenceConfig?: Record<string, unknown>
+  isCritical: boolean
+  failureAction?: string
+}
+
 export interface KnowledgeRule {
   id: string
   title: string
@@ -230,6 +257,10 @@ export interface KnowledgeRule {
   tags: string[]
   enabled: boolean
   verificationStatus: KnowledgeVerificationStatus
+  publicationStatus: PublicationStatus
+  guideSteps: TroubleshootingGuideStep[]
+  reviewReason?: string
+  feedbackStats: { useful: number; partial: number; useless: number }
   scope?: KnowledgeRuleScope
   pattern: KnowledgeEvidencePattern
   examples: KnowledgeExample[]

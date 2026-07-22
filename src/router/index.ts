@@ -4,8 +4,7 @@ const routes = [
   {
     path: '/',
     name: 'dashboard',
-    component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '监控总览', requiresRd: true }
+    redirect: '/tickets'
   },
   {
     path: '/laser',

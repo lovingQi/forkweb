@@ -30,6 +30,26 @@
         <el-form-item label="问题描述">
           <el-input v-model="form.description" type="textarea" :rows="4" placeholder="请简要描述当前遇到的问题" />
         </el-form-item>
+        <el-form-item label="发生时间">
+          <el-date-picker
+            v-model="occurredRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="影响程度">
+          <el-select v-model="form.impactLevel" placeholder="请选择影响程度" clearable style="width: 100%">
+            <el-option label="低" value="low" />
+            <el-option label="中" value="medium" />
+            <el-option label="高" value="high" />
+            <el-option label="紧急" value="critical" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="上传文件">
           <el-upload
             ref="fileUpload"
@@ -83,8 +103,11 @@ const form = reactive({
   title: '',
   description: '',
   siteId: undefined as number | undefined,
+  impactLevel: undefined as string | undefined,
   aiEnabled: false
 })
+
+const occurredRange = ref<[string, string] | null>(null)
 
 const fileList = ref<UploadUserFile[]>([])
 
@@ -127,6 +150,9 @@ async function onSubmit() {
       title: form.title.trim(),
       description: form.description.trim(),
       siteId: form.siteId,
+      impactLevel: form.impactLevel,
+      occurredStartAt: occurredRange.value?.[0],
+      occurredEndAt: occurredRange.value?.[1],
       files: rawFiles,
       aiEnabled: form.aiEnabled
     })

@@ -17,10 +17,31 @@ ticketHttp.interceptors.request.use((req) => {
 export type TicketStatus =
   | 'pending_analysis'
   | 'analyzing'
-  | 'analyzed'
-  | 'verifying'
+  | 'pending_field_troubleshooting'
+  | 'field_troubleshooting'
+  | 'self_solved'
+  | 'pending_rd'
+  | 'rd_working'
   | 'resolved'
-  | 'needs_rd'
+
+export interface AnalysisVersion {
+  id: number
+  ticketId: number
+  versionNo: number
+  inputLogDir: string
+  inputMapDir?: string
+  inputMapFile?: string
+  inputPackageSource?: string
+  occurredStartAt?: string
+  occurredEndAt?: string
+  issueType?: string
+  topIssues: any[]
+  troubleshootingPathsSnapshot?: any
+  evidenceSummary?: any
+  reportPath?: string
+  packagePath?: string
+  createdAt: string
+}
 
 export interface Ticket {
   id: number
@@ -33,6 +54,14 @@ export interface Ticket {
   siteName?: string
   assigneeId: number | null
   status: TicketStatus
+  issueType?: string
+  impactLevel?: string
+  occurredStartAt?: string
+  occurredEndAt?: string
+  selfServiceResult?: string
+  selfServiceNote?: string
+  escalationReason?: string
+  guideFeedback?: string
   conclusion: string | null
   reportPath: string | null
   packagePath: string | null
@@ -42,6 +71,7 @@ export interface Ticket {
   aiEnabled: boolean
   aiConclusion: string | null
   aiOffline: boolean
+  latestAnalysisVersionId?: number
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -58,6 +88,10 @@ export async function createTicket(form: {
   title: string
   description: string
   siteId: number
+  issueType?: string
+  impactLevel?: string
+  occurredStartAt?: string
+  occurredEndAt?: string
   files: File[]
   aiEnabled?: boolean
 }): Promise<Ticket> {
@@ -65,6 +99,10 @@ export async function createTicket(form: {
   data.append('title', form.title)
   data.append('description', form.description)
   data.append('siteId', String(form.siteId))
+  if (form.issueType) data.append('issueType', form.issueType)
+  if (form.impactLevel) data.append('impactLevel', form.impactLevel)
+  if (form.occurredStartAt) data.append('occurredStartAt', form.occurredStartAt)
+  if (form.occurredEndAt) data.append('occurredEndAt', form.occurredEndAt)
   for (const file of form.files) {
     data.append('files', file)
   }
@@ -76,11 +114,12 @@ export async function createTicket(form: {
   return res.ticket
 }
 
-export async function listTickets(filters?: { status?: string; reporterId?: number; siteId?: number }): Promise<Ticket[]> {
+export async function listTickets(filters?: { status?: string; reporterId?: number; siteId?: number; issueType?: string }): Promise<Ticket[]> {
   const params: Record<string, string> = {}
   if (filters?.status) params.status = filters.status
   if (filters?.reporterId !== undefined) params.reporterId = String(filters.reporterId)
   if (filters?.siteId !== undefined) params.siteId = String(filters.siteId)
+  if (filters?.issueType) params.issueType = filters.issueType
   const { data } = await ticketHttp.get('/tickets', { params })
   if (!data.succeed) throw new Error(data.error || '获取工单失败')
   return data.tickets
@@ -101,6 +140,21 @@ export async function analyzeTicket(id: number): Promise<Ticket> {
 export async function verifyTicket(id: number, result: 'resolved' | 'needs_rd'): Promise<Ticket> {
   const { data } = await ticketHttp.post(`/tickets/${id}/verify`, { result })
   if (!data.succeed) throw new Error(data.error || '提交验证结果失败')
+  return data.ticket
+}
+
+export async function resolveSelfService(
+  id: number,
+  input: { result: string; guideFeedback: string; note?: string }
+): Promise<Ticket> {
+  const { data } = await ticketHttp.post(`/tickets/${id}/resolve-self-service`, input)
+  if (!data.succeed) throw new Error(data.error || '提交自助解决结果失败')
+  return data.ticket
+}
+
+export async function escalateToRd(id: number, reason: string): Promise<Ticket> {
+  const { data } = await ticketHttp.post(`/tickets/${id}/escalate-to-rd`, { reason })
+  if (!data.succeed) throw new Error(data.error || '升级研发失败')
   return data.ticket
 }
 
@@ -136,4 +190,94 @@ export async function createKnowledgeFromTicket(
   const { data } = await ticketHttp.post(`/tickets/${id}/knowledge`, input)
   if (!data.succeed) throw new Error(data.error || '沉淀知识库失败')
   return data.rule
+}
+
+export type IssueType =
+  | 'positioning'
+  | 'laser'
+  | 'obstacle_avoidance'
+  | 'map'
+  | 'task_failure'
+  | 'charging'
+  | 'hardware_communication'
+  | 'fork_sensor'
+  | 'unknown'
+
+export interface TroubleshootingStep {
+  id: number
+  stepNo: number
+  title: string
+  instruction?: string
+  criteria?: string
+  stepType: 'readonly_check' | 'field_operation' | 'rd_required'
+  estimatedTime?: string
+  evidenceConfig?: any
+  isCritical: boolean
+  failureAction?: string
+}
+
+export interface TroubleshootingPath {
+  id: number
+  analysisVersionId: number
+  ruleId: string
+  title: string
+  priority: number
+  confidence: number
+  severity: 'info' | 'warning' | 'error'
+  status: string
+  steps: TroubleshootingStep[]
+}
+
+export async function listTroubleshootingPaths(
+  ticketId: number,
+  analysisVersionId?: number
+): Promise<TroubleshootingPath[]> {
+  const params: Record<string, string> = {}
+  if (analysisVersionId !== undefined) params.analysisVersionId = String(analysisVersionId)
+  const { data } = await ticketHttp.get(`/tickets/${ticketId}/troubleshooting-paths`, { params })
+  if (!data.succeed) throw new Error(data.error || '获取排查路径失败')
+  return data.paths
+}
+
+export async function startFieldTroubleshooting(ticketId: number): Promise<Ticket> {
+  const { data } = await ticketHttp.post(`/tickets/${ticketId}/start-troubleshooting`)
+  if (!data.succeed) throw new Error(data.error || '开始排查失败')
+  return data.ticket
+}
+
+export async function recordStepStatus(
+  ticketId: number,
+  pathId: number,
+  stepId: number,
+  input: { status: string; reason?: string }
+): Promise<void> {
+  const { data } = await ticketHttp.post(`/tickets/${ticketId}/paths/${pathId}/steps/${stepId}/status`, input)
+  if (!data.succeed) throw new Error(data.error || '记录步骤状态失败')
+}
+
+export async function updateIssueType(id: number, issueType: IssueType): Promise<Ticket> {
+  const { data } = await ticketHttp.patch(`/tickets/${id}/issue-type`, { issueType })
+  if (!data.succeed) throw new Error(data.error || '更新问题类型失败')
+  return data.ticket
+}
+
+export async function listAnalysisVersions(ticketId: number): Promise<AnalysisVersion[]> {
+  const { data } = await ticketHttp.get(`/tickets/${ticketId}/analysis-versions`)
+  if (!data.succeed) throw new Error(data.error || '获取分析版本失败')
+  return data.versions
+}
+
+export async function getAnalysisVersion(ticketId: number, versionId: number): Promise<AnalysisVersion> {
+  const { data } = await ticketHttp.get(`/tickets/${ticketId}/analysis-versions/${versionId}`)
+  if (!data.succeed) throw new Error(data.error || '获取分析版本详情失败')
+  return data.version
+}
+
+export async function switchAnalysisVersion(
+  ticketId: number,
+  versionId: number
+): Promise<{ ticket: Ticket; version: AnalysisVersion }> {
+  const { data } = await ticketHttp.post(`/tickets/${ticketId}/analysis-versions/${versionId}/switch`)
+  if (!data.succeed) throw new Error(data.error || '切换分析版本失败')
+  return { ticket: data.ticket, version: data.version }
 }
