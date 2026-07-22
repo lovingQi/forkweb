@@ -184,7 +184,7 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
     errorSummaries: session.data.errorSummaries
   });
 
-  const paths = generateTroubleshootingPaths(session.data, ticket, {} as any);
+  const paths = generateTroubleshootingPaths(session.data, ticket);
 
   const analysisVersion = await createAnalysisVersion({
     ticketId,

@@ -36,7 +36,8 @@ const upload = multer({
 
 function getBaseUrl(req: AuthRequest): string {
   const host = req.headers.host || '127.0.0.1:5173';
-  const protocol = req.headers['x-forwarded-proto'] || 'http';
+  const trustProxy = process.env.TRUST_PROXY === 'true';
+  const protocol = trustProxy ? (req.headers['x-forwarded-proto'] || 'http') : 'http';
   return `${protocol}://${host}`;
 }
 

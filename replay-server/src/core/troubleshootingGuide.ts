@@ -55,7 +55,7 @@ function timeProximityScore(match: KnowledgeMatch, occurredStartMs?: number, occ
 export function generateTroubleshootingPaths(
   sessionData: ReplaySessionData,
   ticket: DbTicket,
-  _analysisVersion: DbAnalysisVersion
+  _analysisVersion?: DbAnalysisVersion
 ): TroubleshootingPathCandidate[] {
   const matches = (sessionData.knowledgeMatches || []).filter(
     (match) => match.ruleSnapshot.publicationStatus === 'verified'

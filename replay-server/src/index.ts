@@ -1,3 +1,7 @@
+import { webcrypto } from 'crypto'
+if (!(globalThis as any).crypto) {
+  (globalThis as any).crypto = webcrypto
+}
 import cors from 'cors'
 import express from 'express'
 import fs from 'fs/promises'

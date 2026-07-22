@@ -199,15 +199,22 @@ function stepStatusType(stepId: number) {
 
 const showEscalationHint = computed(() => {
   if (!paths.value.length) return false
-  const allCriticalChecked = paths.value.every((path) =>
+  // 只考虑有关键步骤的路径
+  const pathsWithCritical = paths.value.filter((path) =>
+    path.steps.some((s) => s.isCritical)
+  )
+  if (pathsWithCritical.length === 0) return false
+  // 所有关键步骤都已检查（passed/failed/not_applicable）
+  const allCriticalChecked = pathsWithCritical.every((path) =>
     path.steps
       .filter((s) => s.isCritical)
-      .every((s) => ['failed', 'not_applicable'].includes(stepStatusMap[s.id] || ''))
+      .every((s) => ['passed', 'failed', 'not_applicable'].includes(stepStatusMap[s.id] || ''))
   )
-  const anyFailed = paths.value.some((path) =>
-    path.steps.some((s) => stepStatusMap[s.id] === 'failed')
+  // 任意关键步骤失败
+  const anyCriticalFailed = pathsWithCritical.some((path) =>
+    path.steps.some((s) => s.isCritical && stepStatusMap[s.id] === 'failed')
   )
-  return allCriticalChecked && anyFailed
+  return allCriticalChecked && anyCriticalFailed
 })
 
 async function onStartTroubleshooting() {

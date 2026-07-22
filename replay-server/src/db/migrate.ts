@@ -81,6 +81,7 @@ const MIGRATIONS = [
         ai_enabled INTEGER NOT NULL DEFAULT 0,
         ai_conclusion TEXT,
         ai_offline INTEGER,
+        latest_analysis_version_id INTEGER,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         resolved_at TEXT,
@@ -94,7 +95,7 @@ const MIGRATIONS = [
         issue_type, impact_level, occurred_start_at, occurred_end_at,
         self_service_result, self_service_note, escalation_reason, guide_feedback,
         conclusion, report_path, package_path, log_dir, map_dir, map_file,
-        ai_enabled, ai_conclusion, ai_offline, created_at, updated_at, resolved_at
+        ai_enabled, ai_conclusion, ai_offline, latest_analysis_version_id, created_at, updated_at, resolved_at
       )
       SELECT
         id, ticket_no, title, description, reporter_id, assignee_id, site_id,
@@ -107,7 +108,7 @@ const MIGRATIONS = [
         issue_type, impact_level, occurred_start_at, occurred_end_at,
         self_service_result, self_service_note, escalation_reason, guide_feedback,
         conclusion, report_path, package_path, log_dir, map_dir, map_file,
-        ai_enabled, ai_conclusion, ai_offline, created_at, updated_at, resolved_at
+        ai_enabled, ai_conclusion, ai_offline, latest_analysis_version_id, created_at, updated_at, resolved_at
       FROM tickets;
 
       DROP TABLE tickets;
