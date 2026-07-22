@@ -15,3 +15,4 @@ playwright-report/
 test-results/
 .agents/
 !tests/e2e/fixtures/**/*.log
+tests/e2e/fixtures/*.log
