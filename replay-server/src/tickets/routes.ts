@@ -30,6 +30,7 @@ import {
   resolveTicket,
   startFieldTroubleshooting,
   startTicketAnalysis,
+  suggestKnowledgeFromTicket,
   updateTicketBasicInfo,
   updateTicketIssueType,
   verifyTicket
@@ -639,6 +640,18 @@ router.post('/:id/resolve', authMiddleware, requireRole('rd', 'admin'), async (r
     res.json({ succeed: true, ticket: serializeTicket(ticket) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 获取 AI 生成的知识规则预填建议
+router.get('/:id/knowledge-suggestions', authMiddleware, requireRole('rd', 'admin'), async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const suggestion = await suggestKnowledgeFromTicket(ticketId, req.user!);
+    res.json({ succeed: true, suggestion });
+  } catch (e) {
+    const status = e && typeof e === 'object' && 'code' in e && e.code === 'missing_api_key' ? 503 : 500;
+    res.status(status).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
 

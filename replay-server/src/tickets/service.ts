@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { getDb } from '../db/index';
 import { createTicketEvent, deleteEventsByTicketId, listTicketEvents } from '../db/events';
-import { createAnalysisVersion, deleteAnalysisVersionsByTicketId, listAnalysisVersions } from '../db/analysisVersions';
+import { createAnalysisVersion, deleteAnalysisVersionsByTicketId, getLatestAnalysisVersion, listAnalysisVersions } from '../db/analysisVersions';
 import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
@@ -23,6 +23,9 @@ import { createStepEvent, deleteStepEventsByTicketId, listStepEvents } from '../
 import { getSiteById } from '../db/sites';
 import { getModelById } from '../db/vehicleModels';
 import { askReplayAssistant } from '../core/ragAssistant';
+import { readLlmConfig } from '../core/llmConfig';
+import { OpenAiCompatibleClient } from '../core/openAiCompatibleClient';
+import { LlmProviderError } from '../core/llmProvider';
 import type { KnowledgeRule } from '../types';
 
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
@@ -866,11 +869,11 @@ export interface KnowledgeFromTicketInput {
   errorCodes?: string[];
 }
 
-export interface KnowledgeFromTicketInput {
-  title: string;
-  description: string;
-  rootCause: string;
-  solution: string;
+export interface KnowledgeSuggestion {
+  title?: string;
+  description?: string;
+  rootCause?: string;
+  solution?: string;
   keywords?: string[];
   modules?: string[];
   errorCodes?: string[];
@@ -913,6 +916,13 @@ export async function createKnowledgeFromTicket(
 ): Promise<KnowledgeRule> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
+  if (actor.role !== 'admin' && actor.role !== 'rd') {
+    throw new Error('仅管理员或研发可沉淀知识规则');
+  }
+  const allowedStatuses: TicketStatus[] = ['pending_field_troubleshooting', 'rd_working', 'resolved', 'self_solved'];
+  if (!allowedStatuses.includes(ticket.status)) {
+    throw new Error('当前工单状态不允许沉淀知识规则');
+  }
 
   let vehicleCategoryIds: number[] = [];
   if (ticket.vehicle_model_id) {
@@ -962,6 +972,134 @@ export async function createKnowledgeFromTicket(
   });
 
   return rule;
+}
+
+const KNOWLEDGE_SUGGESTION_STATUSES: TicketStatus[] = ['pending_field_troubleshooting', 'rd_working', 'resolved', 'self_solved'];
+
+export async function suggestKnowledgeFromTicket(ticketId: number, actor: AuthUser): Promise<KnowledgeSuggestion> {
+  if (actor.role !== 'admin' && actor.role !== 'rd') {
+    throw new Error('仅管理员或研发可生成知识建议');
+  }
+
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (!KNOWLEDGE_SUGGESTION_STATUSES.includes(ticket.status)) {
+    throw new Error('当前工单状态不允许生成知识建议');
+  }
+
+  const config = await readLlmConfig();
+  if (!config.apiKey) {
+    throw new LlmProviderError('未配置 LLM API Key', 'missing_api_key');
+  }
+
+  const analysisVersion = await getLatestAnalysisVersion(ticketId);
+
+  const topIssues = analysisVersion
+    ? (JSON.parse(analysisVersion.top_issues || '[]') as unknown[])
+    : [];
+  const evidenceSummary = analysisVersion?.evidence_summary
+    ? (JSON.parse(analysisVersion.evidence_summary) as Record<string, unknown>)
+    : undefined;
+
+  const prompt = buildKnowledgeSuggestionPrompt({
+    title: ticket.title,
+    description: ticket.description,
+    status: ticket.status,
+    selfServiceResult: ticket.self_service_result,
+    selfServiceNote: ticket.self_service_note,
+    guideFeedback: ticket.guide_feedback,
+    conclusion: ticket.conclusion,
+    issueType: ticket.issue_type,
+    topIssues,
+    evidenceSummary
+  });
+
+  const client = new OpenAiCompatibleClient(config);
+  const response = await client.chatJson(
+    [
+      {
+        role: 'system',
+        content:
+          '你是一位叉车售后技术支持专家，擅长从工单和分析报告中提取关键信息并沉淀为知识规则。' +
+          '请根据用户提供的工单信息，生成一条知识规则草稿的字段建议。' +
+          '只返回合法的 JSON 对象，不要包含任何解释文本。JSON 字段如下：' +
+          'title（知识标题，简短概括问题）、description（现象描述）、rootCause（根因分析）、solution（解决方案）、' +
+          'keywords（关键词数组）、modules（涉及模块数组）、errorCodes（错误码数组）。' +
+          '如果某些字段无法从输入中推断，可以留空字符串或空数组。'
+      },
+      { role: 'user', content: prompt }
+    ],
+    { maxTokens: 1200, temperature: 0.3 }
+  );
+
+  return normalizeKnowledgeSuggestion(response);
+}
+
+function buildKnowledgeSuggestionPrompt(input: {
+  title: string;
+  description: string;
+  status: string;
+  selfServiceResult: string | null;
+  selfServiceNote: string | null;
+  guideFeedback: string | null;
+  conclusion: string | null;
+  issueType: string | null;
+  topIssues: unknown[];
+  evidenceSummary?: Record<string, unknown>;
+}): string {
+  const parts = [
+    `工单标题：${input.title}`,
+    `工单描述：${input.description}`,
+    `工单状态：${input.status}`,
+    input.issueType ? `问题类型：${input.issueType}` : '',
+    input.conclusion ? `自动分析结论：${input.conclusion}` : ''
+  ];
+  if (input.status === 'self_solved') {
+    parts.push(input.selfServiceResult ? `自助解决方式：${input.selfServiceResult}` : '');
+    parts.push(input.guideFeedback ? `向导反馈：${input.guideFeedback}` : '');
+    parts.push(input.selfServiceNote ? `补充说明：${input.selfServiceNote}` : '');
+  }
+  if (input.topIssues.length > 0) {
+    parts.push(`Top 疑似问题：\n${input.topIssues.map((issue, idx) => `${idx + 1}. ${(issue as { title?: string }).title || JSON.stringify(issue)}`).join('\n')}`);
+  }
+  if (input.evidenceSummary) {
+    parts.push(`证据摘要：${JSON.stringify(input.evidenceSummary, null, 2)}`);
+  }
+  return parts.filter(Boolean).join('\n\n');
+}
+
+function normalizeKnowledgeSuggestion(response: unknown): KnowledgeSuggestion {
+  if (!response || typeof response !== 'object') {
+    return {};
+  }
+  const data = response as Record<string, unknown>;
+  const pickString = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value.trim() || undefined;
+    return undefined;
+  };
+  const pickArray = (value: unknown): string[] | undefined => {
+    if (Array.isArray(value)) {
+      const arr = value.map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean);
+      return arr.length ? arr : undefined;
+    }
+    return undefined;
+  };
+  const suggestion: KnowledgeSuggestion = {};
+  const title = pickString(data.title);
+  if (title) suggestion.title = title;
+  const description = pickString(data.description);
+  if (description) suggestion.description = description;
+  const rootCause = pickString(data.rootCause);
+  if (rootCause) suggestion.rootCause = rootCause;
+  const solution = pickString(data.solution);
+  if (solution) suggestion.solution = solution;
+  const keywords = pickArray(data.keywords);
+  if (keywords) suggestion.keywords = keywords;
+  const modules = pickArray(data.modules);
+  if (modules) suggestion.modules = modules;
+  const errorCodes = pickArray(data.errorCodes);
+  if (errorCodes) suggestion.errorCodes = errorCodes;
+  return suggestion;
 }
 
 export async function getTicketDetail(ticketId: number): Promise<{

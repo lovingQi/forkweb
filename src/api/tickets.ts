@@ -238,6 +238,22 @@ export async function createKnowledgeFromTicket(
   return data.rule
 }
 
+export interface KnowledgeSuggestion {
+  title?: string
+  description?: string
+  rootCause?: string
+  solution?: string
+  keywords?: string[]
+  modules?: string[]
+  errorCodes?: string[]
+}
+
+export async function getKnowledgeSuggestions(id: number): Promise<KnowledgeSuggestion> {
+  const { data } = await ticketHttp.get(`/tickets/${id}/knowledge-suggestions`)
+  if (!data.succeed) throw new Error(data.error || '获取 AI 预填建议失败')
+  return data.suggestion
+}
+
 export type IssueType =
   | 'positioning'
   | 'laser'

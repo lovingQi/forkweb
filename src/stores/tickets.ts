@@ -11,6 +11,7 @@ import {
   deleteTicket as apiDeleteTicket,
   escalateToRd as apiEscalate,
   getAnalysisVersion as apiGetAnalysisVersion,
+  getKnowledgeSuggestions as apiGetKnowledgeSuggestions,
   getTicket as apiGet,
   listAnalysisVersions as apiListAnalysisVersions,
   listTickets as apiList,
@@ -151,6 +152,10 @@ export const useTicketStore = defineStore('tickets', () => {
     return apiCreateKnowledge(id, input)
   }
 
+  async function getKnowledgeSuggestions(id: number) {
+    return apiGetKnowledgeSuggestions(id)
+  }
+
   async function loadAnalysisVersions(ticketId: number) {
     analysisVersions.value = await apiListAnalysisVersions(ticketId)
     const ticket = currentTicket.value
@@ -283,6 +288,7 @@ export const useTicketStore = defineStore('tickets', () => {
     assignTicket,
     resolveTicket,
     createKnowledge,
+    getKnowledgeSuggestions,
     loadAnalysisVersions,
     loadAnalysisVersion,
     loadTroubleshootingPaths,

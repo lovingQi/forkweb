@@ -392,6 +392,7 @@
       </el-form>
       <template #footer>
         <el-button @click="knowledgeDialogVisible = false">取消</el-button>
+        <el-button type="primary" plain :loading="loadingAction === 'aiSuggest'" @click="onAiSuggestKnowledge">AI 预填</el-button>
         <el-button type="primary" :loading="loadingAction === 'knowledge'" @click="onCreateKnowledge">沉淀</el-button>
       </template>
     </el-dialog>
@@ -406,6 +407,7 @@ import { useTicketStore } from '@/stores/tickets'
 import { getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
 import { listSites, type Site } from '@/api/sites'
 import type { UploadUserFile } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import AnalysisVersionDiff from '@/components/AnalysisVersionDiff.vue'
 import TicketTroubleshootingGuide from '@/components/TicketTroubleshootingGuide.vue'
 import TicketEvidencePanel from '@/components/TicketEvidencePanel.vue'
@@ -570,7 +572,8 @@ const canResolve = computed(() => {
 })
 const canCreateKnowledge = computed(() => {
   if (!ticket.value) return false
-  return auth.isRd && ['pending_field_troubleshooting', 'rd_working', 'resolved'].includes(ticket.value.status)
+  return (auth.isRd || auth.isAdmin) &&
+    ['pending_field_troubleshooting', 'rd_working', 'resolved', 'self_solved'].includes(ticket.value.status)
 })
 const canReanalyze = computed(() => {
   if (!ticket.value) return false
@@ -873,14 +876,66 @@ function formatVersionTime(v: AnalysisVersion) {
 }
 
 function openKnowledgeDialog() {
-  knowledgeForm.title = ''
-  knowledgeForm.description = ''
-  knowledgeForm.rootCause = ''
-  knowledgeForm.solution = ''
-  knowledgeKeywords.value = ''
+  const ticket = ticketStore.currentTicket
+  const analysisVersion = ticketStore.currentAnalysisVersion
+
+  knowledgeForm.title = ticket?.title || ''
+  knowledgeForm.description = ticket?.description || ''
+  knowledgeForm.rootCause = analysisVersion?.topIssues?.[0]?.title || ''
+  if (ticket?.status === 'self_solved') {
+    const resultText = selfServiceResultLabel(ticket.selfServiceResult) || ticket.selfServiceResult || ''
+    const noteText = ticket.selfServiceNote || ''
+    knowledgeForm.solution = [resultText, noteText].filter(Boolean).join('；')
+  } else {
+    knowledgeForm.solution = ticket?.conclusion || ''
+  }
+
+  const keywords: string[] = []
+  analysisVersion?.topIssues?.forEach((issue: { title?: string }) => {
+    if (issue.title) keywords.push(issue.title)
+  })
+  knowledgeKeywords.value = keywords.join(',')
   knowledgeModules.value = ''
   knowledgeErrorCodes.value = ''
   knowledgeDialogVisible.value = true
+}
+
+async function onAiSuggestKnowledge() {
+  loadingAction.value = 'aiSuggest'
+  try {
+    const suggestion = await ticketStore.getKnowledgeSuggestions(ticketId.value)
+    if (suggestion.title && !knowledgeForm.title.trim()) {
+      knowledgeForm.title = suggestion.title
+    }
+    if (suggestion.description && !knowledgeForm.description.trim()) {
+      knowledgeForm.description = suggestion.description
+    }
+    if (suggestion.rootCause && !knowledgeForm.rootCause.trim()) {
+      knowledgeForm.rootCause = suggestion.rootCause
+    }
+    if (suggestion.solution && !knowledgeForm.solution.trim()) {
+      knowledgeForm.solution = suggestion.solution
+    }
+    if (suggestion.keywords?.length) {
+      const existing = splitCsv(knowledgeKeywords.value) || []
+      const merged = Array.from(new Set([...existing, ...suggestion.keywords]))
+      knowledgeKeywords.value = merged.join(',')
+    }
+    if (suggestion.modules?.length) {
+      const existing = splitCsv(knowledgeModules.value) || []
+      const merged = Array.from(new Set([...existing, ...suggestion.modules]))
+      knowledgeModules.value = merged.join(',')
+    }
+    if (suggestion.errorCodes?.length) {
+      const existing = splitCsv(knowledgeErrorCodes.value) || []
+      const merged = Array.from(new Set([...existing, ...suggestion.errorCodes]))
+      knowledgeErrorCodes.value = merged.join(',')
+    }
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : 'AI 预填失败')
+  } finally {
+    loadingAction.value = null
+  }
 }
 
 async function onCreateKnowledge() {
