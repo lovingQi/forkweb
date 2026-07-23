@@ -553,10 +553,10 @@ test.describe.serial('工单主流程', () => {
     await dialog.getByRole('button', { name: '上传', exact: true }).click()
     await expect(dialog).not.toBeVisible()
 
-    // 轮询等待重新分析完成
+    // 轮询等待重新分析完成（真实分析耗时可能较长，最多等待 30 秒）
     await expect(page.locator('.detail-header').getByText('分析中')).toBeVisible({ timeout: 10_000 })
     let status = ''
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       await page.waitForTimeout(500)
       const detailRes = await page.request.get(`${apiBase}/api/tickets/${ticketDetailUrl.match(/\/(\d+)$/)?.[1]}`, {
         headers: { Authorization: `Bearer ${afterSalesToken}` }

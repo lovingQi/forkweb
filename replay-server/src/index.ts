@@ -5,10 +5,15 @@ if (!(globalThis as any).crypto) {
 import cors from 'cors'
 import express from 'express'
 import fs from 'fs/promises'
+import fsSync from 'fs'
 import http from 'http'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { WebSocketServer } from 'ws'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 import { clearReplayCache, getCacheSummary } from './core/cache'
 import { exportDiagnosticPackage, importDiagnosticPackage, type DiagnosticPackageManifest } from './core/diagnosticPackage'
 import { isNoiseLine, noiseRuleId } from './core/noise'
@@ -46,6 +51,7 @@ import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
 import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
 import { cleanExpiredFiles } from './core/storageCleaner'
+import { CACHE_DIR, CONFIG_DIR } from './paths'
 import authRoutes, { ensureAdminUser } from './users/routes'
 import { authMiddleware, requireRole } from './auth/middleware'
 import ticketRoutes from './tickets/routes'
@@ -685,6 +691,48 @@ app.get('/api/map', (_req, res) => {
 app.get('/api/params', (_req, res) => {
   res.json({ params: {} })
 })
+
+app.get('/api/health', async (_req, res) => {
+  try {
+    const [cache, config] = await Promise.all([
+      getDiskUsage(CACHE_DIR),
+      getDiskUsage(CONFIG_DIR)
+    ])
+    res.json({
+      succeed: true,
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      diskUsage: { cache, config }
+    })
+  } catch (e) {
+    res.status(500).json({
+      succeed: false,
+      status: 'error',
+      error: e instanceof Error ? e.message : String(e)
+    })
+  }
+})
+
+async function getDiskUsage(dirPath: string): Promise<{ path: string; usedBytes: number; totalBytes: number }> {
+  try {
+    await fs.mkdir(dirPath, { recursive: true })
+    const stat = await fs.statfs(dirPath)
+    const totalBytes = stat.bsize * stat.blocks
+    const availableBytes = stat.bsize * stat.bavail
+    return { path: dirPath, usedBytes: totalBytes - availableBytes, totalBytes }
+  } catch {
+    return { path: dirPath, usedBytes: 0, totalBytes: 0 }
+  }
+}
+
+// 托管前端构建产物（生产环境）
+const distDir = path.resolve(__dirname, '../../dist')
+if (fsSync.existsSync(distDir)) {
+  app.use(express.static(distDir))
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'))
+  })
+}
 
 const highWss = new WebSocketServer({ noServer: true })
 const lowWss = new WebSocketServer({ noServer: true })

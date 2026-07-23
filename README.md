@@ -20,39 +20,50 @@
 
 ```bash
 npm install
-# 通过 Vite 代理转发到车端(默认 127.0.0.1:8080，可用环境变量覆盖)
-VITE_CAR_TARGET=http://192.168.1.10:8080 npm run dev
+# 同时启动前端 Vite 与后端 replay-server
+npm run replay:dev:all
 ```
 
-类型检查：`npm run typecheck`；构建：`npm run build`。
+类型检查：`npm run typecheck`；前端构建：`npm run build`；后端构建：`npm run replay:build`。
 
-## Docker 部署
+## 工单系统 Docker 部署（推荐）
 
-镜像内置 nginx，托管静态文件并将 `/api`、`/ws` 反代到车端：
+镜像基于 Node.js 官方镜像，构建前后端并运行 Express 服务，同时托管前端静态文件：
 
 ```bash
-docker compose up -d --build
-# 关键环境变量：
-#   CAR_HOST / CAR_PORT  车端内嵌服务地址(默认 127.0.0.1:8080)
-#   API_BASE / WS_BASE   如需前端直连车端可覆盖(默认走 nginx 同源代理)
+# 首次部署
+docker-compose up -d --build
+
+# 后续更新（自动备份数据库、拉代码、重建、启动）
+./scripts/update.sh
 ```
 
-默认映射宿主机 `8081` -> 容器 `80`。
+默认映射宿主机 `8080` -> 容器 `8080`，数据持久化到 `./data`。
 
-## 叉车端一键部署
+关键环境变量：
 
-车端无 SSH key，用 HTTPS 克隆(仓库为 Public，`clone`/`pull` 免认证)：
+- `REPLAY_PORT` / `REPLAY_HOST`：服务监听地址与端口。
+- `FORKWEB_CACHE_DIR` / `FORKWEB_CONFIG_DIR`：数据库、日志、知识库目录。
+- `JWT_SECRET`：生产环境务必修改为强随机字符串。
+- `WECHAT_WORK_WEBHOOK_URL`：健康检查告警用企业微信 Webhook。
+
+详细部署、Nginx 入口、HTTPS、回退策略见 `docs/deployment.md`。
+
+## 健康检查
 
 ```bash
-# 首次
-git clone https://github.com/lovingQi/forkweb.git
-cd forkweb
-./deploy.sh --host <车端后端IP>     # 前后端同机可省略 --host，默认用 host.docker.internal
-
-# 之后每次更新(脚本内部自动 git pull)
-./deploy.sh --host <车端后端IP>
+curl http://localhost:8080/api/health
 ```
 
-`deploy.sh` 会依次：`git pull` → `docker build` → 移除旧容器 → `docker run`，并打印访问地址与日志命令。
+`scripts/health-check.sh` 可独立运行，每 5 分钟探测健康接口，失败时发送企业微信告警。
 
-常用参数：`--host`(后端地址) `--car-port`(后端端口，默认 8080) `--port`(前端宿主端口，默认 8081) `--no-pull`(仅重建不拉代码)。
+## 原车端监控部署
+
+如需继续以 nginx 静态托管方式部署原车端监控前端，仍可使用：
+
+```bash
+docker build -f Dockerfile.legacy -t forkweb-legacy .
+docker run -d -p 8081:80 -e CAR_HOST=192.168.1.10 forkweb-legacy
+```
+
+（注：当前 Dockerfile 已改为工单系统运行模式，原车端监控模式需保留旧 Dockerfile。）

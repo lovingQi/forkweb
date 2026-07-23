@@ -182,7 +182,8 @@ function serializeUser(user: { id: number; username: string; role: string; displ
 export async function ensureAdminUser(): Promise<void> {
   const count = await countUsers();
   if (count > 0) return;
-  const passwordHash = await hashPassword('admin123');
+  const rawPassword = process.env.FORKWEB_ADMIN_PASSWORD || 'admin123';
+  const passwordHash = await hashPassword(rawPassword);
   await createUser({
     username: 'admin',
     passwordHash,
@@ -190,7 +191,11 @@ export async function ensureAdminUser(): Promise<void> {
     displayName: '系统管理员',
     email: ''
   });
-  console.log('[auth] 已创建默认管理员账号: admin / admin123');
+  if (process.env.FORKWEB_ADMIN_PASSWORD) {
+    console.log('[auth] 已创建默认管理员账号: admin / <环境变量密码>');
+  } else {
+    console.warn('[auth] 已创建默认管理员账号: admin / admin123（生产环境请设置 FORKWEB_ADMIN_PASSWORD 环境变量并立即修改密码）');
+  }
 }
 
 export default router;

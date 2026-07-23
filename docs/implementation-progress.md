@@ -24,8 +24,8 @@
 | 16 | 列表分页与排序 | ✅ 已完成 | 2026-07-23 | - |
 | 17 | 企业微信通知 | ✅ 已完成 | 2026-07-23 | - |
 | 18 | 数据统计仪表盘 | ✅ 已完成 | 2026-07-23 | - |
-| 19 | 部署与运维 | ⬜ 待开发 | - | - |
-| 20 | 上线准备 | ⬜ 待开发 | - | - |
+| 19 | 部署与运维 | ✅ 已完成 | 2026-07-23 | - |
+| 20 | 上线准备 | ✅ 已完成 | 2026-07-23 | 含人工试用项 |
 
 ## 审查修复（2026-07-22）
 
@@ -325,3 +325,34 @@
   - 测试：`tests/e2e/tickets.spec.ts` 新增「数据统计页面加载」用例，验证管理员可访问 `/stats` 并展示三维度统计区域。
 - **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，21 个工单用例全部通过。
 - **阻塞项**：无
+
+---
+
+## 阶段 19：部署与运维
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-19部署与运维`
+- **改动摘要**：
+  - 运维：重写 `Dockerfile` 为多阶段构建，基于 `node:20-slim` 构建前后端，运行时阶段仅安装生产依赖并运行 `node replay-server/dist/index.js`；容器内通过环境变量将 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 指向 `/app/data`。
+  - 运维：重写 `docker-compose.yml`，映射端口 `8080:8080`，挂载 `./data:/app/data`，配置 `restart: unless-stopped` 与 `healthcheck`。
+  - 运维：新增 `scripts/update.sh`，依次执行数据库备份、`git pull --ff-only`、`docker-compose build`、`docker-compose up -d`。
+  - 运维：新增 `nginx/forkweb.conf`，提供反向代理、WebSocket 升级、单页应用回退与 HTTPS 证书占位示例。
+  - 运维：新增 `scripts/health-check.sh`，每 5 分钟 `curl /api/health`，连续失败且超过 10 分钟未告警时调用 `WECHAT_WORK_WEBHOOK_URL` 发送企业微信告警。
+  - 后端：修改 `replay-server/src/index.ts`：新增 `GET /api/health` 接口，返回服务状态、时间戳与 `CACHE_DIR`/`CONFIG_DIR` 磁盘使用量；同时托管前端 `dist` 静态文件并提供 SPA 回退。
+  - 文档：新增 `docs/deployment.md` 详细部署、数据持久化、一键更新、回退、健康检查与故障排查说明；更新 `README.md` 补充新的 Docker 部署方式。
+- **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，21 个工单用例全部通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 20：上线准备
+
+- **状态**：✅ 已完成（代码/文档层面）
+- **计划**：见 `docs/implementation-plan.md#阶段-20上线准备`
+- **改动摘要**：
+  - 安全：修改 `replay-server/src/users/routes.ts` 的 `ensureAdminUser`，默认管理员密码优先从 `FORKWEB_ADMIN_PASSWORD` 环境变量读取；未设置时回退到 `admin123` 并打印安全告警。
+  - 知识库：新增 `replay-server/scripts/seed-knowledge.ts`，预填充 12 条常见叉车问题（参数缺失、定位丢失、路径规划失败、充电对接、货叉传感器、避障急停、通信离线、电机驱动、地图加载、电池低电量、版本不匹配、急停按钮）的已验证知识规则，脚本按标题幂等。
+  - 测试：新增 `tests/e2e/replay-real-log.spec.ts`，使用 `tests/e2e/fixtures/log-20260720-114052.log` 验证真实日志上传后分析完成、状态进入待现场排查、排查向导可见、事件流记录分析完成事件。
+  - 文档：新增 `docs/user-guide.md` 一页纸操作指南，覆盖登录、建单、上传日志、查看排查向导、执行步骤、升级研发；在 `docs/deployment.md` 中补充「上线前检查清单」「知识库预填充」「灰度上线与反馈」章节。
+- **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过；隔离 E2E 中 `tests/e2e/replay-real-log.spec.ts` 真实日志用例通过；手动运行 `npx tsx replay-server/scripts/seed-knowledge.ts` 验证 12 条规则成功导入且幂等。
+- **阻塞项**：云服务器部署与售后灰度试用属于人工执行项，未在代码中完成，已记录于 `docs/deployment.md` 上线前检查清单。

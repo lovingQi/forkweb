@@ -4,12 +4,22 @@ services:
     image: forkweb:latest
     container_name: forkweb
     ports:
-      - "8081:80"
+      - "8080:8080"
     environment:
-      # 车端内嵌服务地址(jarvis-g 的 web_http_port)
-      CAR_HOST: "192.168.1.10"
-      CAR_PORT: "8080"
-      # 如需前端直连车端(不走 nginx 代理)，可改为完整地址：
-      # API_BASE: "http://192.168.1.10:8080/api"
-      # WS_BASE:  "ws://192.168.1.10:8080/ws"
+      - NODE_ENV=production
+      - REPLAY_PORT=8080
+      - REPLAY_HOST=0.0.0.0
+      - FORKWEB_CACHE_DIR=/app/data/cache
+      - FORKWEB_CONFIG_DIR=/app/data/config
+      # 可选：企业微信 Webhook 用于健康检查告警
+      # - WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+    volumes:
+      # 持久化数据库、日志、上传文件、知识库等
+      - ./data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
