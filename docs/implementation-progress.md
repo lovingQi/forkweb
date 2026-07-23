@@ -27,6 +27,7 @@
 | 19 | 部署与运维 | ✅ 已完成 | 2026-07-23 | - |
 | 20 | 上线准备 | ✅ 已完成 | 2026-07-23 | 含人工试用项 |
 | 21 | 车型管理 | ✅ 已完成 | 2026-07-23 | - |
+| 22 | 知识库车型类别绑定 | ✅ 已完成 | 2026-07-23 | - |
 
 ## 审查修复（2026-07-22）
 
@@ -389,4 +390,20 @@
   - 前端：修改 `src/router/index.ts` 注册 `/vehicles` 路由。
   - 前端：修改 `src/App.vue`，研发/管理员侧边栏新增「车型管理」菜单项（Van 图标）。
 - **验证方式**：`npx vue-tsc --noEmit` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 22：知识库车型类别绑定
+
+- **状态**：✅ 已完成
+- **对应决策编号**：85-94
+- **改动摘要**：
+  - 后端：`replay-server/src/types.ts` 的 `KnowledgeRule` 接口新增 `vehicleCategoryIds?: number[]`。
+  - 后端：`replay-server/src/core/knowledgeBase.ts`：`normalizeRule` 新增 `vehicleCategoryIds` 规范化（`normalizeNumberArray`）；`matchKnowledgeRules` 新增可选 `vehicleCategoryId` 参数实现类别过滤；`listKnowledgeRules` 支持 `vehicleCategoryId` 和 `universal` 查询过滤；`exportKnowledgeLibraryPayload` 支持 `categoryIds` 和 `includeUniversal` 可选导出。
+  - 后端：`replay-server/src/tickets/service.ts`：`runTicketAnalysisInBackground` 在 session.load 后根据工单 vehicle_model_id 查 category_id 过滤 knowledgeMatches；`createKnowledgeFromTicket` 自动预填 vehicleCategoryIds。
+  - 后端：`replay-server/src/index.ts`：`GET /api/replay/knowledge/export` 支持 `categoryIds` 和 `includeUniversal` 查询参数。
+  - 前端：`src/api/replay.ts`：`exportReplayKnowledge` 支持类别筛选参数。
+  - 前端：`src/views/Replay.vue`：`emptyKnowledgeShape` 和 `buildKnowledgeDraft` 增加 `vehicleCategoryIds`；知识规则编辑表单增加"适用车型类别"多选字段；知识库管理列表增加"车型类别"筛选下拉和"适用类别"显示列；导出功能改为弹出对话框支持按类别筛选（含"包含通用规则"选项）。
+- **验证方式**：`npx vue-tsc --noEmit` 通过；`npx tsc --noEmit` 通过。
 - **阻塞项**：无

@@ -214,8 +214,14 @@ export function replayKnowledgeExportUrl() {
   return `${config.replayApiBase}/replay/knowledge/export`
 }
 
-export async function exportReplayKnowledge(): Promise<Blob> {
+export async function exportReplayKnowledge(options?: { categoryIds?: number[]; includeUniversal?: boolean }): Promise<Blob> {
+  const params: Record<string, string> = {}
+  if (options?.categoryIds?.length) {
+    params.categoryIds = options.categoryIds.join(',')
+    if (options.includeUniversal === false) params.includeUniversal = 'false'
+  }
   const { data } = await replayHttp.get('/replay/knowledge/export', {
+    params,
     responseType: 'blob'
   })
   return data

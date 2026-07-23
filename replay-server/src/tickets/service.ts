@@ -19,6 +19,7 @@ import { createTroubleshootingPath, getTroubleshootingPathById, listTroubleshoot
 import { createTroubleshootingStep, getTroubleshootingStepById } from '../db/troubleshootingSteps';
 import { createStepEvent, listStepEvents } from '../db/stepEvents';
 import { getSiteById } from '../db/sites';
+import { getModelById } from '../db/vehicleModels';
 import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
@@ -204,6 +205,18 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId:
         forceReload: true
       });
       if (!isActiveAnalysisRun(ticketId, runId)) return;
+
+      if (ticket.vehicle_model_id) {
+        const model = await getModelById(ticket.vehicle_model_id);
+        if (model) {
+          const catId = model.category_id;
+          session.data.knowledgeMatches = (session.data.knowledgeMatches || []).filter((m) => {
+            const ids = m.ruleSnapshot?.vehicleCategoryIds || [];
+            return ids.length === 0 || ids.includes(catId);
+          });
+        }
+      }
+
       await finalizeTicketAnalysis(ticketId, session, actor, () => isActiveAnalysisRun(ticketId, runId));
       finishAnalysisRun(ticketId, runId);
     } catch (e) {
@@ -813,6 +826,12 @@ export async function createKnowledgeFromTicket(
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
 
+  let vehicleCategoryIds: number[] = [];
+  if (ticket.vehicle_model_id) {
+    const model = await getModelById(ticket.vehicle_model_id);
+    if (model) vehicleCategoryIds = [model.category_id];
+  }
+
   const rule = await createKnowledgeRule({
     title: input.title,
     description: input.description,
@@ -822,6 +841,7 @@ export async function createKnowledgeFromTicket(
     tags: ['工单沉淀'],
     enabled: true,
     publicationStatus: 'draft',
+    vehicleCategoryIds,
     guideSteps: [],
     feedbackStats: { useful: 0, partial: 0, useless: 0 },
     pattern: {

@@ -769,6 +769,11 @@
               <el-input-number v-model="knowledgeDraft.pattern.confidenceBase" :min="0" :max="1" :step="0.05" :controls="false" placeholder="基础置信度" />
             </div>
           </el-form-item>
+          <el-form-item label="适用车型类别">
+            <el-select v-model="knowledgeDraft.vehicleCategoryIds" multiple clearable placeholder="不选则为通用规则（匹配所有类别）" style="width: 100%">
+              <el-option v-for="cat in vehicleCategories" :key="cat.id" :label="cat.name" :value="cat.id" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="产品化状态">
             <el-select v-model="knowledgeDraft.publicationStatus">
               <el-option value="draft" label="草稿" />
@@ -837,6 +842,10 @@
           <el-option value="needs_review" label="需复查" />
           <el-option value="deprecated" label="已停用" />
         </el-select>
+        <el-select v-model="knowledgeQuery.vehicleCategoryId" clearable placeholder="车型类别" class="filter-item">
+          <el-option value="universal" label="通用规则" />
+          <el-option v-for="cat in vehicleCategories" :key="cat.id" :label="cat.name" :value="String(cat.id)" />
+        </el-select>
         <el-button size="small" @click="refreshKnowledgeWithQuery">筛选</el-button>
         <el-button size="small" @click="openBlankKnowledgeDraft">新增</el-button>
         <el-button size="small" @click="openKnowledgeExport">导出</el-button>
@@ -869,6 +878,9 @@
         <el-table-column label="标签" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ (row.tags || []).join(', ') }}</template>
         </el-table-column>
+        <el-table-column label="适用类别" width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ categoryNamesForRule(row) }}</template>
+        </el-table-column>
         <el-table-column prop="hitCount" label="命中" width="70" />
         <el-table-column label="启用" width="70">
           <template #default="{ row }">
@@ -885,6 +897,23 @@
           </template>
         </el-table-column>
       </el-table>
+    </el-dialog>
+
+    <el-dialog v-model="knowledgeExportDialogVisible" title="导出知识库" width="480px">
+      <el-form label-width="100px">
+        <el-form-item label="车型类别">
+          <el-select v-model="knowledgeExportOptions.categoryIds" multiple clearable placeholder="不选则导出全部" style="width: 100%">
+            <el-option v-for="cat in vehicleCategories" :key="cat.id" :label="cat.name" :value="cat.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="knowledgeExportOptions.categoryIds.length > 0" label="包含通用规则">
+          <el-checkbox v-model="knowledgeExportOptions.includeUniversal">同时导出通用规则（未绑定类别的规则）</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="knowledgeExportDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="executeKnowledgeExport">导出</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="packageInfoVisible" title="诊断包信息" width="720px">
@@ -944,6 +973,7 @@ import {
   replayPackageUrl,
   replayReportUrl
 } from '@/api/replay'
+import { listCategories, type VehicleCategory } from '@/api/vehicles'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
@@ -966,6 +996,9 @@ const packageExportDialogVisible = ref(false)
 const packageCompareDialogVisible = ref(false)
 const knowledgeDialogVisible = ref(false)
 const knowledgeDraftVisible = ref(false)
+const knowledgeExportDialogVisible = ref(false)
+const knowledgeExportOptions = ref({ categoryIds: [] as number[], includeUniversal: true })
+const vehicleCategories = ref<VehicleCategory[]>([])
 const aliasImportOverwrite = ref(false)
 const knowledgeImportOverwrite = ref(false)
 const smoothTrajectory = ref(false)
@@ -987,7 +1020,7 @@ const packageExportForm = ref({
 })
 const compareLeftManifest = ref<any>(null)
 const compareRightManifest = ref<any>(null)
-const knowledgeQuery = ref({ keyword: '', severity: '', verificationStatus: '', publicationStatus: '' })
+const knowledgeQuery = ref({ keyword: '', severity: '', verificationStatus: '', publicationStatus: '', vehicleCategoryId: '' })
 const knowledgeDraft = ref<any>(emptyKnowledgeDraft())
 const knowledgeTagText = ref('')
 const patternText = ref({
@@ -1000,6 +1033,22 @@ const patternText = ref({
   errorCodes: ''
 })
 let progressTimer = 0
+
+async function loadVehicleCategories() {
+  try { vehicleCategories.value = await listCategories() } catch { /* ignore */ }
+}
+
+const vehicleCategoryMap = computed(() => {
+  const m = new Map<number, string>()
+  vehicleCategories.value.forEach((c) => m.set(c.id, c.name))
+  return m
+})
+
+function categoryNamesForRule(rule: any): string {
+  const ids: number[] = rule?.vehicleCategoryIds || []
+  if (ids.length === 0) return '通用'
+  return ids.map((id: number) => vehicleCategoryMap.value.get(id) || `#${id}`).join(', ')
+}
 
 const stageTimingEntries = computed(() => {
   const timings = replay.overview?.parseStats?.stageTimings
@@ -1777,6 +1826,7 @@ function addSelectedLogEvidence() {
 
 async function openKnowledgeDialog() {
   try {
+    await loadVehicleCategories()
     await replay.refreshKnowledge(knowledgeQuery.value)
     knowledgeDialogVisible.value = true
   } catch (e: any) {
@@ -1863,6 +1913,7 @@ function openKnowledgeDraftFromAssistant(draft: any) {
 }
 
 function openKnowledgeDraft(rule: any) {
+  loadVehicleCategories()
   knowledgeDraft.value = normalizeKnowledgeDraft(rule)
   knowledgeTagText.value = (knowledgeDraft.value.tags || []).join(',')
   syncPatternTextFromDraft()
@@ -1959,9 +2010,20 @@ function removeGuideStep(idx: number) {
   knowledgeDraft.value.guideSteps.forEach((step: any, i: number) => (step.stepNo = i + 1))
 }
 
-async function openKnowledgeExport() {
+function openKnowledgeExport() {
+  knowledgeExportOptions.value = { categoryIds: [], includeUniversal: true }
+  knowledgeExportDialogVisible.value = true
+}
+
+async function executeKnowledgeExport() {
   try {
-    const blob = await exportReplayKnowledge()
+    const opts = knowledgeExportOptions.value
+    const params: { categoryIds?: number[]; includeUniversal?: boolean } = {}
+    if (opts.categoryIds.length > 0) {
+      params.categoryIds = opts.categoryIds
+      params.includeUniversal = opts.includeUniversal
+    }
+    const blob = await exportReplayKnowledge(params.categoryIds?.length ? params : undefined)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -1970,6 +2032,7 @@ async function openKnowledgeExport() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+    knowledgeExportDialogVisible.value = false
     ElMessage.success('知识库导出成功')
   } catch (e: any) {
     ElMessage.error(e && e.message ? e.message : '知识库导出失败')
@@ -2013,6 +2076,7 @@ function buildKnowledgeDraft(input: { title: string; description: string; rootCa
     publicationStatus: input.seed?.publicationStatus || 'draft',
     guideSteps: input.seed?.guideSteps || [],
     reviewReason: input.seed?.reviewReason || '',
+    vehicleCategoryIds: input.seed?.vehicleCategoryIds || [],
     feedbackStats: input.seed?.feedbackStats || { useful: 0, partial: 0, useless: 0 },
     scope: {},
     pattern: {
@@ -2070,6 +2134,7 @@ function emptyKnowledgeShape() {
     verificationStatus: 'pending',
     publicationStatus: 'draft',
     guideSteps: [] as any[],
+    vehicleCategoryIds: [] as number[],
     reviewReason: '',
     feedbackStats: { useful: 0, partial: 0, useless: 0 },
     scope: {},

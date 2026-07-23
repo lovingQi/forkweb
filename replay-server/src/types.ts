@@ -261,6 +261,7 @@ export interface KnowledgeRule {
   guideSteps: TroubleshootingGuideStep[]
   reviewReason?: string
   feedbackStats: { useful: number; partial: number; useless: number }
+  vehicleCategoryIds?: number[]
   scope?: KnowledgeRuleScope
   pattern: KnowledgeEvidencePattern
   examples: KnowledgeExample[]

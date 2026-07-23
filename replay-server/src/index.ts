@@ -276,9 +276,13 @@ app.post('/api/replay/knowledge/:id/toggle', authMiddleware, requireRole('rd', '
   res.json({ succeed: true, rule, knowledge: await listKnowledgeRules() })
 })
 
-app.get('/api/replay/knowledge/export', authMiddleware, requireRole('rd', 'admin'), async (_req, res) => {
+app.get('/api/replay/knowledge/export', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
+  const categoryIdsRaw = req.query.categoryIds ? String(req.query.categoryIds) : ''
+  const categoryIds = categoryIdsRaw ? categoryIdsRaw.split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0) : undefined
+  const includeUniversal = req.query.includeUniversal === 'false' ? false : true
+  const options = categoryIds?.length ? { categoryIds, includeUniversal } : undefined
   res.setHeader('Content-Disposition', 'attachment; filename="knowledge-base.json"')
-  res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibraryWithHits()))
+  res.json(exportKnowledgeLibraryPayload(await readKnowledgeLibraryWithHits(), options))
 })
 
 app.post('/api/replay/knowledge/import', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {

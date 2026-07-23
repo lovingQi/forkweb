@@ -99,6 +99,8 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
   const tag = String(query.tag || '').trim().toLowerCase()
   const moduleName = String(query.module || '').trim().toLowerCase()
   const errorCode = String(query.errorCode || '').trim().toUpperCase()
+  const vehicleCategoryId = query.vehicleCategoryId ? Number(query.vehicleCategoryId) : NaN
+  const vehicleCategoryFilter = query.vehicleCategoryId === 'universal' ? 'universal' : ''
   const rules = library.rules
     .filter((rule) => !keyword || `${rule.title} ${rule.description} ${rule.rootCause} ${rule.solution}`.toLowerCase().includes(keyword))
     .filter((rule) => !severity || rule.severity === severity)
@@ -108,6 +110,12 @@ export async function listKnowledgeRules(query: Record<string, unknown> = {}) {
     .filter((rule) => !tag || rule.tags.some((item) => item.toLowerCase().includes(tag)))
     .filter((rule) => !moduleName || rule.pattern.modules.some((item) => item.toLowerCase().includes(moduleName)))
     .filter((rule) => !errorCode || rule.pattern.errorCodes.some((item) => item.toUpperCase().includes(errorCode)))
+    .filter((rule) => {
+      if (vehicleCategoryFilter === 'universal') return (rule.vehicleCategoryIds || []).length === 0
+      if (!Number.isFinite(vehicleCategoryId)) return true
+      const ids = rule.vehicleCategoryIds || []
+      return ids.length === 0 || ids.includes(vehicleCategoryId)
+    })
   return {
     library: {
       version: library.version,
@@ -203,8 +211,22 @@ export async function toggleKnowledgeRule(id: string, enabled?: boolean): Promis
   return normalizeRule(rule)
 }
 
-export function exportKnowledgeLibraryPayload(library: KnowledgeLibrary) {
-  return normalizeLibrary(library)
+export function exportKnowledgeLibraryPayload(
+  library: KnowledgeLibrary,
+  options?: { categoryIds?: number[]; includeUniversal?: boolean }
+) {
+  const normalized = normalizeLibrary(library)
+  if (!options || (!options.categoryIds?.length && options.includeUniversal == null)) {
+    return normalized
+  }
+  const catSet = new Set(options.categoryIds || [])
+  const includeUniversal = options.includeUniversal !== false
+  normalized.rules = normalized.rules.filter((rule) => {
+    const ids = rule.vehicleCategoryIds || []
+    if (ids.length === 0) return includeUniversal
+    return catSet.size > 0 && ids.some((id) => catSet.has(id))
+  })
+  return normalized
 }
 
 export async function importKnowledgeLibraryPayload(input: unknown, overwrite = false) {
@@ -273,9 +295,15 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
   }
 }
 
-export async function matchKnowledgeRules(context: KnowledgeMatchContext, logDir = ''): Promise<KnowledgeMatch[]> {
+export async function matchKnowledgeRules(context: KnowledgeMatchContext, logDir = '', vehicleCategoryId?: number): Promise<KnowledgeMatch[]> {
   const library = await readKnowledgeLibrary()
-  const enabledRules = library.rules.filter((rule) => rule.enabled)
+  let enabledRules = library.rules.filter((rule) => rule.enabled)
+  if (vehicleCategoryId != null) {
+    enabledRules = enabledRules.filter((rule) => {
+      const ids = rule.vehicleCategoryIds || []
+      return ids.length === 0 || ids.includes(vehicleCategoryId)
+    })
+  }
   if (enabledRules.length === 0 || context.rawLines.length === 0) return []
 
   const candidateRules = preFilterRules(enabledRules, context)
@@ -622,6 +650,7 @@ function normalizeRule(input: Partial<KnowledgeRule>): KnowledgeRule {
     guideSteps: normalizeGuideSteps(input.guideSteps),
     reviewReason: input.reviewReason ? String(input.reviewReason) : undefined,
     feedbackStats: normalizeFeedbackStats(input.feedbackStats),
+    vehicleCategoryIds: normalizeNumberArray(input.vehicleCategoryIds),
     scope: input.scope || {},
     pattern: normalizePattern(input.pattern),
     examples: Array.isArray(input.examples) ? input.examples.map((example) => ({
@@ -712,6 +741,11 @@ function normalizeVehicleStates(value: unknown): VehicleStateName[] {
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)))
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(value.map(Number).filter((n) => Number.isFinite(n) && n > 0)))
 }
 
 function extractKeywords(lines: ParsedLogLine[]): string[] {

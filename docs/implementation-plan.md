@@ -570,6 +570,34 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 | 50. 工单列表支持按车型筛选 | 21 |
 | 51. 统计仪表盘展示按车型分布 | 21 |
 | 52. 已被关联的车型不允许删除 | 21 |
+| 53. 知识规则可绑定车型类别（多选），不绑定为通用规则 | 22 |
+| 54. 工单分析时按车型类别过滤知识库匹配结果 | 22 |
+| 55. 从工单沉淀知识时自动预填车型类别 | 22 |
+| 56. 知识库管理列表支持按车型类别筛选 | 22 |
+| 57. 知识库导出支持按车型类别筛选（含通用规则选项） | 22 |
+
+---
+
+## 阶段 22：知识库车型类别绑定（决策 85-94）
+
+### 步骤
+
+1. `replay-server/src/types.ts`：`KnowledgeRule` 接口新增 `vehicleCategoryIds?: number[]`
+2. `replay-server/src/core/knowledgeBase.ts`：
+   - `normalizeRule` 添加 `vehicleCategoryIds` 规范化（新增 `normalizeNumberArray` 辅助函数）
+   - `matchKnowledgeRules` 添加可选 `vehicleCategoryId` 参数，按类别过滤（通用规则始终保留）
+   - `listKnowledgeRules` 添加 `vehicleCategoryId` 查询过滤（支持 `universal` 特殊值）
+   - `exportKnowledgeLibraryPayload` 添加可选 `categoryIds` + `includeUniversal` 参数
+3. `replay-server/src/tickets/service.ts`：
+   - `runTicketAnalysisInBackground`：session.load 后根据工单 vehicle_model_id 查 category_id 过滤 knowledgeMatches
+   - `createKnowledgeFromTicket`：从工单获取 vehicle_model_id 对应 category_id 预填 vehicleCategoryIds
+4. `replay-server/src/index.ts`：`GET /api/replay/knowledge/export` 路由支持 `categoryIds` 和 `includeUniversal` 查询参数
+5. `src/api/replay.ts`：`exportReplayKnowledge` 添加可选的类别筛选参数
+6. `src/views/Replay.vue`：
+   - `emptyKnowledgeShape` / `buildKnowledgeDraft` 增加 `vehicleCategoryIds`
+   - 编辑表单添加"适用车型类别"多选字段
+   - 知识库管理列表添加"车型类别"筛选下拉和"适用类别"表格列
+   - 导出功能改为弹出对话框支持按类别筛选
 
 ---
 
