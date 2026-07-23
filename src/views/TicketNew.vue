@@ -67,7 +67,7 @@
             </div>
             <template #tip>
               <div class="upload-tip">
-                支持 .zip / .tar.gz / .tgz 压缩包自动解压，自动识别 .log 日志与 .json 地图。可一次选择多个文件或目录。
+                支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB。压缩包会自动解压，自动识别 .log 日志与 .json 地图。
               </div>
             </template>
           </el-upload>
@@ -110,6 +110,7 @@ const form = reactive({
 const occurredRange = ref<[string, string] | null>(null)
 
 const fileList = ref<UploadUserFile[]>([])
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 const sites = ref<Site[]>([])
 const loadingSites = ref(false)
@@ -126,7 +127,12 @@ onMounted(async () => {
 })
 
 function onFilesChange() {
-  // el-upload 会自动更新 fileList
+  const totalUploadBytes = fileList.value.reduce((total, file) => total + (file.raw?.size || file.size || 0), 0)
+  if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+    error.value = '所有上传文件总大小不能超过 200MB'
+  } else if (error.value === '所有上传文件总大小不能超过 200MB') {
+    error.value = ''
+  }
 }
 
 async function onSubmit() {
@@ -142,6 +148,11 @@ async function onSubmit() {
   const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
   if (rawFiles.length === 0) {
     error.value = '请至少上传一个文件'
+    return
+  }
+  const totalUploadBytes = rawFiles.reduce((total, file) => total + file.size, 0)
+  if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+    error.value = '所有上传文件总大小不能超过 200MB'
     return
   }
   submitting.value = true

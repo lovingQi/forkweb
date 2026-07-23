@@ -320,6 +320,115 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 5. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：验证 AI 解释区域可见、未匹配规则时无临时 AI 步骤。
 6. [ ] 更新 `docs/implementation-progress.md`。
 
+### 阶段 13：存储清理与上传限制
+
+目标：限制上传大小，分析失败回退状态，7 天自动清理原始日志，分析超时保护。
+
+1. [ ] 修改 `replay-server/src/tickets/routes.ts` 中 multer 配置：`fileSize` 从 500MB 改为 200MB；在 `POST /` 创建工单时校验所有上传文件总大小不超过 200MB。
+2. [ ] 修改 `src/views/TicketNew.vue`：在文件上传区域增加格式说明文案（"支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB"）；前端增加文件大小校验与提示。
+3. [ ] 修改 `replay-server/src/tickets/service.ts` 中 `finalizeTicketAnalysis`：用 try-catch 包裹分析主流程，分析失败时将工单状态回退为 `pending_analysis`，并在 `ticket_events` 中记录失败原因。
+4. [ ] 修改 `replay-server/src/tickets/service.ts` 中 `startTicketAnalysis`：增加 10 分钟超时保护（setTimeout），超时后自动回退状态并记录超时事件。
+5. [ ] 新增 `replay-server/src/core/storageCleaner.ts`：实现 `cleanExpiredFiles()` 函数，查询已完成分析超过 7 天的工单，删除其 `log_dir` 目录和上传临时文件，保留报告和数据库记录。
+6. [ ] 在 `replay-server/src/index.ts` 中注册定时任务：每天凌晨 3 点执行 `cleanExpiredFiles()`。
+7. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：验证超大文件上传被拒绝；分析失败后工单状态回退为待分析。
+8. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 14：工单取消、编辑与评论
+
+目标：新增已取消状态；工单未终结前可编辑基本信息；工单内纯文字评论。
+
+1. [ ] 在 `replay-server/src/db/migrate.ts` 新增迁移 `ticket_status_add_cancelled`，扩展 `tickets.status` CHECK 约束增加 `cancelled` 状态。
+2. [ ] 修改 `replay-server/src/db/tickets.ts` 中 `TicketStatus` 类型增加 `cancelled`。
+3. [ ] 修改 `replay-server/src/tickets/service.ts`：新增 `cancelTicket(ticketId, actor)` 函数，只有提单人可取消自己的未终结工单（非 `resolved`/`self_solved`/`cancelled`），取消后记录事件。
+4. [ ] 修改 `replay-server/src/tickets/service.ts`：新增 `updateTicketBasicInfo(ticketId, actor, fields)` 函数，允许编辑标题、描述、现场、影响程度、发生时间，校验工单未终结，编辑记录到事件流。
+5. [ ] 修改 `replay-server/src/tickets/service.ts`：新增 `addTicketComment(ticketId, actor, content)` 函数，创建 action 为 `comment` 的事件。
+6. [ ] 修改 `replay-server/src/tickets/routes.ts`：新增 `POST /:id/cancel`、`PATCH /:id/basic-info`、`POST /:id/comments` 接口。
+7. [ ] 修改 `src/api/tickets.ts`：新增 `cancelTicket`、`updateTicketBasicInfo`、`addTicketComment` API。
+8. [ ] 修改 `src/views/TicketDetail.vue`：增加「取消工单」按钮（提单人可见且工单未终结）；基本信息区域改为可编辑模式（未终结时）；底部事件流增加评论输入框。
+9. [ ] 修改 `src/views/TicketList.vue`：`statusMap` 增加 `cancelled` 状态文案与标签颜色。
+10. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：覆盖取消工单、编辑基本信息、发表评论流程。
+11. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 15：补充上传日志
+
+目标：工单详情支持追加上传日志文件，可选触发重新分析。
+
+1. [ ] 修改 `replay-server/src/tickets/service.ts`：新增 `appendFilesToTicket(ticketId, actor, filePaths, originalNames)` 函数，将文件追加到工单的 `log_dir`，记录事件，校验追加后总量不超过 200MB。
+2. [ ] 修改 `replay-server/src/tickets/routes.ts`：新增 `POST /:id/files` 接口，使用 multer 处理上传，调用 `appendFilesToTicket`，可选参数 `reanalyze` 控制是否触发重新分析。
+3. [ ] 修改 `src/api/tickets.ts`：新增 `appendFiles` API。
+4. [ ] 修改 `src/views/TicketDetail.vue`：在工单未终结时展示「补充上传」按钮，弹出上传对话框，提供"上传后重新分析"勾选项。
+5. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：覆盖补充上传后文件数增加、触发重新分析。
+6. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 16：列表分页与排序
+
+目标：工单列表支持分页，每页 20 条，按创建时间倒序。
+
+1. [ ] 修改 `replay-server/src/db/tickets.ts`：`listTickets` 等查询函数增加 `page`、`pageSize` 参数与 `LIMIT/OFFSET`，增加 `countTickets` 函数返回总数。
+2. [ ] 修改 `replay-server/src/tickets/service.ts`：`listUserTickets` 透传分页参数，返回 `{ tickets, total }` 结构。
+3. [ ] 修改 `replay-server/src/tickets/routes.ts`：`GET /` 接口读取 `page`（默认 1）、`pageSize`（默认 20）查询参数，响应增加 `total` 字段。
+4. [ ] 修改 `src/api/tickets.ts`：更新列表 API 参数与返回类型。
+5. [ ] 修改 `src/stores/tickets.ts`：增加 `total`、`currentPage` 状态。
+6. [ ] 修改 `src/views/TicketList.vue`：底部增加 Element Plus `el-pagination` 分页组件，切换页码时重新加载。
+7. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：验证分页组件可见、翻页后内容变化。
+8. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 17：企业微信通知
+
+目标：关键工单节点通过企业微信 Webhook 发送通知。
+
+1. [ ] 新增 `replay-server/src/notify/wechatWork.ts`：实现 `sendWechatWorkNotification(message)` 函数，读取环境变量 `WECHAT_WORK_WEBHOOK_URL`，通过 POST 请求发送 markdown 格式消息。未配置时静默跳过。
+2. [ ] 修改 `replay-server/src/tickets/service.ts`：在以下节点调用通知：
+   - `finalizeTicketAnalysis` 完成时通知"工单 #xxx 分析完成"。
+   - `escalateToRd` 时通知"工单 #xxx 已升级研发"。
+   - `assignTicket` 时通知"工单 #xxx 已被研发认领"。
+   - `resolveTicket` 时通知"工单 #xxx 已由研发解决"。
+3. [ ] 修改 `replay-server/src/core/knowledgeBase.ts`：知识规则被标记为 `needs_review` 时通知"知识规则 xxx 需要研发复查"。
+4. [ ] 新增/更新测试：验证通知函数在 Webhook URL 未配置时不报错。
+5. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 18：数据统计仪表盘
+
+目标：为研发和管理员提供工单、知识库、人员三维度统计视图。
+
+1. [ ] 新增 `replay-server/src/tickets/stats.ts`：实现统计查询函数：
+   - `getTicketStats(dateRange)` 返回工单数量、状态分布、自助解决率、平均解决耗时。
+   - `getTicketsBysite(dateRange)` 返回按现场分布。
+   - `getTicketsByIssueType(dateRange)` 返回按问题类型分布。
+   - `getKnowledgeStats()` 返回规则匹配次数排行、反馈分布、覆盖率。
+   - `getUserStats(dateRange)` 返回售后提单量排行、研发解决量排行。
+2. [ ] 修改 `replay-server/src/tickets/routes.ts` 或新增 `replay-server/src/stats/routes.ts`：新增 `GET /api/stats/tickets`、`GET /api/stats/knowledge`、`GET /api/stats/users` 接口，限制研发和管理员访问。
+3. [ ] 新增 `src/api/stats.ts`：统计 API 类型与调用函数。
+4. [ ] 新增 `src/views/StatsBoard.vue`：使用 Element Plus 卡片和表格展示三维度统计，支持日期范围筛选。
+5. [ ] 修改 `src/router/index.ts`：新增 `/stats` 路由，`meta: { requiresRd: true }`。
+6. [ ] 修改 `src/App.vue`：研发和管理员侧边栏新增"数据统计"入口。
+7. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 19：部署与运维
+
+目标：Docker 容器化部署、一键更新、HTTPS、健康监控。
+
+1. [ ] 新增 `Dockerfile`：基于 Node.js 官方镜像，安装依赖、编译前后端、配置启动命令。
+2. [ ] 新增 `docker-compose.yml`：配置服务、端口映射、数据卷（数据库和日志目录）、`restart: unless-stopped`。
+3. [ ] 新增 `scripts/update.sh`：一键更新脚本，依次执行数据库备份（`cp forkweb.db forkweb.db.bak.$(date +%Y%m%d%H%M%S)`）、`git pull`、`docker-compose build`、`docker-compose up -d`。
+4. [ ] 新增 `nginx/forkweb.conf`：Nginx 反向代理配置，支持 WebSocket、HTTPS。
+5. [ ] 新增 `scripts/health-check.sh`：心跳脚本，每 5 分钟 curl 健康接口，失败时调用企业微信 Webhook 告警。
+6. [ ] 修改 `replay-server/src/index.ts`：新增 `GET /api/health` 健康检查接口，返回服务状态与磁盘使用量。
+7. [ ] 编写部署说明文档。
+8. [ ] 更新 `docs/implementation-progress.md`。
+
+### 阶段 20：上线准备
+
+目标：真实日志测试、知识库预填充、操作指南、灰度上线。
+
+1. [ ] 使用 `tests/e2e/fixtures/log-20260720-114052.log` 及更多真实叉车日志运行端到端测试，验证完整分析流程。
+2. [ ] 组织研发团队预填充 10-20 条常见问题的已验证知识规则。
+3. [ ] 编写一页纸操作指南（截图 + 步骤），覆盖登录、建工单、上传日志、查看排查向导、勾选步骤、升级研发。
+4. [ ] 上线前修改默认管理员密码。
+5. [ ] 部署到云服务器，让一两个售后试用一周。
+6. [ ] 根据反馈修复问题，全面推开。
+7. [ ] 更新 `docs/implementation-progress.md`。
+
 ---
 
 ## 4. 验收检查清单映射
@@ -356,6 +465,22 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 | 28. 工单列表支持状态、现场、问题类型筛选 | 1、4 |
 | 29. 历史分析版本可以查看 | 3 |
 | 30. 分析版本之间可以查看摘要差异 | 3 |
+| 31. 上传文件总大小不超过 200MB | 13 |
+| 32. 分析失败后工单状态回退并显示失败原因 | 13 |
+| 33. 分析超时 10 分钟自动标记失败 | 13 |
+| 34. 原始日志文件保留 7 天后自动清理 | 13 |
+| 35. 已取消状态用于废弃工单 | 14 |
+| 36. 工单未终结前可编辑基本信息 | 14 |
+| 37. 工单内支持纯文字评论 | 14 |
+| 38. 工单详情可追加上传日志文件 | 15 |
+| 39. 工单列表每页 20 条按创建时间倒序 | 16 |
+| 40. 关键节点发送企业微信通知 | 17 |
+| 41. 三维度数据统计仪表盘 | 18 |
+| 42. Docker 容器化部署 | 19 |
+| 43. 一键更新脚本含自动数据库备份 | 19 |
+| 44. HTTPS + 健康监控 | 19 |
+| 45. 真实日志端到端测试通过 | 20 |
+| 46. 知识库预填充完成 | 20 |
 
 ---
 

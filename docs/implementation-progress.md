@@ -18,6 +18,14 @@
 | 10 | 角色导航和权限 | ✅ 已完成 | 2026-07-22 | - |
 | 11 | 精简证据面板 | ✅ 已完成 | 2026-07-22 | - |
 | 12 | AI 解释器 | ✅ 已完成 | 2026-07-22 | - |
+| 13 | 存储清理与上传限制 | ✅ 已完成 | 2026-07-23 | - |
+| 14 | 工单取消、编辑与评论 | ⬜ 待开发 | - | - |
+| 15 | 补充上传日志 | ⬜ 待开发 | - | - |
+| 16 | 列表分页与排序 | ⬜ 待开发 | - | - |
+| 17 | 企业微信通知 | ⬜ 待开发 | - | - |
+| 18 | 数据统计仪表盘 | ⬜ 待开发 | - | - |
+| 19 | 部署与运维 | ⬜ 待开发 | - | - |
+| 20 | 上线准备 | ⬜ 待开发 | - | - |
 
 ## 审查修复（2026-07-22）
 
@@ -218,3 +226,20 @@
   - 前端：`TicketDetail.vue` 展示 AI 分析结论，区分在线/离线回答，展示 AI 未开启或分析中的状态
 - **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过；`npm run test:e2e:tickets` 12 个用例全部通过。
 - **阻塞项**：无
+
+---
+
+## 阶段 13：存储清理与上传限制
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-13存储清理与上传限制`
+- **改动摘要**：
+  - 后端：`replay-server/src/tickets/routes.ts` 将 multer `fileSize` 从 500MB 改为 200MB；`POST /` 增加所有上传文件总大小校验（>200MB 返回 413）；上传失败或超限时统一清理临时文件。
+  - 前端：`src/views/TicketNew.vue` 上传提示改为“支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB”；`onFilesChange` 与 `onSubmit` 双阶段校验总大小，超限显示错误提示。
+  - 后端：`replay-server/src/tickets/service.ts` 的 `runTicketAnalysisInBackground` 用 try-catch 包裹分析主流程，失败时调用 `revertFailedAnalysis` 将工单状态回退为 `pending_analysis`，并记录 `analysis_failed` 事件及失败原因。
+  - 后端：`replay-server/src/tickets/service.ts` 的 `startTicketAnalysis` 增加 10 分钟 `setTimeout` 超时保护，超时后自动回退状态并记录 `analysis_timeout` 事件；通过 `runId` 与 `activeAnalysisRuns` 避免超时与正常完成并发冲突。
+  - 后端：新增 `replay-server/src/core/storageCleaner.ts` 的 `cleanExpiredFiles()`，查询 `latest_analysis_version_id` 对应版本创建时间超过 7 天的工单，删除其 `log_dir`；同时清理 `CACHE_DIR/uploads` 下 7 天前的上传临时文件，保留报告和数据库记录。
+  - 后端：`replay-server/src/index.ts` 注册每日凌晨 3 点的定时任务调用 `cleanExpiredFiles()`。
+  - 测试：`tests/e2e/tickets.spec.ts` 新增“超大文件在提交前被拒绝”与“分析失败后状态回退为待分析并记录事件”两个用例；修复前者缺少 `loginAs` 导致的鉴权失败。
+- **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，阶段 13 新增的两个用例通过。完整工单 E2E 中预存在的“步骤状态切换、不适用原因、安全确认与事件记录”用例在 120s 内超时失败，阻塞后续用例串行执行，与阶段 13 改动无关。
+- **阻塞项**：完整工单 E2E 中“步骤状态切换”用例不稳定，需单独排查。

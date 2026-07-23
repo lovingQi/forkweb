@@ -19,6 +19,15 @@ import { createStepEvent, listStepEvents } from '../db/stepEvents';
 import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
+const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
+
+interface AnalysisRun {
+  id: symbol;
+  timeout: NodeJS.Timeout;
+}
+
+const activeAnalysisRuns = new Map<number, AnalysisRun>();
+
 function generateTicketNo(): string {
   const now = new Date();
   const prefix = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -123,15 +132,56 @@ export async function startTicketAnalysis(ticketId: number, actor: AuthUser): Pr
   });
 
   // 每个工单独立 session，后台运行，互不干扰
-  runTicketAnalysisInBackground(ticketId, actor);
+  const runId = Symbol(`ticket-analysis-${ticketId}`);
+  const timeout = setTimeout(() => {
+    const activeRun = activeAnalysisRuns.get(ticketId);
+    if (!activeRun || activeRun.id !== runId) return;
+    activeAnalysisRuns.delete(ticketId);
+    void revertFailedAnalysis(ticketId, actor, 'analysis_timeout', '自动分析超时（超过 10 分钟）');
+  }, ANALYSIS_TIMEOUT_MS);
+  activeAnalysisRuns.set(ticketId, { id: runId, timeout });
+  runTicketAnalysisInBackground(ticketId, actor, runId);
 
   return (await getTicketById(ticketId))!;
 }
 
-function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser): void {
+function isActiveAnalysisRun(ticketId: number, runId: symbol): boolean {
+  return activeAnalysisRuns.get(ticketId)?.id === runId;
+}
+
+function finishAnalysisRun(ticketId: number, runId: symbol): boolean {
+  const activeRun = activeAnalysisRuns.get(ticketId);
+  if (!activeRun || activeRun.id !== runId) return false;
+  clearTimeout(activeRun.timeout);
+  activeAnalysisRuns.delete(ticketId);
+  return true;
+}
+
+async function revertFailedAnalysis(
+  ticketId: number,
+  actor: AuthUser,
+  action: 'analysis_failed' | 'analysis_timeout',
+  reason: string
+): Promise<void> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket || ticket.status !== 'analyzing') return;
+
+  await updateTicket(ticketId, {
+    status: 'pending_analysis',
+    conclusion: action === 'analysis_timeout' ? reason : `自动分析失败: ${reason}`
+  });
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action,
+    payload: action === 'analysis_timeout' ? { timeoutMs: ANALYSIS_TIMEOUT_MS, error: reason } : { error: reason }
+  });
+}
+
+function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId: symbol): void {
   setImmediate(async () => {
     const ticket = await getTicketById(ticketId);
-    if (!ticket) return;
+    if (!ticket || !isActiveAnalysisRun(ticketId, runId)) return;
 
     const session = new ReplaySession();
     try {
@@ -141,39 +191,44 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser): void 
         mapFile: ticket.map_file || undefined,
         forceReload: true
       });
-      await finalizeTicketAnalysis(ticketId, session, actor);
+      if (!isActiveAnalysisRun(ticketId, runId)) return;
+      await finalizeTicketAnalysis(ticketId, session, actor, () => isActiveAnalysisRun(ticketId, runId));
+      finishAnalysisRun(ticketId, runId);
     } catch (e) {
       console.error('[ticket] 自动分析失败:', e);
-      await updateTicket(ticketId, {
-        status: 'pending_field_troubleshooting',
-        conclusion: `自动分析失败: ${e instanceof Error ? e.message : String(e)}`
-      });
-      await createTicketEvent({
-        ticketId,
-        actorId: actor.id,
-        action: 'analysis_failed',
-        payload: { error: e instanceof Error ? e.message : String(e) }
-      });
+      if (!finishAnalysisRun(ticketId, runId)) return;
+      await revertFailedAnalysis(ticketId, actor, 'analysis_failed', e instanceof Error ? e.message : String(e));
     }
   });
 }
 
-async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, actor: AuthUser): Promise<void> {
+async function finalizeTicketAnalysis(
+  ticketId: number,
+  session: ReplaySession,
+  actor: AuthUser,
+  isRunActive: () => boolean
+): Promise<void> {
+  if (!isRunActive()) return;
   const ticket = await getTicketById(ticketId);
-  if (!ticket) return;
+  if (!ticket || !isRunActive()) return;
 
   const ticketDir = getTicketDir(ticketId);
   await fs.mkdir(ticketDir, { recursive: true });
 
+  if (!isRunActive()) return;
   const mdReport = await buildMarkdownReportAsync(session.data);
+  if (!isRunActive()) return;
   const mdPath = path.join(ticketDir, 'report.md');
   await fs.writeFile(mdPath, mdReport, 'utf8');
 
+  if (!isRunActive()) return;
   const jsonReport = buildJsonReport(session.data);
   const jsonPath = path.join(ticketDir, 'report.json');
   await fs.writeFile(jsonPath, JSON.stringify(jsonReport, null, 2), 'utf8');
 
+  if (!isRunActive()) return;
   const pkg = await exportDiagnosticPackage(session.data, { includeReports: true });
+  if (!isRunActive()) return;
   const pkgDest = path.join(ticketDir, 'package.zip');
   await fs.copyFile(pkg.file, pkgDest);
 
@@ -186,6 +241,7 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
 
   const paths = generateTroubleshootingPaths(session.data, ticket);
 
+  if (!isRunActive()) return;
   const analysisVersion = await createAnalysisVersion({
     ticketId,
     inputLogDir: ticket.log_dir,
@@ -204,6 +260,7 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
 
   // 保存排查路径与步骤
   for (const path of paths) {
+    if (!isRunActive()) return;
     const savedPath = await createTroubleshootingPath({
       ticketId,
       analysisVersionId: analysisVersion.id,
@@ -214,6 +271,7 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
       severity: path.severity
     });
     for (const step of path.guideSteps) {
+      if (!isRunActive()) return;
       await createTroubleshootingStep({
         pathId: savedPath.id,
         stepNo: step.stepNo,
@@ -259,8 +317,10 @@ async function finalizeTicketAnalysis(ticketId: number, session: ReplaySession, 
     }
   }
 
+  if (!isRunActive()) return;
   await updateTicket(ticketId, updatePayload);
 
+  if (!isRunActive()) return;
   await createTicketEvent({
     ticketId,
     actorId: actor.id,

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import type { NextFunction, Response } from 'express';
 import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
@@ -28,11 +29,37 @@ import {
 } from './service';
 
 const router = Router();
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 const upload = multer({
   dest: path.join(CACHE_DIR, 'uploads'),
-  limits: { fileSize: 500 * 1024 * 1024 }
+  limits: { fileSize: MAX_UPLOAD_BYTES }
 });
+
+async function removeUploadedTempFiles(req: AuthRequest): Promise<void> {
+  const files = (req.files as Express.Multer.File[] | undefined) || [];
+  await Promise.all(files.map((file) => fs.rm(file.path, { force: true }).catch(() => undefined)));
+}
+
+function uploadTicketFiles(req: AuthRequest, res: Response, next: NextFunction): void {
+  upload.array('files', 20)(req, res, (error: unknown) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    void removeUploadedTempFiles(req).finally(() => {
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({ succeed: false, error: '单个上传文件不能超过 200MB' });
+        return;
+      }
+      res.status(400).json({
+        succeed: false,
+        error: error instanceof Error ? error.message : '文件上传失败'
+      });
+    });
+  });
+}
 
 function getBaseUrl(req: AuthRequest): string {
   const host = req.headers.host || '127.0.0.1:5173';
@@ -46,7 +73,7 @@ router.post(
   '/',
   authMiddleware,
   requireRole('after_sales', 'admin'),
-  upload.array('files', 20),
+  uploadTicketFiles,
   async (req: AuthRequest, res) => {
     try {
       const title = String(req.body.title || '').trim();
@@ -59,6 +86,11 @@ router.post(
       const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
       if (uploadedFiles.length === 0) {
         res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
+        return;
+      }
+      const totalUploadBytes = uploadedFiles.reduce((total, file) => total + file.size, 0);
+      if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+        res.status(413).json({ succeed: false, error: '所有上传文件总大小不能超过 200MB' });
         return;
       }
 
@@ -91,17 +123,14 @@ router.post(
         aiEnabled
       });
 
-      // 清理上传临时文件
-      for (const file of uploadedFiles) {
-        await fs.rm(file.path, { force: true });
-      }
-
       // 自动触发分析
       startTicketAnalysis(ticket.id, req.user!);
 
       res.json({ succeed: true, ticket: serializeTicket(ticket) });
     } catch (e) {
       res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      await removeUploadedTempFiles(req);
     }
   }
 );

@@ -1,4 +1,5 @@
 import path from 'path'
+import fs from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { chromium, expect, test } from '@playwright/test'
 
@@ -382,5 +383,56 @@ test.describe.serial('工单主流程', () => {
 
     // 验证事件流中记录了步骤状态变化
     await expect(page.locator('.el-timeline-item').getByText('step_status_changed').first()).toBeVisible()
+  })
+
+  test('超大文件在提交前被拒绝', async () => {
+    await loginAs('after_sales')
+    await page.goto('/tickets/new')
+    await page.locator('input[placeholder="一句话概括问题"]').fill('超大文件测试工单')
+    await page.locator('.el-form-item', { has: page.locator('label', { hasText: '项目现场' }) }).locator('.el-select').click()
+    await page.getByRole('listbox').getByText(siteName).click()
+    await page.locator('textarea').fill('验证 200MB 上传限制')
+
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles({ name: 'small.log', mimeType: 'text/plain', buffer: Buffer.from('test log') })
+    await fileInput.evaluate((input) => {
+      const file = input.files?.[0]
+      if (!file) throw new Error('未找到测试上传文件')
+      Object.defineProperty(file, 'size', { value: 201 * 1024 * 1024 })
+    })
+
+    await page.getByRole('button', { name: '提交工单' }).click()
+    await expect(page.getByText('所有上传文件总大小不能超过 200MB')).toBeVisible()
+  })
+
+  test('分析失败后状态回退为待分析并记录事件', async () => {
+    const ticketIdMatch = ticketDetailUrl.match(/\/tickets\/(\d+)/)
+    expect(ticketIdMatch).toBeTruthy()
+    const ticketId = ticketIdMatch![1]
+
+    const ticketRes = await page.request.get(`${apiBase}/api/tickets/${ticketId}`, {
+      headers: { Authorization: `Bearer ${afterSalesToken}` }
+    })
+    expect(ticketRes.ok()).toBeTruthy()
+    const ticketBody = await ticketRes.json() as { ticket: { logDir: string } }
+    await fs.rm(ticketBody.ticket.logDir, { recursive: true, force: true })
+
+    const analyzeRes = await page.request.post(`${apiBase}/api/tickets/${ticketId}/analyze`, {
+      headers: { Authorization: `Bearer ${afterSalesToken}` }
+    })
+    expect(analyzeRes.ok()).toBeTruthy()
+
+    let body: { ticket: { status: string }, events: Array<{ action: string }> } | undefined
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(500)
+      const detailRes = await page.request.get(`${apiBase}/api/tickets/${ticketId}`, {
+        headers: { Authorization: `Bearer ${afterSalesToken}` }
+      })
+      body = await detailRes.json() as { ticket: { status: string }, events: Array<{ action: string }> }
+      if (body.ticket.status === 'pending_analysis') break
+    }
+
+    expect(body?.ticket.status).toBe('pending_analysis')
+    expect(body?.events.some((event) => event.action === 'analysis_failed')).toBeTruthy()
   })
 })

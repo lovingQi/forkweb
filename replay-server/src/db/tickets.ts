@@ -190,6 +190,18 @@ export async function listTickets(filters?: {
   return db.prepare(sql).all(...values) as DbTicket[];
 }
 
+export async function listTicketsWithAnalysisCompletedBefore(cutoff: string): Promise<DbTicket[]> {
+  const db = await getDb();
+  return db
+    .prepare(
+      `SELECT t.*
+       FROM tickets t
+       INNER JOIN ticket_analysis_versions v ON v.id = t.latest_analysis_version_id
+       WHERE v.created_at < ?`
+    )
+    .all(cutoff) as DbTicket[];
+}
+
 export async function listTicketsWithReporter(filters?: {
   reporterId?: number;
   status?: TicketStatus | TicketStatus[];

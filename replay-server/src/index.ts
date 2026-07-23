@@ -45,6 +45,7 @@ import { getAssistantStatus, getPublicLlmConfig } from './core/llmConfig'
 import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
 import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
+import { cleanExpiredFiles } from './core/storageCleaner'
 import authRoutes, { ensureAdminUser } from './users/routes'
 import { authMiddleware, requireRole } from './auth/middleware'
 import ticketRoutes from './tickets/routes'
@@ -707,6 +708,29 @@ setInterval(() => {
     if (ws.readyState === ws.OPEN) ws.send(low)
   }
 }, 200)
+
+function scheduleDailyStorageCleanup(): void {
+  const scheduleNextRun = () => {
+    const now = new Date()
+    const nextRun = new Date(now)
+    nextRun.setHours(3, 0, 0, 0)
+    if (nextRun <= now) nextRun.setDate(nextRun.getDate() + 1)
+    setTimeout(async () => {
+      try {
+        const result = await cleanExpiredFiles()
+        console.log('[storage-cleaner] cleanup finished', result)
+      } catch (error) {
+        console.error('[storage-cleaner] cleanup failed', error)
+      } finally {
+        scheduleNextRun()
+      }
+    }, nextRun.getTime() - now.getTime())
+  }
+
+  scheduleNextRun()
+}
+
+scheduleDailyStorageCleanup()
 
 server.listen(port, host, async () => {
   await ensureAdminUser()
