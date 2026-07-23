@@ -575,6 +575,11 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 | 55. 从工单沉淀知识时自动预填车型类别 | 22 |
 | 56. 知识库管理列表支持按车型类别筛选 | 22 |
 | 57. 知识库导出支持按车型类别筛选（含通用规则选项） | 22 |
+| 58. 登录页品牌化：Logo + "Junion 单机售后工单系统" + 工业风背景 + 毛玻璃卡片 | 23 |
+| 59. 全局顶栏增加角色标签 | 23 |
+| 60. 浏览器标签页标题和 favicon 更新 | 23 |
+| 61. 工单状态颜色明确区分 | 23 |
+| 62. 统计仪表盘和工单详情页美化 | 23 |
 
 ---
 
@@ -598,6 +603,24 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
    - 编辑表单添加"适用车型类别"多选字段
    - 知识库管理列表添加"车型类别"筛选下拉和"适用类别"表格列
    - 导出功能改为弹出对话框支持按类别筛选
+
+---
+
+## 阶段 23：前端美化与品牌（决策 95-107）
+
+### 步骤
+
+1. 资源准备：复制 Logo 到 `public/logo.png`；用 ffmpeg 从 Logo 裁剪左侧圆形图标生成 `public/favicon.png`（64x64）
+2. `index.html`：标题改为 "Junion 售后系统"，添加 `<link rel="icon" href="/favicon.png">`
+3. `src/views/Login.vue`：完全重写——深蓝色渐变+点阵纹理背景，毛玻璃卡片，Logo 居中，标题 "Junion 单机售后工单系统"，竖排表单，渐变蓝色按钮，底部版权 © 2026 Junion
+4. `src/App.vue`：
+   - 侧边栏 logo 改为 favicon 图标 + "Junion" 文字
+   - 顶栏右侧增加角色标签（roleLabel + roleTagType computed）
+   - currentTitle 默认值改为 "Junion"
+   - 全局样式：卡片圆角 10px、表头背景色、section-title 蓝色竖线、app-main 背景色
+5. `src/views/TicketList.vue`：优化 statusMap 颜色映射；筛选行改用 flex gap
+6. `src/views/StatsBoard.vue`：数字卡片彩色左边框 + hover 阴影；副标题蓝色竖线
+7. `src/views/TicketDetail.vue`：工单号蓝色高亮；section-title 蓝色竖线；AI 结论渐变蓝背景；版本栏蓝色背景
 
 ---
 

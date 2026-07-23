@@ -17,7 +17,7 @@
           v-model="filterSite"
           clearable
           placeholder="全部现场"
-          style="width: 180px; margin-left: 12px"
+          style="width: 180px"
           :loading="loadingSites"
           @change="onFilterChange"
         >
@@ -28,7 +28,7 @@
           v-model="filterIssueType"
           clearable
           placeholder="问题类型"
-          style="width: 160px; margin-left: 12px"
+          style="width: 160px"
           @change="onFilterChange"
         >
           <el-option label="全部类型" value="" />
@@ -39,7 +39,7 @@
           clearable
           filterable
           placeholder="全部车型"
-          style="width: 200px; margin-left: 12px"
+          style="width: 200px"
           :loading="loadingModels"
           @change="onFilterChange"
         >
@@ -53,7 +53,7 @@
           v-model="filterReporter"
           clearable
           placeholder="全部提单人"
-          style="width: 180px; margin-left: 12px"
+          style="width: 180px"
           @change="onFilterChange"
         >
           <el-option label="全部提单人" value="" />
@@ -234,12 +234,12 @@ function onPageSizeChange(size: number) {
 
 const statusMap: Record<TicketStatus, { label: string; type: any }> = {
   pending_analysis: { label: '待分析', type: 'info' },
-  analyzing: { label: '分析中', type: 'warning' },
-  pending_field_troubleshooting: { label: '待现场排查', type: 'primary' },
+  analyzing: { label: '分析中', type: '' },
+  pending_field_troubleshooting: { label: '待现场排查', type: 'warning' },
   field_troubleshooting: { label: '现场排查中', type: 'warning' },
   self_solved: { label: '已自助解决', type: 'success' },
   pending_rd: { label: '待研发介入', type: 'danger' },
-  rd_working: { label: '研发处理中', type: 'warning' },
+  rd_working: { label: '研发处理中', type: 'danger' },
   resolved: { label: '已解决', type: 'success' },
   cancelled: { label: '已取消', type: 'info' }
 }
@@ -258,8 +258,17 @@ function statusType(status: TicketStatus) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
 }
 .filter-row {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.filter-row .el-select {
+  margin-left: 0 !important;
 }
 </style>

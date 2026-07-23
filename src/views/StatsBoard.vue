@@ -235,6 +235,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
 }
 .date-picker {
   display: flex;
@@ -247,36 +250,46 @@ onMounted(() => {
 .stats-section {
   margin-bottom: 16px;
 }
-.section-title {
-  font-weight: 600;
-}
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 20px;
 }
 .stat-item {
-  background: #f3f4f6;
-  border-radius: 8px;
-  padding: 12px;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 16px 14px;
   text-align: center;
+  border-left: 4px solid #2563eb;
+  transition: box-shadow 0.2s;
+}
+.stat-item:hover {
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+}
+.stat-item:nth-child(2) {
+  border-left-color: #16a34a;
+}
+.stat-item:nth-child(3) {
+  border-left-color: #f59e0b;
 }
 .stat-label {
   font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
+  color: #64748b;
+  margin-bottom: 6px;
 }
 .stat-value {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
-  color: #111827;
+  color: #0f172a;
 }
 .stat-subtitle {
   font-size: 14px;
   font-weight: 600;
-  color: #374151;
-  margin: 16px 0 8px;
+  color: #334155;
+  margin: 18px 0 10px;
+  padding-left: 10px;
+  border-left: 3px solid #2563eb;
 }
 .feedback-summary {
   display: flex;
@@ -284,10 +297,11 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .feedback-tag {
-  background: #f3f4f6;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  color: #4b5563;
+  background: #f1f5f9;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
 }
 </style>

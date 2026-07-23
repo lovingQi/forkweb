@@ -28,6 +28,7 @@
 | 20 | 上线准备 | ✅ 已完成 | 2026-07-23 | 含人工试用项 |
 | 21 | 车型管理 | ✅ 已完成 | 2026-07-23 | - |
 | 22 | 知识库车型类别绑定 | ✅ 已完成 | 2026-07-23 | - |
+| 23 | 前端美化与品牌 | ✅ 已完成 | 2026-07-23 | - |
 
 ## 审查修复（2026-07-22）
 
@@ -406,4 +407,21 @@
   - 前端：`src/api/replay.ts`：`exportReplayKnowledge` 支持类别筛选参数。
   - 前端：`src/views/Replay.vue`：`emptyKnowledgeShape` 和 `buildKnowledgeDraft` 增加 `vehicleCategoryIds`；知识规则编辑表单增加"适用车型类别"多选字段；知识库管理列表增加"车型类别"筛选下拉和"适用类别"显示列；导出功能改为弹出对话框支持按类别筛选（含"包含通用规则"选项）。
 - **验证方式**：`npx vue-tsc --noEmit` 通过；`npx tsc --noEmit` 通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 23：前端美化与品牌
+
+- **状态**：✅ 已完成
+- **对应决策编号**：95-107
+- **改动摘要**：
+  - 资源：新增 `public/logo.png`（玖物智能完整 Logo 381x93）和 `public/favicon.png`（左侧圆形图标 64x64，ffmpeg 裁剪生成）。
+  - `index.html`：标题改为 "Junion 售后系统"，添加 favicon 引用。
+  - `src/views/Login.vue`：完全重写——深蓝色渐变+点阵纹理工业背景，毛玻璃卡片（backdrop-filter: blur），Logo 居中，标题 "Junion 单机售后工单系统"，竖排表单，蓝色渐变登录按钮，底部 © 2026 Junion 版权。
+  - `src/App.vue`：侧边栏 logo 改为 favicon 图标+"Junion" 文字；顶栏右侧增加角色标签（售后/研发/管理员，含 roleLabel 和 roleTagType computed）；currentTitle 默认值改为 "Junion"；全局样式增加卡片圆角 10px、表头背景色 #f8fafc、.section-title 蓝色竖线装饰、app-main 背景色 #f1f5f9。
+  - `src/views/TicketList.vue`：状态颜色优化（分析中=蓝、研发相关=红）；筛选行改用 flex gap；头部样式加粗加色。
+  - `src/views/StatsBoard.vue`：数字卡片增加彩色左边框（蓝/绿/橙）+ hover 阴影；副标题增加蓝色竖线装饰。
+  - `src/views/TicketDetail.vue`：工单号蓝色高亮；section-title 蓝色竖线；AI 结论区域渐变蓝色背景；版本选择栏蓝色背景；状态颜色与列表统一。
+- **验证方式**：`npx vue-tsc --noEmit` 通过。
 - **阻塞项**：无

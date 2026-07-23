@@ -878,12 +878,12 @@ function splitCsv(value: string): string[] | undefined {
 
 const statusMap: Record<TicketStatus, { label: string; type: any }> = {
   pending_analysis: { label: '待分析', type: 'info' },
-  analyzing: { label: '分析中', type: 'warning' },
-  pending_field_troubleshooting: { label: '待现场排查', type: 'primary' },
+  analyzing: { label: '分析中', type: '' },
+  pending_field_troubleshooting: { label: '待现场排查', type: 'warning' },
   field_troubleshooting: { label: '现场排查中', type: 'warning' },
   self_solved: { label: '已自助解决', type: 'success' },
   pending_rd: { label: '待研发介入', type: 'danger' },
-  rd_working: { label: '研发处理中', type: 'warning' },
+  rd_working: { label: '研发处理中', type: 'danger' },
   resolved: { label: '已解决', type: 'success' },
   cancelled: { label: '已取消', type: 'info' }
 }
@@ -948,16 +948,25 @@ function guideFeedbackLabel(value?: string) {
   align-items: center;
 }
 .ticket-no {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 15px;
+  color: #2563eb;
   margin-right: 12px;
 }
 .ticket-title {
-  color: #374151;
+  color: #1e293b;
+  font-weight: 500;
 }
 .section-title {
-  margin: 20px 0 12px;
+  margin: 24px 0 12px;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 15px;
+  color: #1e293b;
+  padding-left: 10px;
+  border-left: 3px solid #2563eb;
+}
+.section-title:first-child {
+  margin-top: 0;
 }
 .actions {
   display: flex;
@@ -966,10 +975,10 @@ function guideFeedbackLabel(value?: string) {
 }
 .report-preview {
   margin-top: 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   max-height: 400px;
   overflow: auto;
 }
@@ -981,17 +990,17 @@ function guideFeedbackLabel(value?: string) {
 .event-payload {
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: #64748b;
   white-space: pre-wrap;
 }
 .ai-section {
   margin-bottom: 16px;
 }
 .ai-conclusion {
-  padding: 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #f8fafc 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
 }
 .ai-header {
   margin-bottom: 8px;
@@ -1000,17 +1009,18 @@ function guideFeedbackLabel(value?: string) {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
+  color: #334155;
 }
 .version-bar {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
+  padding: 12px 16px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
 }
 .version-info {
   margin-bottom: 16px;
@@ -1022,10 +1032,10 @@ function guideFeedbackLabel(value?: string) {
 }
 .comment-section {
   margin-top: 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
 }
 .comment-actions {
   margin-top: 12px;
