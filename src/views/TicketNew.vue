@@ -153,6 +153,7 @@ const form = reactive({
 const occurredRange = ref<[string, string] | null>(null)
 
 const fileList = ref<UploadUserFile[]>([])
+const tempFileMap = ref<Map<string, string>>(new Map())
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 const sites = ref<Site[]>([])
@@ -228,17 +229,21 @@ function beforeUpload(rawFile: UploadRawFile): boolean {
 
 async function uploadFileAction(options: UploadRequestOptions) {
   const rawFile = options.file as File
+  const uid = String(options.file.uid)
   try {
     const [info] = await uploadTicketFiles([rawFile], (percent) => {
       options.onProgress({ percent } as any)
     })
+    tempFileMap.value.set(uid, info.tempFileId)
     options.onSuccess(info)
   } catch (e) {
+    tempFileMap.value.delete(uid)
     options.onError(e as any)
   }
 }
 
-function onFileRemove() {
+function onFileRemove(file: UploadFile) {
+  tempFileMap.value.delete(String(file.uid))
   if (error.value === '所有上传文件总大小不能超过 200MB') {
     const total = currentTotalBytes()
     if (total <= MAX_UPLOAD_BYTES) {
@@ -249,8 +254,8 @@ function onFileRemove() {
 
 function getTempFileIds(): string[] {
   return fileList.value
-    .filter((f) => f.status === 'success' && (f.response as any)?.tempFileId)
-    .map((f) => (f.response as any).tempFileId as string)
+    .filter((f) => f.status === 'success' && tempFileMap.value.has(String(f.uid)))
+    .map((f) => tempFileMap.value.get(String(f.uid))!)
 }
 
 function hasUploadingFiles(): boolean {
