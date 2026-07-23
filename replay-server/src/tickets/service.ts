@@ -214,6 +214,12 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId:
             const ids = m.ruleSnapshot?.vehicleCategoryIds || [];
             return ids.length === 0 || ids.includes(catId);
           });
+          const keptRuleIds = new Set(session.data.knowledgeMatches.map((m) => m.ruleId));
+          session.data.overview.rootCauses = (session.data.overview.rootCauses || []).filter((rc) => {
+            if (rc.source !== 'knowledge_base') return true;
+            if (!rc.knowledgeRuleId) return false;
+            return keptRuleIds.has(rc.knowledgeRuleId);
+          });
         }
       }
 
