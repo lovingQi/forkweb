@@ -324,11 +324,12 @@ test.describe.serial('工单主流程', () => {
 
       const createRes = await page.request.post(`${apiBase}/api/tickets`, {
         headers: { Authorization: `Bearer ${afterSalesToken}` },
-        multipart: {
+        data: {
           title: `分页测试工单 ${String(i).padStart(2, '0')}`,
           description: '验证列表分页',
-          siteId: String(siteId),
-          tempFileIds: uploadBody.files[0].tempFileId
+          siteId,
+          tempFileIds: uploadBody.files[0].tempFileId,
+          aiEnabled: 'false'
         }
       })
       expect(createRes.ok()).toBeTruthy()
