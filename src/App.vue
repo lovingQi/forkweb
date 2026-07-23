@@ -15,22 +15,6 @@
             <el-icon><DataAnalysis /></el-icon>
             <span>日志诊断</span>
           </el-menu-item>
-          <el-menu-item index="/dashboard">
-            <el-icon><Monitor /></el-icon>
-            <span>监控总览</span>
-          </el-menu-item>
-          <el-menu-item index="/laser">
-            <el-icon><Aim /></el-icon>
-            <span>激光配置</span>
-          </el-menu-item>
-          <el-menu-item index="/avoid">
-            <el-icon><MagicStick /></el-icon>
-            <span>避障配置</span>
-          </el-menu-item>
-          <el-menu-item index="/control">
-            <el-icon><Operation /></el-icon>
-            <span>控制面板</span>
-          </el-menu-item>
           <el-menu-item index="/sites">
             <el-icon><OfficeBuilding /></el-icon>
             <span>现场管理</span>
