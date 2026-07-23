@@ -19,6 +19,7 @@ import {
   assignTicket,
   cancelTicket,
   createKnowledgeFromTicket,
+  createTicketWithTempFiles,
   createTicketWithUploads,
   escalateToRd,
   getTicketDetail,
@@ -32,6 +33,7 @@ import {
   updateTicketIssueType,
   verifyTicket
 } from './service';
+import { saveTempFile } from '../upload/tempFiles';
 
 const router = Router();
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -73,12 +75,50 @@ function getBaseUrl(req: AuthRequest): string {
   return `${protocol}://${host}`;
 }
 
+// 预上传文件（创建工单前使用）
+router.post(
+  '/upload-files',
+  authMiddleware,
+  requireRole('after_sales', 'admin'),
+  uploadTicketFiles,
+  async (req: AuthRequest, res) => {
+    try {
+      const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
+      if (uploadedFiles.length === 0) {
+        res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
+        return;
+      }
+      const totalUploadBytes = uploadedFiles.reduce((total, file) => total + file.size, 0);
+      if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+        res.status(413).json({ succeed: false, error: '所有上传文件总大小不能超过 200MB' });
+        return;
+      }
+
+      const records = await Promise.all(
+        uploadedFiles.map((f) => saveTempFile(f.path, f.originalname, f.size, req.user!.id))
+      );
+
+      res.json({
+        succeed: true,
+        files: records.map((r) => ({
+          tempFileId: r.tempFileId,
+          originalName: r.originalName,
+          size: r.size
+        }))
+      });
+    } catch (e) {
+      res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      await removeUploadedTempFiles(req);
+    }
+  }
+);
+
 // 创建工单（售后）
 router.post(
   '/',
   authMiddleware,
   requireRole('after_sales', 'admin'),
-  uploadTicketFiles,
   async (req: AuthRequest, res) => {
     try {
       const title = String(req.body.title || '').trim();
@@ -88,14 +128,14 @@ router.post(
         return;
       }
 
-      const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
-      if (uploadedFiles.length === 0) {
+      const rawTempFileIds = req.body.tempFileIds;
+      const tempFileIds = Array.isArray(rawTempFileIds)
+        ? (rawTempFileIds as string[])
+        : rawTempFileIds
+          ? [String(rawTempFileIds)]
+          : [];
+      if (tempFileIds.length === 0) {
         res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
-        return;
-      }
-      const totalUploadBytes = uploadedFiles.reduce((total, file) => total + file.size, 0);
-      if (totalUploadBytes > MAX_UPLOAD_BYTES) {
-        res.status(413).json({ succeed: false, error: '所有上传文件总大小不能超过 200MB' });
         return;
       }
 
@@ -116,11 +156,10 @@ router.post(
         }
       }
 
-      const ticket = await createTicketWithUploads({
+      const ticket = await createTicketWithTempFiles({
         title,
         description,
-        filePaths: uploadedFiles.map((f) => f.path),
-        originalNames: uploadedFiles.map((f) => f.originalname),
+        tempFileIds,
         reporter: req.user!,
         siteId,
         vehicleModelId,
@@ -137,8 +176,6 @@ router.post(
       res.json({ succeed: true, ticket: serializeTicket(ticket) });
     } catch (e) {
       res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      await removeUploadedTempFiles(req);
     }
   }
 );

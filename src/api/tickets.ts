@@ -88,6 +88,33 @@ export interface TicketEvent {
   createdAt: string
 }
 
+export interface TempFileInfo {
+  tempFileId: string
+  originalName: string
+  size: number
+}
+
+export async function uploadTicketFiles(
+  files: File[],
+  onProgress?: (percent: number) => void
+): Promise<TempFileInfo[]> {
+  const data = new FormData()
+  for (const file of files) {
+    data.append('files', file)
+  }
+  const { data: res } = await ticketHttp.post('/tickets/upload-files', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+    onUploadProgress: (progressEvent) => {
+      if (!onProgress || !progressEvent.total) return
+      const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+      onProgress(percent)
+    }
+  })
+  if (!res.succeed) throw new Error(res.error || '文件预上传失败')
+  return res.files as TempFileInfo[]
+}
+
 export async function createTicket(form: {
   title: string
   description: string
@@ -97,7 +124,8 @@ export async function createTicket(form: {
   impactLevel?: string
   occurredStartAt?: string
   occurredEndAt?: string
-  files: File[]
+  tempFileIds?: string[]
+  files?: File[]
   aiEnabled?: boolean
 }): Promise<Ticket> {
   const data = new FormData()
@@ -109,9 +137,18 @@ export async function createTicket(form: {
   if (form.impactLevel) data.append('impactLevel', form.impactLevel)
   if (form.occurredStartAt) data.append('occurredStartAt', form.occurredStartAt)
   if (form.occurredEndAt) data.append('occurredEndAt', form.occurredEndAt)
-  for (const file of form.files) {
-    data.append('files', file)
+
+  if (form.tempFileIds && form.tempFileIds.length > 0) {
+    for (const id of form.tempFileIds) {
+      data.append('tempFileIds', id)
+    }
+  } else if (form.files && form.files.length > 0) {
+    // 兜底兼容旧逻辑
+    for (const file of form.files) {
+      data.append('files', file)
+    }
   }
+
   data.append('aiEnabled', form.aiEnabled ? 'true' : 'false')
   const { data: res } = await ticketHttp.post('/tickets', data, {
     headers: { 'Content-Type': 'multipart/form-data' }

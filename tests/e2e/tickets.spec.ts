@@ -176,6 +176,9 @@ test.describe.serial('工单主流程', () => {
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles(sampleLogPath)
 
+    // 等待文件预上传完成
+    await expect(page.locator('.upload-file-status.success')).toBeVisible({ timeout: 60_000 })
+
     await page.getByRole('button', { name: '提交工单' }).click()
     await page.waitForURL(/\/tickets\/\d+/)
     ticketDetailUrl = page.url()
@@ -309,13 +312,23 @@ test.describe.serial('工单主流程', () => {
     // 通过 API 批量创建 26 个工单，确保无论是否包含主流程工单都能出现第二页
     const logBuffer = await fs.readFile(sampleLogPath)
     for (let i = 1; i <= 26; i++) {
+      const uploadRes = await page.request.post(`${apiBase}/api/tickets/upload-files`, {
+        headers: { Authorization: `Bearer ${afterSalesToken}` },
+        multipart: {
+          files: { name: 'sample.log', mimeType: 'text/plain', buffer: logBuffer }
+        }
+      })
+      expect(uploadRes.ok()).toBeTruthy()
+      const uploadBody = await uploadRes.json() as { succeed: boolean; files: { tempFileId: string }[] }
+      expect(uploadBody.succeed).toBeTruthy()
+
       const createRes = await page.request.post(`${apiBase}/api/tickets`, {
         headers: { Authorization: `Bearer ${afterSalesToken}` },
         multipart: {
           title: `分页测试工单 ${String(i).padStart(2, '0')}`,
           description: '验证列表分页',
           siteId: String(siteId),
-          files: { name: 'sample.log', mimeType: 'text/plain', buffer: logBuffer }
+          tempFileIds: uploadBody.files[0].tempFileId
         }
       })
       expect(createRes.ok()).toBeTruthy()
@@ -452,7 +465,7 @@ test.describe.serial('工单主流程', () => {
       Object.defineProperty(file, 'size', { value: 201 * 1024 * 1024 })
     })
 
-    await page.getByRole('button', { name: '提交工单' }).click()
+    // 文件选择后立即触发 beforeUpload 校验， oversized 文件会被拒绝
     await expect(page.getByText('所有上传文件总大小不能超过 200MB')).toBeVisible()
   })
 

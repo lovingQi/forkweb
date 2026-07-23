@@ -80,6 +80,9 @@ test('真实日志端到端分析流程', async () => {
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles(realLogPath)
 
+    // 等待文件预上传完成
+    await expect(page.locator('.upload-file-status.success')).toBeVisible({ timeout: 60_000 })
+
     await page.getByRole('button', { name: '提交工单' }).click()
     await page.waitForURL(/\/tickets\/\d+/)
     await expect(page.locator('.ticket-title').getByText('真实日志端到端测试')).toBeVisible()

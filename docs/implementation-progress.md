@@ -30,6 +30,7 @@
 | 22 | 知识库车型类别绑定 | ✅ 已完成 | 2026-07-23 | - |
 | 23 | 前端美化与品牌 | ✅ 已完成 | 2026-07-23 | - |
 | 24 | 大日志 OOM 修复 | ✅ 已完成 | 2026-07-23 | - |
+| 25 | 文件预上传 | ✅ 已完成 | 2026-07-23 | - |
 
 ## 审查修复（2026-07-22）
 
@@ -63,6 +64,26 @@
   - `npm run replay:verify:knowledge` 通过。
   - `npm run replay:verify:assistant` 失败原因为当前环境 Node 16 缺少全局 `fetch`（项目预期 Node 20），与本次改动无关。
   - 20MB 合成大日志 OOM 机制验证通过：`rawLines` 成功落盘、会话缓存不再包含巨量 `rawLines`、`buildJsonReport` 可正常序列化。
+- **阻塞项**：无
+
+---
+
+## 阶段 25：文件预上传
+
+- **状态**：✅ 已完成
+- **对应决策编号**：113-116
+- **改动摘要**：
+  - 后端：新增 `replay-server/src/upload/tempFiles.ts`，实现预上传临时文件管理（保存、读取、删除、24 小时过期清理）。
+  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`，接收文件后存入临时目录并返回 `tempFileId`。
+  - 后端：`replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`，根据 `tempFileIds` 把临时文件正式移入工单目录，成功后删除临时文件。
+  - 后端：`POST /api/tickets` 改为接收 `tempFileIds` 而不是 `files`；`replay-server/src/core/storageCleaner.ts` 跳过 `pending` 目录并单独清理过期预上传文件。
+  - 前端：`src/api/tickets.ts` 新增 `uploadTicketFiles`，支持上传进度回调；`createTicket` 支持 `tempFileIds` 并保留旧 `files` 兼容。
+  - 前端：`src/stores/tickets.ts` 的 `createTicket` action 支持 `tempFileIds`。
+  - 前端：`src/views/TicketNew.vue` 改为选择/拖入文件后自动上传，显示上传进度条、文件大小、上传状态；提交工单时只传 `tempFileIds`，提交按钮不再被上传阻塞。
+- **验证方式**：
+  - `npm run typecheck` 通过。
+  - `npm run replay:build` 通过。
+  - 手动测试：选择文件后自动上传并显示进度，提交工单响应 <3 秒，后台分析正常触发。
 - **阻塞项**：无
 
 ---
