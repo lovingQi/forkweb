@@ -46,4 +46,4 @@ RUN mkdir -p /app/data/cache /app/data/config
 
 EXPOSE 8080
 
-CMD ["node", "replay-server/dist/index.js"]
+CMD ["node", "--max-old-space-size=1024", "replay-server/dist/index.js"]
