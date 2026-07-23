@@ -624,6 +624,41 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 
 ---
 
+## 阶段 25：文件预上传
+
+### 目标
+
+- 用户在「新建工单」页面拖入/选择文件后，文件立即开始上传并显示进度条。
+- 点击「提交工单」时只提交元信息（标题、现场、车型、描述、时间、影响程度、AI 开关）和已上传文件的临时 ID。
+- 提交工单响应快速（<3 秒），不再被大文件上传阻塞。
+- 临时文件 24 小时过期自动清理。
+
+### 步骤
+
+1. 新增 `replay-server/src/upload/tempFiles.ts`：实现预上传临时文件管理，包括保存、读取、删除、24 小时过期清理。
+2. `replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`：接收 `files`，总大小校验 ≤200MB，保存到 `CACHE_DIR/uploads/pending/<uuid>`，返回 `{ tempFileId, originalName, size }`。
+3. `replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`：根据 `tempFileIds` 读取临时文件，调用 `createTicketWithUploads` 移入工单目录，成功后删除临时文件。
+4. 修改 `POST /api/tickets`：不再接收 `files`，改为接收 `tempFileIds: string[]`。
+5. 修改 `replay-server/src/core/storageCleaner.ts`：跳过 `CACHE_DIR/uploads/pending` 目录，并调用 `cleanupExpiredTempFiles` 单独清理 24 小时过期的预上传文件。
+6. 前端 `src/api/tickets.ts` 新增 `uploadTicketFiles(files, onProgress)`；修改 `createTicket` 支持 `tempFileIds`，保留旧 `files` 参数兜底兼容。
+7. 前端 `src/stores/tickets.ts` 的 `createTicket` action 支持 `tempFileIds`。
+8. 前端 `src/views/TicketNew.vue`：
+   - `el-upload` 改为 `:auto-upload="true"`，使用 `:http-request="uploadFileAction"`。
+   - 显示每个文件的上传进度条、文件大小、上传状态。
+   - 提交工单时只收集 `tempFileId`，调用 `createTicket`。
+   - 提交按钮 loading 仅表示元信息提交中，不再被上传阻塞。
+9. 更新四个文档：`implementation-progress.md`、`implementation-plan.md`、`product-development-todo.md`、`product-key-decisions.md`。
+
+### 验收标准
+
+- 选择文件后立即开始上传，进度条可见。
+- 提交工单请求在 3 秒内返回。
+- 创建工单成功后临时文件被删除。
+- 超过 24 小时未使用的临时文件被自动清理。
+- `npm run typecheck` 和 `npm run replay:build` 通过。
+
+---
+
 ## 5. 风险与回退策略
 
 1. **数据库迁移失败**：所有迁移在 `migrate.ts` 中通过 `columnExists`/`tableExists` 做幂等判断；关键重命名迁移先备份数据到临时表。

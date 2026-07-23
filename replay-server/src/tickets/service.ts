@@ -7,6 +7,7 @@ import { createTicketEvent, listTicketEvents } from '../db/events';
 import { createAnalysisVersion } from '../db/analysisVersions';
 import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
+import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { sendWechatWorkNotification } from '../notify/wechatWork';
 import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
@@ -126,6 +127,36 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
   });
 
   return updated;
+}
+
+export interface CreateTicketWithTempFilesInput extends Omit<CreateTicketServiceInput, 'filePaths' | 'originalNames'> {
+  tempFileIds: string[];
+}
+
+export async function createTicketWithTempFiles(input: CreateTicketWithTempFilesInput): Promise<DbTicket> {
+  const tempFiles = await getTempFiles(input.tempFileIds);
+  if (tempFiles.length === 0) {
+    throw new Error('请至少上传一个文件');
+  }
+  if (tempFiles.length !== input.tempFileIds.length) {
+    throw new Error('部分临时文件已过期或不存在，请重新上传');
+  }
+
+  const totalSize = tempFiles.reduce((sum, f) => sum + f.size, 0);
+  if (totalSize > MAX_UPLOAD_BYTES) {
+    throw new Error('所有上传文件总大小不能超过 200MB');
+  }
+
+  const ticket = await createTicketWithUploads({
+    ...input,
+    filePaths: tempFiles.map((f) => f.path),
+    originalNames: tempFiles.map((f) => f.originalName)
+  });
+
+  // 创建成功后删除临时文件记录
+  await Promise.all(input.tempFileIds.map((id) => deleteTempFile(id).catch(() => undefined)));
+
+  return ticket;
 }
 
 export async function startTicketAnalysis(ticketId: number, actor: AuthUser): Promise<DbTicket> {

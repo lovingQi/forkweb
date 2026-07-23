@@ -29,6 +29,7 @@
 | 21 | 车型管理 | ✅ 已完成 | 2026-07-23 | - |
 | 22 | 知识库车型类别绑定 | ✅ 已完成 | 2026-07-23 | - |
 | 23 | 前端美化与品牌 | ✅ 已完成 | 2026-07-23 | - |
+| 25 | 文件预上传 | ✅ 已完成 | 2026-07-23 | 注：阶段 24 未合并 |
 
 ## 审查修复（2026-07-22）
 
@@ -39,6 +40,26 @@
 - **E2E 隔离**：工单 E2E 必须显式指定 `REPLAY_E2E_BASE_URL`、`REPLAY_E2E_API_BASE`；后端支持通过 `FORKWEB_CACHE_DIR` 与 `FORKWEB_CONFIG_DIR` 指向独立测试数据目录，避免污染默认数据。
 - **验证环境说明**：隔离前端可通过 `VITE_REPLAY_API_BASE` 与 `VITE_REPLAY_WS_BASE` 覆盖 `public/config.js` 中的默认地址；工单 E2E 的隔离启动需使用 Node 20，以匹配 `better-sqlite3` 原生模块与 Vite 运行时要求。
 - **本轮验证结果**：`npm run typecheck`、`npm run replay:build`、`git diff --check` 均通过。隔离 E2E 使用独立缓存、配置与端口运行，前 8 个用例（登录、建单、状态流、重新分析、版本切换、差异对比）通过；后续用例未在 180 秒内完成，需单独拆分排查，未影响默认项目数据。
+
+---
+
+## 阶段 25：文件预上传
+
+- **状态**：✅ 已完成
+- **对应决策编号**：113-116
+- **改动摘要**：
+  - 后端：新增 `replay-server/src/upload/tempFiles.ts`，实现预上传临时文件管理（保存、读取、删除、24 小时过期清理）。
+  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`，接收文件后存入临时目录并返回 `tempFileId`。
+  - 后端：`replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`，根据 `tempFileIds` 把临时文件正式移入工单目录，成功后删除临时文件。
+  - 后端：`POST /api/tickets` 改为接收 `tempFileIds` 而不是 `files`；`replay-server/src/core/storageCleaner.ts` 跳过 `pending` 目录并单独清理过期预上传文件。
+  - 前端：`src/api/tickets.ts` 新增 `uploadTicketFiles`，支持上传进度回调；`createTicket` 支持 `tempFileIds` 并保留旧 `files` 兼容。
+  - 前端：`src/stores/tickets.ts` 的 `createTicket` action 支持 `tempFileIds`。
+  - 前端：`src/views/TicketNew.vue` 改为选择/拖入文件后自动上传，显示上传进度条、文件大小、上传状态；提交工单时只传 `tempFileIds`，提交按钮不再被上传阻塞。
+- **验证方式**：
+  - `npm run typecheck` 通过。
+  - `npm run replay:build` 通过。
+  - 手动测试：选择文件后自动上传并显示进度，提交工单响应 <3 秒，后台分析正常触发。
+- **阻塞项**：无
 
 ---
 

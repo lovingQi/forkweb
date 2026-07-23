@@ -77,9 +77,10 @@
             v-model:file-list="fileList"
             drag
             multiple
-            :auto-upload="false"
-            :on-change="onFilesChange"
-            :on-remove="onFilesChange"
+            :auto-upload="true"
+            :before-upload="beforeUpload"
+            :http-request="uploadFileAction"
+            :on-remove="onFileRemove"
             action="#"
           >
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
@@ -88,7 +89,25 @@
             </div>
             <template #tip>
               <div class="upload-tip">
-                支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB。压缩包会自动解压，自动识别 .log 日志与 .json 地图。
+                支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB。压缩包会自动解压，自动识别 .log 日志与 .json 地图。文件会在选择后自动上传。
+              </div>
+            </template>
+            <template #file="{ file }">
+              <div class="upload-file-item">
+                <div class="upload-file-name">
+                  <el-icon><Document /></el-icon>
+                  <span>{{ file.name }}</span>
+                  <span class="upload-file-size">({{ formatFileSize(file.size || 0) }})</span>
+                </div>
+                <el-progress
+                  v-if="file.status === 'uploading'"
+                  :percentage="file.percentage || 0"
+                  :stroke-width="4"
+                  :show-text="true"
+                  status="primary"
+                />
+                <div v-else-if="file.status === 'success'" class="upload-file-status success">上传完成</div>
+                <div v-else-if="file.status === 'fail'" class="upload-file-status error">上传失败</div>
               </div>
             </template>
           </el-upload>
@@ -110,11 +129,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { Document, UploadFilled } from '@element-plus/icons-vue'
 import { useTicketStore } from '@/stores/tickets'
 import { listSites, type Site } from '@/api/sites'
 import { listCategories, listModels, type VehicleCategory, type VehicleModel } from '@/api/vehicles'
-import type { UploadFile, UploadUserFile } from 'element-plus'
+import { uploadTicketFiles } from '@/api/tickets'
+import type { UploadFile, UploadRawFile, UploadRequestOptions, UploadUserFile } from 'element-plus'
 
 const router = useRouter()
 const ticketStore = useTicketStore()
@@ -182,13 +202,59 @@ onMounted(async () => {
   }
 })
 
-function onFilesChange() {
-  const totalUploadBytes = fileList.value.reduce((total, file) => total + (file.raw?.size || file.size || 0), 0)
-  if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
+}
+
+function currentTotalBytes(): number {
+  return fileList.value.reduce((total, file) => total + (file.size || 0), 0)
+}
+
+function beforeUpload(rawFile: UploadRawFile): boolean {
+  const wouldTotal = currentTotalBytes() + rawFile.size
+  if (wouldTotal > MAX_UPLOAD_BYTES) {
     error.value = '所有上传文件总大小不能超过 200MB'
-  } else if (error.value === '所有上传文件总大小不能超过 200MB') {
+    return false
+  }
+  if (error.value === '所有上传文件总大小不能超过 200MB') {
     error.value = ''
   }
+  return true
+}
+
+async function uploadFileAction(options: UploadRequestOptions) {
+  const rawFile = options.file as File
+  try {
+    const [info] = await uploadTicketFiles([rawFile], (percent) => {
+      options.onProgress({ percent } as any)
+    })
+    options.onSuccess(info)
+  } catch (e) {
+    options.onError(e as any)
+  }
+}
+
+function onFileRemove() {
+  if (error.value === '所有上传文件总大小不能超过 200MB') {
+    const total = currentTotalBytes()
+    if (total <= MAX_UPLOAD_BYTES) {
+      error.value = ''
+    }
+  }
+}
+
+function getTempFileIds(): string[] {
+  return fileList.value
+    .filter((f) => f.status === 'success' && (f.response as any)?.tempFileId)
+    .map((f) => (f.response as any).tempFileId as string)
+}
+
+function hasUploadingFiles(): boolean {
+  return fileList.value.some((f) => f.status === 'uploading')
 }
 
 async function onSubmit() {
@@ -205,13 +271,20 @@ async function onSubmit() {
     error.value = '请选择车型'
     return
   }
-  const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
-  if (rawFiles.length === 0) {
+  if (fileList.value.length === 0) {
     error.value = '请至少上传一个文件'
     return
   }
-  const totalUploadBytes = rawFiles.reduce((total, file) => total + file.size, 0)
-  if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+  if (hasUploadingFiles()) {
+    error.value = '请等待文件上传完成后再提交'
+    return
+  }
+  const tempFileIds = getTempFileIds()
+  if (tempFileIds.length === 0) {
+    error.value = '文件上传未完成或失败，请重新上传'
+    return
+  }
+  if (currentTotalBytes() > MAX_UPLOAD_BYTES) {
     error.value = '所有上传文件总大小不能超过 200MB'
     return
   }
@@ -225,7 +298,7 @@ async function onSubmit() {
       impactLevel: form.impactLevel,
       occurredStartAt: occurredRange.value?.[0],
       occurredEndAt: occurredRange.value?.[1],
-      files: rawFiles,
+      tempFileIds,
       aiEnabled: form.aiEnabled
     })
     router.push(`/tickets/${ticket.id}`)
@@ -260,5 +333,29 @@ async function onSubmit() {
 }
 :deep(.el-upload-dragger) {
   width: 100%;
+}
+.upload-file-item {
+  padding: 8px 0;
+}
+.upload-file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+}
+.upload-file-size {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.upload-file-status {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.upload-file-status.success {
+  color: #22c55e;
+}
+.upload-file-status.error {
+  color: #ef4444;
 }
 </style>

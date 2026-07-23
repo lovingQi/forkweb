@@ -81,7 +81,8 @@ export const useTicketStore = defineStore('tickets', () => {
     impactLevel?: string
     occurredStartAt?: string
     occurredEndAt?: string
-    files: File[]
+    tempFileIds?: string[]
+    files?: File[]
     aiEnabled?: boolean
   }) {
     const ticket = await apiCreate(form)
