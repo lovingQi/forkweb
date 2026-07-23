@@ -115,15 +115,26 @@ export async function createTicket(form: {
   return res.ticket
 }
 
-export async function listTickets(filters?: { status?: string; reporterId?: number; siteId?: number; issueType?: string }): Promise<Ticket[]> {
+export interface ListTicketsFilters {
+  status?: string
+  reporterId?: number
+  siteId?: number
+  issueType?: string
+  page?: number
+  pageSize?: number
+}
+
+export async function listTickets(filters?: ListTicketsFilters): Promise<{ tickets: Ticket[]; total: number }> {
   const params: Record<string, string> = {}
   if (filters?.status) params.status = filters.status
   if (filters?.reporterId !== undefined) params.reporterId = String(filters.reporterId)
   if (filters?.siteId !== undefined) params.siteId = String(filters.siteId)
   if (filters?.issueType) params.issueType = filters.issueType
+  if (filters?.page !== undefined) params.page = String(filters.page)
+  if (filters?.pageSize !== undefined) params.pageSize = String(filters.pageSize)
   const { data } = await ticketHttp.get('/tickets', { params })
   if (!data.succeed) throw new Error(data.error || '获取工单失败')
-  return data.tickets
+  return { tickets: data.tickets, total: data.total }
 }
 
 export async function getTicket(id: number): Promise<{ ticket: Ticket; events: TicketEvent[] }> {
@@ -289,6 +300,19 @@ export async function updateTicketBasicInfo(id: number, input: UpdateTicketBasic
 export async function addTicketComment(id: number, content: string): Promise<void> {
   const { data } = await ticketHttp.post(`/tickets/${id}/comments`, { content })
   if (!data.succeed) throw new Error(data.error || '发表评论失败')
+}
+
+export async function appendFiles(id: number, files: File[], reanalyze?: boolean): Promise<Ticket> {
+  const data = new FormData()
+  for (const file of files) {
+    data.append('files', file)
+  }
+  data.append('reanalyze', reanalyze ? 'true' : 'false')
+  const { data: res } = await ticketHttp.post(`/tickets/${id}/files`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  if (!res.succeed) throw new Error(res.error || '补充上传失败')
+  return res.ticket
 }
 
 export async function listAnalysisVersions(ticketId: number): Promise<AnalysisVersion[]> {

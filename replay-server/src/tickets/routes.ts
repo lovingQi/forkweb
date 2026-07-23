@@ -14,6 +14,7 @@ import { listTroubleshootingStepsByPathIds } from '../db/troubleshootingSteps';
 import { listLatestStepEventsByStepIds } from '../db/stepEvents';
 import {
   addTicketComment,
+  appendFilesToTicket,
   assignTicket,
   cancelTicket,
   createKnowledgeFromTicket,
@@ -145,13 +146,17 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
     const reporterId = req.query.reporterId ? Number(req.query.reporterId) : undefined;
     const siteId = req.query.siteId ? Number(req.query.siteId) : undefined;
     const issueType = req.query.issueType ? String(req.query.issueType).trim() : undefined;
-    const tickets = await listUserTickets(req.user!, {
+    const page = req.query.page ? Number(req.query.page) : undefined;
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+    const { tickets, total } = await listUserTickets(req.user!, {
       status,
       reporterId: Number.isFinite(reporterId) ? reporterId : undefined,
       siteId: Number.isFinite(siteId) && siteId! > 0 ? siteId : undefined,
-      issueType
+      issueType,
+      page: Number.isFinite(page) && page! > 0 ? page : undefined,
+      pageSize: Number.isFinite(pageSize) && pageSize! > 0 ? pageSize : undefined
     });
-    res.json({ succeed: true, tickets: tickets.map(serializeTicket) });
+    res.json({ succeed: true, tickets: tickets.map(serializeTicket), total });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
@@ -281,6 +286,42 @@ router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+// 补充上传日志
+router.post(
+  '/:id/files',
+  authMiddleware,
+  uploadTicketFiles,
+  async (req: AuthRequest, res) => {
+    try {
+      const ticketId = Number(req.params.id);
+      const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
+      if (uploadedFiles.length === 0) {
+        res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
+        return;
+      }
+      const totalUploadBytes = uploadedFiles.reduce((total, file) => total + file.size, 0);
+      if (totalUploadBytes > MAX_UPLOAD_BYTES) {
+        res.status(413).json({ succeed: false, error: '所有上传文件总大小不能超过 200MB' });
+        return;
+      }
+
+      const reanalyze = req.body.reanalyze === 'true' || req.body.reanalyze === true;
+      const ticket = await appendFilesToTicket(
+        ticketId,
+        req.user!,
+        uploadedFiles.map((f) => f.path),
+        uploadedFiles.map((f) => f.originalname),
+        { reanalyze }
+      );
+      res.json({ succeed: true, ticket: serializeTicket(ticket) });
+    } catch (e) {
+      res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      await removeUploadedTempFiles(req);
+    }
+  }
+);
 
 // 重新分析
 router.post('/:id/analyze', authMiddleware, async (req: AuthRequest, res) => {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import path from 'path'
 import { readJsonStore, writeJsonStore } from '../db/jsonStore'
+import { sendWechatWorkNotification } from '../notify/wechatWork'
 import type {
   KnowledgeEvidencePattern,
   KnowledgeLibrary,
@@ -154,6 +155,7 @@ export async function recordKnowledgeRuleFeedback(
   if (uniqueRuleIds.length === 0) return []
   const library = await readKnowledgeLibrary()
   const updated: KnowledgeRule[] = []
+  const needsReviewTitles: string[] = []
   for (const rule of library.rules) {
     if (!uniqueRuleIds.includes(rule.id)) continue
     const feedbackStats = { ...rule.feedbackStats, [feedback]: rule.feedbackStats[feedback] + 1 }
@@ -168,8 +170,16 @@ export async function recordKnowledgeRuleFeedback(
     const index = library.rules.findIndex((item) => item.id === rule.id)
     library.rules[index] = next
     updated.push(next)
+    if (needsReview) needsReviewTitles.push(next.title)
   }
   if (updated.length > 0) await writeKnowledgeLibrary(library)
+  if (needsReviewTitles.length > 0) {
+    const titles = needsReviewTitles.map((t) => `"${t}"`).join('、')
+    void sendWechatWorkNotification({
+      title: '知识规则需要复查',
+      text: `知识规则 ${titles} 等已连续收到 ${USELESS_FEEDBACK_REVIEW_THRESHOLD} 次“没用”反馈，需要研发复查。`
+    })
+  }
   return updated
 }
 

@@ -142,6 +142,10 @@
               @click="onReanalyze"
             >重新分析</el-button>
             <el-button
+              v-if="canAppendFiles"
+              @click="openAppendDialog"
+            >补充上传</el-button>
+            <el-button
               v-if="canEditBasicInfo"
               @click="openBasicInfoDialog"
             >编辑基本信息</el-button>
@@ -304,6 +308,33 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="appendDialogVisible" title="补充上传日志" width="600px">
+      <el-upload
+        v-model:file-list="appendFileList"
+        action="#"
+        :auto-upload="false"
+        multiple
+        :show-file-list="true"
+        drag
+        style="width: 100%"
+      >
+        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+        <div class="el-upload__text">
+          拖拽文件到此处或 <em>点击上传</em>
+        </div>
+        <template #tip>
+          <div class="upload-tip">
+            支持 .log、.zip、.tar.gz 格式，追加后日志总量不超过 200MB。
+          </div>
+        </template>
+      </el-upload>
+      <el-checkbox v-model="appendReanalyze" style="margin-top: 16px">上传后重新分析</el-checkbox>
+      <template #footer>
+        <el-button @click="appendDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="loadingAction === 'appendFiles'" @click="onAppendFiles">上传</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="diffDialogVisible" title="分析版本差异对比" width="700px">
       <AnalysisVersionDiff
         v-if="diffBaseVersion && diffTargetVersion"
@@ -351,9 +382,11 @@ import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
 import { getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
 import { listSites, type Site } from '@/api/sites'
+import type { UploadUserFile } from 'element-plus'
 import AnalysisVersionDiff from '@/components/AnalysisVersionDiff.vue'
 import TicketTroubleshootingGuide from '@/components/TicketTroubleshootingGuide.vue'
 import TicketEvidencePanel from '@/components/TicketEvidencePanel.vue'
+import { UploadFilled } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -379,6 +412,9 @@ const cancelDialogVisible = ref(false)
 const basicInfoDialogVisible = ref(false)
 const commentContent = ref('')
 const commentError = ref('')
+const appendDialogVisible = ref(false)
+const appendFileList = ref<UploadUserFile[]>([])
+const appendReanalyze = ref(false)
 const loadingSites = ref(false)
 const sites = ref<Site[]>([])
 const basicInfoForm = reactive({
@@ -544,6 +580,11 @@ const canEditBasicInfo = computed(() => {
 const canComment = computed(() => {
   if (!ticket.value) return false
   return canEditIssueType.value
+})
+
+const canAppendFiles = computed(() => {
+  if (!ticket.value) return false
+  return canEditIssueType.value && !isTerminal.value
 })
 
 const issueTypeOptions = [
@@ -752,6 +793,26 @@ async function onAddComment() {
   try {
     await ticketStore.addTicketComment(ticketId.value, text)
     commentContent.value = ''
+  } finally {
+    loadingAction.value = null
+  }
+}
+
+function openAppendDialog() {
+  appendFileList.value = []
+  appendReanalyze.value = false
+  appendDialogVisible.value = true
+}
+
+async function onAppendFiles() {
+  const rawFiles = appendFileList.value.map((f) => f.raw).filter(Boolean) as File[]
+  if (rawFiles.length === 0) return
+  loadingAction.value = 'appendFiles'
+  try {
+    await ticketStore.appendFiles(ticketId.value, rawFiles, appendReanalyze.value)
+    appendDialogVisible.value = false
+    appendFileList.value = []
+    appendReanalyze.value = false
   } finally {
     loadingAction.value = null
   }

@@ -17,6 +17,7 @@ test.describe.serial('工单主流程', () => {
   let context: any
   let page: any
   let siteName: string = ''
+  let siteId: number = 0
   let afterSalesToken: string = ''
   let adminToken: string = ''
   let apiBase: string = ''
@@ -29,8 +30,8 @@ test.describe.serial('工单主流程', () => {
     page = await context.newPage()
 
     page.on('console', (message: any) => {
-      if (message.type() !== 'error') return
       const text = message.text()
+      if (message.type() !== 'error') return
       // 开发环境下 vite 代理到未启动的 8080 服务会产生 500，这里过滤掉
       if (text.includes('Failed to load resource: the server responded with a status of 500')) return
       if (text.includes('Failed to load resource: net::ERR_CONNECTION_REFUSED')) return
@@ -94,6 +95,8 @@ test.describe.serial('工单主流程', () => {
       data: { name: siteName }
     })
     expect(res.ok()).toBeTruthy()
+    const siteBody = await res.json() as { site: { id: number } }
+    siteId = siteBody.site.id
 
     // 创建一条已验证的通用排查知识规则，确保样例日志能命中
     const ruleRes = await page.request.post(`${apiBase}/api/replay/knowledge`, {
@@ -292,6 +295,51 @@ test.describe.serial('工单主流程', () => {
     await expect(page.locator('.el-table__row').first().getByText('激光')).toBeVisible()
   })
 
+  test('工单列表分页与排序', async () => {
+    test.setTimeout(120_000)
+
+    // 先读取当前列表总数，便于支持重复运行
+    const listBeforeRes = await page.request.get(`${apiBase}/api/tickets`, {
+      headers: { Authorization: `Bearer ${afterSalesToken}` }
+    })
+    expect(listBeforeRes.ok()).toBeTruthy()
+    const listBeforeBody = await listBeforeRes.json() as { total: number }
+    const expectedTotal = listBeforeBody.total + 26
+
+    // 通过 API 批量创建 26 个工单，确保无论是否包含主流程工单都能出现第二页
+    const logBuffer = await fs.readFile(sampleLogPath)
+    for (let i = 1; i <= 26; i++) {
+      const createRes = await page.request.post(`${apiBase}/api/tickets`, {
+        headers: { Authorization: `Bearer ${afterSalesToken}` },
+        multipart: {
+          title: `分页测试工单 ${String(i).padStart(2, '0')}`,
+          description: '验证列表分页',
+          siteId: String(siteId),
+          files: { name: 'sample.log', mimeType: 'text/plain', buffer: logBuffer }
+        }
+      })
+      expect(createRes.ok()).toBeTruthy()
+    }
+
+    await loginAs('after_sales')
+    await page.goto('/tickets')
+
+    // 默认每页 20 条，总数应为创建前数量加 26
+    await expect(page.locator('.el-table__row')).toHaveCount(20)
+    const totalText = await page.locator('.el-pagination__total').textContent()
+    expect(totalText).toContain(String(expectedTotal))
+    const total = Number(totalText?.match(/\d+/)?.[0])
+
+    // 默认按创建时间倒序，最新创建的排在最前
+    await expect(page.locator('.el-table__row').first().getByText('分页测试工单 26')).toBeVisible()
+
+    // 切换到第二页
+    await page.locator('.el-pagination .el-pager .number', { hasText: '2' }).click()
+    const page2Count = Math.min(20, total - 20)
+    await expect(page.locator('.el-table__row')).toHaveCount(page2Count)
+    await expect(page.locator('.el-table__row').first().getByText('分页测试工单 06')).toBeVisible()
+  })
+
   test('分析完成后展示 Top 3 排查路径', async () => {
     await loginAs('after_sales')
     await page.goto(ticketDetailUrl)
@@ -357,7 +405,7 @@ test.describe.serial('工单主流程', () => {
 
     // 展开排查路径折叠面板
     await page.locator('.el-collapse-item__header').first().click()
-    await page.waitForTimeout(500)
+    await expect(page.locator('.step-row').first()).toBeVisible()
     // 找到第一个步骤的“未通过”单选
     const stepRow = page.locator('.step-row').first()
     await stepRow.locator('.el-radio-button__inner', { hasText: '未通过' }).click()
@@ -370,6 +418,9 @@ test.describe.serial('工单主流程', () => {
     await safetyDialog.getByRole('button', { name: '已确认安全' }).click()
 
     // 找到一个步骤选择不适用，触发原因选择
+    // 安全确认后排查向导可能收起，重新展开
+    await page.locator('.el-collapse-item__header').first().click()
+    await expect(page.locator('.step-row').first()).toBeVisible()
     await stepRow.locator('.el-radio-button__inner', { hasText: '不适用' }).click()
     const reasonDialog = page.getByRole('dialog', { name: '选择不适用原因' })
     await expect(reasonDialog).toBeVisible()
@@ -467,6 +518,54 @@ test.describe.serial('工单主流程', () => {
     await page.locator('.comment-section').getByRole('button', { name: '发表评论' }).click()
 
     await expect(page.locator('.event-comment').getByText('E2E 评论内容')).toBeVisible()
+  })
+
+  test('补充上传日志并记录事件', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+
+    await page.getByRole('button', { name: '补充上传' }).click()
+    const dialog = page.getByRole('dialog', { name: '补充上传日志' })
+    await expect(dialog).toBeVisible()
+
+    const fileInput = dialog.locator('input[type="file"]')
+    await fileInput.setInputFiles(sampleLogPath)
+
+    await dialog.getByRole('button', { name: '上传', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    await page.locator('.section-title', { hasText: '事件流' }).scrollIntoViewIfNeeded()
+    await expect(page.locator('.el-timeline-item').getByText('files_appended').first()).toBeVisible()
+  })
+
+  test('补充上传后触发重新分析', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+
+    await page.getByRole('button', { name: '补充上传' }).click()
+    const dialog = page.getByRole('dialog', { name: '补充上传日志' })
+    await expect(dialog).toBeVisible()
+
+    const fileInput = dialog.locator('input[type="file"]')
+    await fileInput.setInputFiles(sampleLogPath)
+    await dialog.locator('.el-checkbox').click()
+
+    await dialog.getByRole('button', { name: '上传', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+
+    // 轮询等待重新分析完成
+    await expect(page.locator('.detail-header').getByText('分析中')).toBeVisible({ timeout: 10_000 })
+    let status = ''
+    for (let i = 0; i < 30; i++) {
+      await page.waitForTimeout(500)
+      const detailRes = await page.request.get(`${apiBase}/api/tickets/${ticketDetailUrl.match(/\/(\d+)$/)?.[1]}`, {
+        headers: { Authorization: `Bearer ${afterSalesToken}` }
+      })
+      const body = await detailRes.json() as { ticket: { status: string } }
+      status = body.ticket.status
+      if (status !== 'analyzing') break
+    }
+    expect(status).toBe('pending_field_troubleshooting')
   })
 
   test('提单人取消工单后状态变为已取消', async () => {

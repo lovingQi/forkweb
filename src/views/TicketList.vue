@@ -70,19 +70,30 @@
             <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="updatedAt" label="更新时间" width="180" />
+        <el-table-column prop="createdAt" label="创建时间" width="180" />
         <el-table-column label="操作" width="120">
           <template #default="{ row }">
             <el-button link type="primary" @click="router.push(`/tickets/${row.id}`)">查看</el-button>
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :total="ticketStore.total"
+        :page-sizes="[10, 20, 50]"
+        layout="total, sizes, prev, pager, next"
+        style="margin-top: 16px; justify-content: flex-end"
+        @update:current-page="onPageChange"
+        @update:page-size="onPageSizeChange"
+      />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
@@ -129,6 +140,8 @@ const filterIssueType = ref('')
 const users = ref<User[]>([])
 const sites = ref<Site[]>([])
 const loadingSites = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
 
 onMounted(async () => {
   if (auth.isRd) {
@@ -155,10 +168,22 @@ function loadTickets() {
   if (filterReporter.value) filters.reporterId = Number(filterReporter.value)
   if (filterSite.value) filters.siteId = Number(filterSite.value)
   if (filterIssueType.value) filters.issueType = filterIssueType.value
-  ticketStore.loadTickets(filters)
+  ticketStore.loadTickets({ ...filters, page: currentPage.value, pageSize: pageSize.value })
 }
 
 function onFilterChange() {
+  currentPage.value = 1
+  loadTickets()
+}
+
+function onPageChange(page: number) {
+  currentPage.value = page
+  loadTickets()
+}
+
+function onPageSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
   loadTickets()
 }
 

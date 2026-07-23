@@ -1,12 +1,14 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { createTicketEvent, listTicketEvents } from '../db/events';
 import { createAnalysisVersion } from '../db/analysisVersions';
-import { createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
+import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { sendRdNotificationEmail } from '../mail/sender';
+import { sendWechatWorkNotification } from '../notify/wechatWork';
 import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
 import { exportDiagnosticPackage } from '../core/diagnosticPackage';
 import { classifyFromAnalysis } from '../core/issueClassifier';
@@ -21,6 +23,7 @@ import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 interface AnalysisRun {
   id: symbol;
@@ -334,6 +337,11 @@ async function finalizeTicketAnalysis(
     action: 'analysis_completed',
     payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled, analysisVersionId: analysisVersion.id }
   });
+
+  void sendWechatWorkNotification({
+    title: '工单分析完成',
+    text: `工单 #${ticket.ticket_no} 自动分析已完成，标题：${ticket.title}，问题类型：${updatePayload.issue_type || '未分类'}，可登录系统查看。`
+  });
 }
 
 export async function updateTicketIssueType(
@@ -452,6 +460,76 @@ export async function addTicketComment(
     action: 'comment',
     payload: { content: text }
   });
+}
+
+export interface AppendFilesOptions {
+  reanalyze?: boolean;
+}
+
+export async function appendFilesToTicket(
+  ticketId: number,
+  actor: AuthUser,
+  filePaths: string[],
+  originalNames?: string[],
+  options?: AppendFilesOptions
+): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+  if (isTerminalStatus(ticket.status)) throw new Error('工单已终结，不能补充上传');
+
+  const logDir = getTicketLogDir(ticketId);
+  await fs.mkdir(logDir, { recursive: true });
+
+  const currentSize = await calculateDirSize(logDir);
+  const newSize = filePaths.reduce((total, filePath, idx) => {
+    const stat = fsSync.statSync(filePath);
+    return total + stat.size;
+  }, 0);
+  if (currentSize + newSize > MAX_UPLOAD_BYTES) {
+    throw new Error('追加后日志总量不能超过 200MB');
+  }
+
+  const fileNames: string[] = [];
+  for (let i = 0; i < filePaths.length; i++) {
+    const filePath = filePaths[i];
+    const originalName = originalNames?.[i] || path.basename(filePath);
+    const dest = path.join(logDir, originalName);
+    await fs.copyFile(filePath, dest);
+    fileNames.push(originalName);
+  }
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'files_appended',
+    payload: { fileNames, reanalyze: !!options?.reanalyze }
+  });
+
+  if (options?.reanalyze) {
+    startTicketAnalysis(ticketId, actor);
+  }
+
+  return (await getTicketById(ticketId))!;
+}
+
+async function calculateDirSize(dir: string): Promise<number> {
+  let total = 0;
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        total += await calculateDirSize(fullPath);
+      } else {
+        const stat = await fs.stat(fullPath);
+        total += stat.size;
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  return total;
 }
 
 export async function startFieldTroubleshooting(ticketId: number, actor: AuthUser): Promise<DbTicket> {
@@ -627,6 +705,11 @@ export async function escalateToRd(
     });
   }
 
+  void sendWechatWorkNotification({
+    title: '工单已升级研发',
+    text: `工单 #${updated.ticket_no} 已由售后 ${actor.username} 升级研发，原因：${reason}。[查看详情](${baseUrl}/tickets/${ticketId})`
+  });
+
   return updated;
 }
 
@@ -656,6 +739,11 @@ export async function assignTicket(ticketId: number, assignee: AuthUser): Promis
     actorId: assignee.id,
     action: 'assigned',
     payload: { assigneeId: assignee.id }
+  });
+
+  void sendWechatWorkNotification({
+    title: '工单已被认领',
+    text: `工单 #${updated.ticket_no} 已被研发 ${assignee.username} 认领。[查看详情](${process.env.REPLAY_SERVER_BASE_URL || 'http://localhost:3001'}/tickets/${ticketId})`
   });
 
   return updated;
@@ -701,6 +789,11 @@ export async function resolveTicket(
     actorId: actor.id,
     action: 'resolved_by_rd',
     payload: { solution }
+  });
+
+  void sendWechatWorkNotification({
+    title: '工单已解决',
+    text: `工单 #${updated.ticket_no} 已由研发 ${actor.username} 解决。[查看详情](${process.env.REPLAY_SERVER_BASE_URL || 'http://localhost:3001'}/tickets/${ticketId})`
   });
 
   return updated;
@@ -786,21 +879,56 @@ export async function getTicketDetail(ticketId: number): Promise<{
   return { ticket, events: mergedEvents };
 }
 
+export interface ListUserTicketsInput {
+  page?: number;
+  pageSize?: number;
+  reporterId?: number;
+  status?: TicketStatus | TicketStatus[];
+  siteId?: number;
+  issueType?: string;
+}
+
+export interface ListUserTicketsOutput {
+  tickets: Array<DbTicket & { reporter_username: string; site_name?: string }>;
+  total: number;
+}
+
 export async function listUserTickets(
   user: AuthUser,
-  filters?: { reporterId?: number; status?: TicketStatus | TicketStatus[]; siteId?: number; issueType?: string }
-): Promise<Array<DbTicket & { reporter_username: string; site_name?: string }>> {
-  const baseFilters: Parameters<typeof listTicketsWithReporter>[0] = { limit: 200 };
-  if (filters?.status !== undefined) baseFilters.status = filters.status;
-  if (filters?.siteId !== undefined) baseFilters.siteId = filters.siteId;
-  if (filters?.issueType !== undefined) baseFilters.issueType = filters.issueType;
+  filters?: ListUserTicketsInput
+): Promise<ListUserTicketsOutput> {
+  const page = Math.max(1, filters?.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, filters?.pageSize ?? 20));
+
+  const baseFilters: Parameters<typeof listTicketsWithReporter>[0] = {
+    limit: pageSize,
+    offset: (page - 1) * pageSize
+  };
+  const countFilters: Parameters<typeof countTicketsWithReporter>[0] = {};
+
+  const applyFilters = (target: typeof baseFilters) => {
+    if (filters?.status !== undefined) target.status = filters.status;
+    if (filters?.siteId !== undefined) target.siteId = filters.siteId;
+    if (filters?.issueType !== undefined) target.issueType = filters.issueType;
+  };
+  applyFilters(baseFilters);
+  applyFilters(countFilters);
 
   if (user.role === 'rd' || user.role === 'admin') {
-    if (filters?.reporterId !== undefined) baseFilters.reporterId = filters.reporterId;
-    return listTicketsWithReporter(baseFilters);
+    if (filters?.reporterId !== undefined) {
+      baseFilters.reporterId = filters.reporterId;
+      countFilters.reporterId = filters.reporterId;
+    }
+  } else {
+    baseFilters.reporterId = user.id;
+    countFilters.reporterId = user.id;
   }
-  baseFilters.reporterId = user.id;
-  return listTicketsWithReporter(baseFilters);
+
+  const [tickets, total] = await Promise.all([
+    listTicketsWithReporter(baseFilters),
+    countTicketsWithReporter(countFilters)
+  ]);
+  return { tickets, total };
 }
 
 function summarizeRootCauses(rootCauses: any[]): string {

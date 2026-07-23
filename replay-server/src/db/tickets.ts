@@ -185,12 +185,51 @@ export async function listTickets(filters?: {
   const sql =
     'SELECT * FROM tickets' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
-    ' ORDER BY updated_at DESC' +
+    ' ORDER BY created_at DESC, id DESC' +
     (filters?.limit ? ' LIMIT ?' : '') +
     (filters?.offset ? ' OFFSET ?' : '');
   if (filters?.limit) values.push(filters.limit);
   if (filters?.offset) values.push(filters.offset);
   return db.prepare(sql).all(...values) as DbTicket[];
+}
+
+export async function countTickets(filters?: {
+  reporterId?: number;
+  status?: TicketStatus | TicketStatus[];
+  assigneeId?: number | null;
+  issueType?: string;
+}): Promise<number> {
+  const db = await getDb();
+  const where: string[] = [];
+  const values: unknown[] = [];
+  if (filters?.reporterId !== undefined) {
+    where.push('reporter_id = ?');
+    values.push(filters.reporterId);
+  }
+  if (filters?.status !== undefined) {
+    if (Array.isArray(filters.status)) {
+      where.push(`status IN (${filters.status.map(() => '?').join(', ')})`);
+      values.push(...filters.status);
+    } else {
+      where.push('status = ?');
+      values.push(filters.status);
+    }
+  }
+  if (filters?.assigneeId !== undefined) {
+    if (filters.assigneeId === null) {
+      where.push('assignee_id IS NULL');
+    } else {
+      where.push('assignee_id = ?');
+      values.push(filters.assigneeId);
+    }
+  }
+  if (filters?.issueType !== undefined) {
+    where.push('issue_type = ?');
+    values.push(filters.issueType);
+  }
+  const sql = 'SELECT COUNT(*) as c FROM tickets' + (where.length ? ` WHERE ${where.join(' AND ')}` : '');
+  const row = db.prepare(sql).get(...values) as { c: number };
+  return row.c;
 }
 
 export async function listTicketsWithAnalysisCompletedBefore(cutoff: string): Promise<DbTicket[]> {
@@ -251,10 +290,57 @@ export async function listTicketsWithReporter(filters?: {
     ' JOIN users u ON t.reporter_id = u.id' +
     ' LEFT JOIN sites s ON t.site_id = s.id' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
-    ' ORDER BY t.updated_at DESC' +
+    ' ORDER BY t.created_at DESC, t.id DESC' +
     (filters?.limit ? ' LIMIT ?' : '') +
     (filters?.offset ? ' OFFSET ?' : '');
   if (filters?.limit) values.push(filters.limit);
   if (filters?.offset) values.push(filters.offset);
   return db.prepare(sql).all(...values) as TicketWithReporter[];
+}
+
+export async function countTicketsWithReporter(filters?: {
+  reporterId?: number;
+  status?: TicketStatus | TicketStatus[];
+  assigneeId?: number | null;
+  siteId?: number;
+  issueType?: string;
+}): Promise<number> {
+  const db = await getDb();
+  const where: string[] = [];
+  const values: unknown[] = [];
+  if (filters?.reporterId !== undefined) {
+    where.push('t.reporter_id = ?');
+    values.push(filters.reporterId);
+  }
+  if (filters?.status !== undefined) {
+    if (Array.isArray(filters.status)) {
+      where.push(`t.status IN (${filters.status.map(() => '?').join(', ')})`);
+      values.push(...filters.status);
+    } else {
+      where.push('t.status = ?');
+      values.push(filters.status);
+    }
+  }
+  if (filters?.assigneeId !== undefined) {
+    if (filters.assigneeId === null) {
+      where.push('t.assignee_id IS NULL');
+    } else {
+      where.push('t.assignee_id = ?');
+      values.push(filters.assigneeId);
+    }
+  }
+  if (filters?.siteId !== undefined) {
+    where.push('t.site_id = ?');
+    values.push(filters.siteId);
+  }
+  if (filters?.issueType !== undefined) {
+    where.push('t.issue_type = ?');
+    values.push(filters.issueType);
+  }
+  const sql =
+    'SELECT COUNT(*) as c FROM tickets t' +
+    ' JOIN users u ON t.reporter_id = u.id' +
+    (where.length ? ` WHERE ${where.join(' AND ')}` : '');
+  const row = db.prepare(sql).get(...values) as { c: number };
+  return row.c;
 }

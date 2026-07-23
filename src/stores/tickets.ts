@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import {
   addTicketComment as apiAddTicketComment,
   analyzeTicket as apiAnalyze,
+  appendFiles as apiAppendFiles,
   assignTicket as apiAssign,
   cancelTicket as apiCancel,
   createKnowledgeFromTicket as apiCreateKnowledge,
@@ -36,11 +37,24 @@ export const useTicketStore = defineStore('tickets', () => {
   const currentAnalysisVersion = ref<AnalysisVersion | null>(null)
   const troubleshootingPaths = ref<TroubleshootingPath[]>([])
   const loading = ref(false)
+  const total = ref(0)
 
-  async function loadTickets(filters?: { status?: string; reporterId?: number; siteId?: number }) {
+  async function loadTickets(filters?: {
+    status?: string
+    reporterId?: number
+    siteId?: number
+    page?: number
+    pageSize?: number
+  }) {
     loading.value = true
     try {
-      tickets.value = await apiList(filters)
+      const res = await apiList({
+        ...filters,
+        page: filters?.page ?? 1,
+        pageSize: filters?.pageSize ?? 20
+      })
+      tickets.value = res.tickets
+      total.value = res.total
     } finally {
       loading.value = false
     }
@@ -218,6 +232,13 @@ export const useTicketStore = defineStore('tickets', () => {
     await loadTicket(id)
   }
 
+  async function appendFiles(id: number, files: File[], reanalyze?: boolean) {
+    const ticket = await apiAppendFiles(id, files, reanalyze)
+    updateTicketInList(ticket)
+    await loadTicket(id)
+    return ticket
+  }
+
   function updateTicketInList(ticket: Ticket) {
     const idx = tickets.value.findIndex((t) => t.id === ticket.id)
     if (idx >= 0) {
@@ -235,6 +256,7 @@ export const useTicketStore = defineStore('tickets', () => {
     currentAnalysisVersion,
     troubleshootingPaths,
     loading,
+    total,
     loadTickets,
     loadTicket,
     createTicket,
@@ -254,6 +276,7 @@ export const useTicketStore = defineStore('tickets', () => {
     updateIssueType,
     cancelTicket,
     updateTicketBasicInfo,
-    addTicketComment
+    addTicketComment,
+    appendFiles
   }
 })

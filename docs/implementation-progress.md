@@ -20,9 +20,9 @@
 | 12 | AI 解释器 | ✅ 已完成 | 2026-07-22 | - |
 | 13 | 存储清理与上传限制 | ✅ 已完成 | 2026-07-23 | - |
 | 14 | 工单取消、编辑与评论 | ✅ 已完成 | 2026-07-23 | - |
-| 15 | 补充上传日志 | ⬜ 待开发 | - | - |
-| 16 | 列表分页与排序 | ⬜ 待开发 | - | - |
-| 17 | 企业微信通知 | ⬜ 待开发 | - | - |
+| 15 | 补充上传日志 | ✅ 已完成 | 2026-07-23 | - |
+| 16 | 列表分页与排序 | ✅ 已完成 | 2026-07-23 | - |
+| 17 | 企业微信通知 | ✅ 已完成 | 2026-07-23 | - |
 | 18 | 数据统计仪表盘 | ⬜ 待开发 | - | - |
 | 19 | 部署与运维 | ⬜ 待开发 | - | - |
 | 20 | 上线准备 | ⬜ 待开发 | - | - |
@@ -260,4 +260,50 @@
   - 前端：`src/views/TicketList.vue` 的 `statusMap` 增加 `cancelled` 状态。
   - 测试：`tests/e2e/tickets.spec.ts` 新增编辑基本信息、发表评论、取消工单三个用例。
 - **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，阶段 14 新增的三个用例通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 15：补充上传日志
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-15补充上传日志`
+- **改动摘要**：
+  - 后端：`replay-server/src/tickets/service.ts` 新增 `appendFilesToTicket`，校验工单未终结、追加后 `log_dir` 总量不超过 200MB，将文件复制到 `log_dir`，记录 `files_appended` 事件，可选调用 `startTicketAnalysis` 触发重新分析。
+  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /:id/files`，复用现有 `uploadTicketFiles` 中间件，读取 `reanalyze` 参数并清理临时文件。
+  - 前端：`src/api/tickets.ts` 与 `src/stores/tickets.ts` 新增 `appendFiles` API 与 action，上传完成后刷新工单详情与事件流。
+  - 前端：`src/views/TicketDetail.vue` 新增「补充上传」按钮与弹窗，支持多文件上传和「上传后重新分析」复选框。
+  - 测试：`tests/e2e/tickets.spec.ts` 新增「补充上传日志并记录事件」与「补充上传后触发重新分析」两个用例。
+- **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，阶段 15 新增的两个用例通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 16：列表分页与排序
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-16列表分页与排序`
+- **改动摘要**：
+  - 数据库：`replay-server/src/db/tickets.ts` 新增 `countTickets` 与 `countTicketsWithReporter`；`listTickets` 与 `listTicketsWithReporter` 排序从 `updated_at DESC` 改为 `created_at DESC, id DESC`，保证相同时间戳下创建顺序稳定。
+  - 后端：`replay-server/src/tickets/service.ts` 的 `listUserTickets` 改为接收 `{ page, pageSize, ...filters }`，内部调用 `listTicketsWithReporter` 与 `countTicketsWithReporter`，返回 `{ tickets, total }`。
+  - 后端：`replay-server/src/tickets/routes.ts` 的 `GET /api/tickets` 读取 `page`/`pageSize` 查询参数，响应改为 `{ tickets, total }`。
+  - 前端：`src/api/tickets.ts` 的 `listTickets` 参数与返回类型更新为 `{ tickets: Ticket[]; total: number }`。
+  - 前端：`src/stores/tickets.ts` 新增 `total` 状态，修改 `loadTickets` 以支持分页参数。
+  - 前端：`src/views/TicketList.vue` 底部增加 `el-pagination` 组件，绑定本地 `currentPage`/`pageSize`，切换页码或页大小时重新加载列表；列表「更新时间」列改为「创建时间」以匹配排序。
+  - 测试：`tests/e2e/tickets.spec.ts` 新增「工单列表分页与排序」用例，通过 API 批量创建 26 个工单，断言默认每页 20 条、总数正确、按创建时间倒序、翻页后内容正确；同时修复了阶段 7 预存在的「步骤状态切换」用例在排查向导收起后无法点击单选按钮的问题（安全确认后重新展开面板）。
+- **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过；隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，20 个工单用例全部通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 17：企业微信通知
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-17企业微信通知`
+- **改动摘要**：
+  - 后端：新增 `replay-server/src/notify/wechatWork.ts`，导出 `sendWechatWorkNotification` 与 `isWechatWorkConfigured`；依赖项目已有 `axios`；未配置 `WECHAT_WORK_WEBHOOK_URL` 时静默跳过，失败时仅日志告警不阻塞主流程。
+  - 后端：`replay-server/src/tickets/service.ts` 的 `finalizeTicketAnalysis` 在分析完成后发送「工单分析完成」通知；`escalateToRd` 在升级研发后发送「工单已升级研发」通知；`assignTicket` 在工单被认领后发送「工单已被认领」通知；`resolveTicket` 在工单被解决后发送「工单已解决」通知。所有通知均为 `void` 触发，不阻塞主流程。
+  - 后端：`replay-server/src/core/knowledgeBase.ts` 的 `recordKnowledgeRuleFeedback` 在规则累计 3 次「没用」反馈被标记为 `needs_review` 时，写库成功后批量发送「知识规则需要复查」通知。
+  - 脚本：新增 `replay-server/scripts/verify-wechat-work.ts`，用于在无 webhook 配置时验证通知模块不会抛异常。
+- **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过；`npx tsx replay-server/scripts/verify-wechat-work.ts` 不抛异常。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，20 个工单用例全部通过。
 - **阻塞项**：无
