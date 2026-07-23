@@ -324,8 +324,8 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 
 目标：限制上传大小，分析失败回退状态，7 天自动清理原始日志，分析超时保护。
 
-1. [ ] 修改 `replay-server/src/tickets/routes.ts` 中 multer 配置：`fileSize` 从 500MB 改为 200MB；在 `POST /` 创建工单时校验所有上传文件总大小不超过 200MB。
-2. [ ] 修改 `src/views/TicketNew.vue`：在文件上传区域增加格式说明文案（"支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB"）；前端增加文件大小校验与提示。
+1. [ ] 修改 `replay-server/src/tickets/routes.ts` 中 multer 配置：`fileSize` 改为 50MB；预上传接口 `POST /api/tickets/upload-files` 显式校验单个文件不超过 50MB、所有文件总大小不超过 200MB。
+2. [ ] 修改 `src/views/TicketNew.vue`：在文件上传区域增加格式说明文案（"支持 .log、.zip、.tar.gz 格式，单个文件不超过 50MB，总大小不超过 200MB"）；前端增加单文件与总大小校验与提示。
 3. [ ] 修改 `replay-server/src/tickets/service.ts` 中 `finalizeTicketAnalysis`：用 try-catch 包裹分析主流程，分析失败时将工单状态回退为 `pending_analysis`，并在 `ticket_events` 中记录失败原因。
 4. [ ] 修改 `replay-server/src/tickets/service.ts` 中 `startTicketAnalysis`：增加 10 分钟超时保护（setTimeout），超时后自动回退状态并记录超时事件。
 5. [ ] 新增 `replay-server/src/core/storageCleaner.ts`：实现 `cleanExpiredFiles()` 函数，查询已完成分析超过 7 天的工单，删除其 `log_dir` 目录和上传临时文件，保留报告和数据库记录。
@@ -548,7 +548,7 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 | 28. 工单列表支持状态、现场、问题类型筛选 | 1、4 |
 | 29. 历史分析版本可以查看 | 3 |
 | 30. 分析版本之间可以查看摘要差异 | 3 |
-| 31. 上传文件总大小不超过 200MB | 13 |
+| 31. 上传文件单个不超过 50MB、总大小不超过 200MB，新建工单页展示格式说明 | 13 |
 | 32. 分析失败后工单状态回退并显示失败原因 | 13 |
 | 33. 分析超时 10 分钟自动标记失败 | 13 |
 | 34. 原始日志文件保留 7 天后自动清理 | 13 |
@@ -665,8 +665,8 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 ### 步骤
 
 1. 新增 `replay-server/src/upload/tempFiles.ts`：实现预上传临时文件管理，包括保存、读取、删除、24 小时过期清理。
-2. `replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`：接收 `files`，总大小校验 ≤200MB，保存到 `CACHE_DIR/uploads/pending/<uuid>`，返回 `{ tempFileId, originalName, size }`。
-3. `replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`：根据 `tempFileIds` 读取临时文件，调用 `createTicketWithUploads` 移入工单目录，成功后删除临时文件记录。
+2. `replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`：接收 `files`，单文件 ≤50MB、总大小 ≤200MB，保存到 `CACHE_DIR/uploads/pending/<uuid>`，返回 `{ tempFileId, originalName, size }`。
+3. `replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`：根据 `tempFileIds` 读取临时文件，调用 `createTicketWithUploads` 移入工单目录，成功后删除临时文件。
 4. 修改 `POST /api/tickets`：不再接收 `files`，改为接收 `tempFileIds: string[]`。
 5. 修改 `replay-server/src/core/storageCleaner.ts`：跳过 `CACHE_DIR/uploads/pending` 目录，并调用 `cleanupExpiredTempFiles` 单独清理 24 小时过期的预上传文件。
 6. 前端 `src/api/tickets.ts` 新增 `uploadTicketFiles(files, onProgress)`；修改 `createTicket` 支持 `tempFileIds`，保留旧 `files` 参数兜底兼容。
