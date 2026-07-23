@@ -326,6 +326,11 @@ export async function cancelTicket(id: number): Promise<Ticket> {
   return data.ticket
 }
 
+export async function deleteTicket(id: number): Promise<void> {
+  const { data } = await ticketHttp.delete(`/tickets/${id}`)
+  if (!data.succeed) throw new Error(data.error || '删除工单失败')
+}
+
 export async function updateTicketBasicInfo(id: number, input: UpdateTicketBasicInfoInput): Promise<Ticket> {
   const { data } = await ticketHttp.patch(`/tickets/${id}/basic-info`, input)
   if (!data.succeed) throw new Error(data.error || '更新基本信息失败')

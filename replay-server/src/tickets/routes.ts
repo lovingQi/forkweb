@@ -21,6 +21,7 @@ import {
   createKnowledgeFromTicket,
   createTicketWithTempFiles,
   createTicketWithUploads,
+  deleteTicket,
   escalateToRd,
   getTicketDetail,
   listUserTickets,
@@ -301,6 +302,17 @@ router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res) => {
     const ticketId = Number(req.params.id);
     const ticket = await cancelTicket(ticketId, req.user!);
     res.json({ succeed: true, ticket: serializeTicket(ticket) });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 删除工单（仅管理员）
+router.delete('/:id', authMiddleware, requireRole('admin'), async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    await deleteTicket(ticketId, req.user!);
+    res.json({ succeed: true });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }

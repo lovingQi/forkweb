@@ -78,3 +78,8 @@ export async function updateTroubleshootingPathStatus(
   db.prepare('UPDATE ticket_troubleshooting_paths SET status = ? WHERE id = ?').run(status, id);
   return getTroubleshootingPathById(id);
 }
+
+export async function deletePathsByTicketId(ticketId: number): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM ticket_troubleshooting_paths WHERE ticket_id = ?').run(ticketId);
+}

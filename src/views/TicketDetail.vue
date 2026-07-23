@@ -161,6 +161,13 @@
               :loading="loadingAction === 'cancel'"
               @click="openCancelDialog"
             >取消工单</el-button>
+            <el-button
+              v-if="auth.isAdmin"
+              type="danger"
+              plain
+              :loading="loadingAction === 'delete'"
+              @click="openDeleteDialog"
+            >删除工单</el-button>
             <el-button v-if="ticketStore.currentTicket.reportPath" @click="loadReport">查看报告</el-button>
           </div>
 
@@ -274,6 +281,16 @@
       <template #footer>
         <el-button @click="cancelDialogVisible = false">再想想</el-button>
         <el-button type="danger" :loading="loadingAction === 'cancel'" @click="onCancelTicket">确认取消</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="deleteDialogVisible" title="确认删除工单" width="450px">
+      <p>工单 <strong>{{ ticketStore.currentTicket?.ticketNo }}</strong> 将被永久删除，不可恢复。</p>
+      <p>关联的日志、报告、分析版本、排查路径等数据将全部清空。</p>
+      <p>是否确认删除？</p>
+      <template #footer>
+        <el-button @click="deleteDialogVisible = false">再想想</el-button>
+        <el-button type="danger" :loading="loadingAction === 'delete'" @click="onDeleteTicket">确认删除</el-button>
       </template>
     </el-dialog>
 
@@ -415,6 +432,7 @@ const diffDialogVisible = ref(false)
 const issueTypeDialogVisible = ref(false)
 const selectedIssueType = ref<IssueType>('unknown')
 const cancelDialogVisible = ref(false)
+const deleteDialogVisible = ref(false)
 const basicInfoDialogVisible = ref(false)
 const commentContent = ref('')
 const commentError = ref('')
@@ -742,6 +760,21 @@ async function onCancelTicket() {
   try {
     await ticketStore.cancelTicket(ticketId.value)
     cancelDialogVisible.value = false
+  } finally {
+    loadingAction.value = null
+  }
+}
+
+function openDeleteDialog() {
+  deleteDialogVisible.value = true
+}
+
+async function onDeleteTicket() {
+  loadingAction.value = 'delete'
+  try {
+    await ticketStore.deleteTicket(ticketId.value)
+    deleteDialogVisible.value = false
+    router.push('/tickets')
   } finally {
     loadingAction.value = null
   }

@@ -42,3 +42,8 @@ export async function listTicketEvents(ticketId: number): Promise<DbTicketEvent[
     .prepare('SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at ASC')
     .all(ticketId) as DbTicketEvent[];
 }
+
+export async function deleteEventsByTicketId(ticketId: number): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM ticket_events WHERE ticket_id = ?').run(ticketId);
+}
