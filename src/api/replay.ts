@@ -214,6 +214,13 @@ export function replayKnowledgeExportUrl() {
   return `${config.replayApiBase}/replay/knowledge/export`
 }
 
+export async function exportReplayKnowledge(): Promise<Blob> {
+  const { data } = await replayHttp.get('/replay/knowledge/export', {
+    responseType: 'blob'
+  })
+  return data
+}
+
 export async function getReplayAssistantStatus() {
   const { data } = await replayHttp.get('/replay/assistant/status')
   return data.status

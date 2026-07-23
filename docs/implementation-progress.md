@@ -26,7 +26,7 @@
 | 18 | 数据统计仪表盘 | ✅ 已完成 | 2026-07-23 | - |
 | 19 | 部署与运维 | ✅ 已完成 | 2026-07-23 | - |
 | 20 | 上线准备 | ✅ 已完成 | 2026-07-23 | 含人工试用项 |
-| 21 | 车型管理 | ⬜ 待开发 | - | - |
+| 21 | 车型管理 | ✅ 已完成 | 2026-07-23 | - |
 
 ## 审查修复（2026-07-22）
 
@@ -357,3 +357,36 @@
   - 文档：新增 `docs/user-guide.md` 一页纸操作指南，覆盖登录、建单、上传日志、查看排查向导、执行步骤、升级研发；在 `docs/deployment.md` 中补充「上线前检查清单」「知识库预填充」「灰度上线与反馈」章节。
 - **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过；隔离 E2E 中 `tests/e2e/replay-real-log.spec.ts` 真实日志用例通过；手动运行 `npx tsx replay-server/scripts/seed-knowledge.ts` 验证 12 条规则成功导入且幂等。
 - **阻塞项**：云服务器部署与售后灰度试用属于人工执行项，未在代码中完成，已记录于 `docs/deployment.md` 上线前检查清单。
+
+---
+
+## 阶段 21：车型管理
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-21车型管理`
+- **改动摘要**：
+  - 数据库：`replay-server/src/db/migrate.ts` 新增 `create_vehicle_tables` 迁移（创建 `vehicle_categories`、`vehicle_models`、`site_vehicle_models` 三张表）和 `ticket_vehicle_model_id` 迁移（`tickets` 表新增 `vehicle_model_id` 字段）；`schema.ts` 同步更新。
+  - 后端：新增 `replay-server/src/db/vehicleCategories.ts`（类别 CRUD + 删除保护）和 `replay-server/src/db/vehicleModels.ts`（型号 CRUD + 按类别/按现场查询 + 删除保护）。
+  - 后端：修改 `replay-server/src/db/sites.ts` 新增 `setSiteVehicleModels` 和 `getSiteVehicleModelIds`；`deleteSite` 同时清理关联表。
+  - 后端：修改 `replay-server/src/db/tickets.ts`，`DbTicket` 和 `CreateTicketInput` 增加 `vehicle_model_id`；`listTickets`、`countTickets`、`listTicketsWithReporter`、`countTicketsWithReporter` 均增加 `vehicleModelId` 筛选；`TicketWithReporter` 增加 `vehicle_model_name` 和 `vehicle_category_name`，列表查询 JOIN 车型表。
+  - 后端：新增 `replay-server/src/vehicles/routes.ts`，注册类别和型号的完整 CRUD REST API（含 UNIQUE 约束冲突处理）。
+  - 后端：修改 `replay-server/src/sites/routes.ts`，`serializeSite` 改为 async 并附带 `vehicleModelIds`；创建/编辑现场时处理 `vehicleModelIds` 多选关联。
+  - 后端：修改 `replay-server/src/tickets/routes.ts`，创建工单传 `vehicleModelId`、列表支持车型筛选、详情 JOIN 车型信息、`serializeTicket` 输出 `vehicleModelId`/`vehicleModelName`/`vehicleCategoryName`；编辑基本信息支持 `vehicleModelId`。
+  - 后端：修改 `replay-server/src/tickets/service.ts`，`CreateTicketServiceInput` 和 `UpdateTicketBasicInfoInput` 增加 `vehicleModelId`；`ListUserTicketsInput` 和 `ListUserTicketsOutput` 扩展车型字段；`applyFilters` 增加 `vehicleModelId`。
+  - 后端：修改 `replay-server/src/tickets/stats.ts`，`TicketStats` 增加 `byVehicleModel`；新增 `getTicketsByVehicleModel` 查询函数。
+  - 后端：修改 `replay-server/src/index.ts`，注册 `vehicleRoutes` 到 `/api/vehicles`。
+  - 前端：新增 `src/api/vehicles.ts`，封装车型类别和型号的全部 API。
+  - 前端：新增 `src/views/VehicleManage.vue`，上半部分管理类别，下半部分管理型号（支持按类别筛选）。
+  - 前端：修改 `src/api/sites.ts`，`Site` 接口增加 `vehicleModelIds`；新增 `UpdateSiteInput`。
+  - 前端：修改 `src/views/SiteManage.vue`，对话框加车型多选（按类别分组展示），表格显示关联车型 tag。
+  - 前端：修改 `src/api/tickets.ts`，`Ticket` 接口增加 `vehicleModelId`/`vehicleModelName`/`vehicleCategoryName`；`createTicket` 和 `ListTicketsFilters` 增加 `vehicleModelId`；`UpdateTicketBasicInfoInput` 增加 `vehicleModelId`。
+  - 前端：修改 `src/stores/tickets.ts`，`createTicket` 和 `loadTickets` 支持 `vehicleModelId`。
+  - 前端：修改 `src/views/TicketNew.vue`，选现场后联动加载可选车型，车型必填校验。
+  - 前端：修改 `src/views/TicketList.vue`，加车型筛选下拉（按类别分组）和车型列。
+  - 前端：修改 `src/views/TicketDetail.vue`，详情展示车型信息。
+  - 前端：修改 `src/api/stats.ts`，`TicketStats` 增加 `byVehicleModel`。
+  - 前端：修改 `src/views/StatsBoard.vue`，加"按车型分布"统计表。
+  - 前端：修改 `src/router/index.ts` 注册 `/vehicles` 路由。
+  - 前端：修改 `src/App.vue`，研发/管理员侧边栏新增「车型管理」菜单项（Van 图标）。
+- **验证方式**：`npx vue-tsc --noEmit` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。
+- **阻塞项**：无

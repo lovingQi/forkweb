@@ -937,7 +937,13 @@ import { ElMessage } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
 import ReplayCharts from '@/components/replay/ReplayCharts.vue'
 import ReplayAssistant from '@/components/replay/ReplayAssistant.vue'
-import { getReplayMap, replayKnowledgeExportUrl, replayMapAliasesExportUrl, replayPackageUrl, replayReportUrl } from '@/api/replay'
+import {
+  exportReplayKnowledge,
+  getReplayMap,
+  replayMapAliasesExportUrl,
+  replayPackageUrl,
+  replayReportUrl
+} from '@/api/replay'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
@@ -1953,8 +1959,21 @@ function removeGuideStep(idx: number) {
   knowledgeDraft.value.guideSteps.forEach((step: any, i: number) => (step.stepNo = i + 1))
 }
 
-function openKnowledgeExport() {
-  window.open(replayKnowledgeExportUrl(), '_blank')
+async function openKnowledgeExport() {
+  try {
+    const blob = await exportReplayKnowledge()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'knowledge-base.json'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('知识库导出成功')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : '知识库导出失败')
+  }
 }
 
 function triggerKnowledgeImport() {
