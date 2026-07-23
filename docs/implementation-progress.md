@@ -334,7 +334,7 @@
 - **计划**：见 `docs/implementation-plan.md#阶段-19部署与运维`
 - **改动摘要**：
   - 运维：重写 `Dockerfile` 为多阶段构建，基于 `node:20-slim` 构建前后端，运行时阶段仅安装生产依赖并运行 `node replay-server/dist/index.js`；容器内通过环境变量将 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 指向 `/app/data`。
-  - 运维：重写 `docker-compose.yml`，映射端口 `8080:8080`，挂载 `./data:/app/data`，配置 `restart: unless-stopped` 与 `healthcheck`。
+  - 运维：重写 `docker-compose.yml`，映射端口 `8091:8080`，挂载 `./data:/app/data`，配置 `restart: unless-stopped` 与 `healthcheck`。
   - 运维：新增 `scripts/update.sh`，依次执行数据库备份、`git pull --ff-only`、`docker-compose build`、`docker-compose up -d`。
   - 运维：新增 `nginx/forkweb.conf`，提供反向代理、WebSocket 升级、单页应用回退与 HTTPS 证书占位示例。
   - 运维：新增 `scripts/health-check.sh`，每 5 分钟 `curl /api/health`，连续失败且超过 10 分钟未告警时调用 `WECHAT_WORK_WEBHOOK_URL` 发送企业微信告警。

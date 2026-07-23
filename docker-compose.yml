@@ -4,7 +4,7 @@ services:
     image: forkweb:latest
     container_name: forkweb
     ports:
-      - "8080:8080"
+      - "8091:8080"
     environment:
       - NODE_ENV=production
       - REPLAY_PORT=8080

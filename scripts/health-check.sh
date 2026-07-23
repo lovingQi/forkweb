@@ -3,7 +3,7 @@
 # 每 5 分钟 curl /api/health，连续失败时调用企业微信 Webhook 告警
 set -uo pipefail
 
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8091/api/health}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-300}"
 MAX_FAIL_COUNT="${MAX_FAIL_COUNT:-2}"
 WEBHOOK_URL="${WECHAT_WORK_WEBHOOK_URL:-}"

@@ -24,16 +24,16 @@ cd forkweb
 docker-compose up -d --build
 ```
 
-默认监听宿主机 `8080` 端口，访问地址：
+默认监听宿主机 `8091` 端口，访问地址：
 
 ```
-http://<服务器IP>:8080
+http://<服务器IP>:8091
 ```
 
 ### 3. 检查健康状态
 
 ```bash
-curl http://localhost:8080/api/health
+curl http://localhost:8091/api/health
 ```
 
 预期返回：
@@ -65,7 +65,7 @@ curl http://localhost:8080/api/health
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `REPLAY_PORT` | `8080` | 服务监听端口 |
+| `REPLAY_PORT` | `8091` | 服务监听端口 |
 | `REPLAY_HOST` | `0.0.0.0` | 服务监听地址 |
 | `FORKWEB_CACHE_DIR` | `/app/data/cache` | 缓存与数据库目录 |
 | `FORKWEB_CONFIG_DIR` | `/app/data/config` | 配置目录 |
@@ -121,7 +121,7 @@ WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
 
 可通过环境变量调整：
 
-- `HEALTH_URL`：健康接口地址（默认 `http://127.0.0.1:8080/api/health`）
+- `HEALTH_URL`：健康接口地址（默认 `http://127.0.0.1:8091/api/health`）
 - `INTERVAL_SECONDS`：检查间隔（默认 300）
 - `MAX_FAIL_COUNT`：触发告警的连续失败次数（默认 2）
 
@@ -155,7 +155,7 @@ docker-compose logs --tail=100
 
 1. 首次部署后，立即通过管理员账号修改默认密码（`admin` / `admin123`）。
 2. 生产环境设置强随机 `JWT_SECRET`。
-3. 使用 Nginx 配置 HTTPS，并限制 8080 端口仅允许 Nginx 访问。
+3. 使用 Nginx 配置 HTTPS，并限制 8091 端口仅允许 Nginx 访问。
 4. 定期备份 `data/backups` 目录到异地存储。
 
 ## 故障排查
@@ -168,7 +168,7 @@ docker-compose logs
 
 常见原因：
 
-- 端口 8080 已被占用：修改 `docker-compose.yml` 中的端口映射，例如 `"8081:8080"`。
+- 端口 8091 已被占用：修改 `docker-compose.yml` 中的端口映射，例如 `"8092:8080"`。
 - `data` 目录权限不足：确保 Docker 用户对 `./data` 有读写权限。
 
 ### 数据库损坏
@@ -183,7 +183,7 @@ docker-compose restart
 ### 健康检查失败
 
 ```bash
-curl -v http://localhost:8080/api/health
+curl -v http://localhost:8091/api/health
 ```
 
 检查服务是否监听、防火墙是否放行端口。

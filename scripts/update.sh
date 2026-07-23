@@ -38,6 +38,6 @@ docker-compose up -d
 
 echo
 echo "完成。"
-echo "  服务地址: http://localhost:8080"
+echo "  服务地址: http://localhost:8091"
 echo "  查看日志: docker-compose logs -f"
 echo "  数据库备份目录: $BACKUP_DIR"

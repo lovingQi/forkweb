@@ -38,7 +38,7 @@ docker-compose up -d --build
 ./scripts/update.sh
 ```
 
-默认映射宿主机 `8080` -> 容器 `8080`，数据持久化到 `./data`。
+默认映射宿主机 `8091` -> 容器 `8080`，数据持久化到 `./data`。
 
 关键环境变量：
 
@@ -52,7 +52,7 @@ docker-compose up -d --build
 ## 健康检查
 
 ```bash
-curl http://localhost:8080/api/health
+curl http://localhost:8091/api/health
 ```
 
 `scripts/health-check.sh` 可独立运行，每 5 分钟探测健康接口，失败时发送企业微信告警。
