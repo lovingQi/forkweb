@@ -89,7 +89,7 @@
             </div>
             <template #tip>
               <div class="upload-tip">
-                支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB。压缩包会自动解压，自动识别 .log 日志与 .json 地图。文件会在选择后自动上传。
+                支持 .log、.zip、.tar.gz 格式，单个文件不超过 50MB，总大小不超过 200MB。压缩包会自动解压，自动识别 .log 日志与 .json 地图。文件会在选择后自动上传。
               </div>
             </template>
             <template #file="{ file }">
@@ -154,6 +154,7 @@ const occurredRange = ref<[string, string] | null>(null)
 
 const fileList = ref<UploadUserFile[]>([])
 const tempFileMap = ref<Map<string, string>>(new Map())
+const MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 const sites = ref<Site[]>([])
@@ -216,12 +217,19 @@ function currentTotalBytes(): number {
 }
 
 function beforeUpload(rawFile: UploadRawFile): boolean {
+  if (rawFile.size > MAX_SINGLE_FILE_BYTES) {
+    error.value = '单个上传文件不能超过 50MB'
+    return false
+  }
   const wouldTotal = currentTotalBytes() + rawFile.size
   if (wouldTotal > MAX_UPLOAD_BYTES) {
     error.value = '所有上传文件总大小不能超过 200MB'
     return false
   }
-  if (error.value === '所有上传文件总大小不能超过 200MB') {
+  if (
+    error.value === '所有上传文件总大小不能超过 200MB' ||
+    error.value === '单个上传文件不能超过 50MB'
+  ) {
     error.value = ''
   }
   return true
@@ -244,7 +252,10 @@ async function uploadFileAction(options: UploadRequestOptions) {
 
 function onFileRemove(file: UploadFile) {
   tempFileMap.value.delete(String(file.uid))
-  if (error.value === '所有上传文件总大小不能超过 200MB') {
+  if (
+    error.value === '所有上传文件总大小不能超过 200MB' ||
+    error.value === '单个上传文件不能超过 50MB'
+  ) {
     const total = currentTotalBytes()
     if (total <= MAX_UPLOAD_BYTES) {
       error.value = ''

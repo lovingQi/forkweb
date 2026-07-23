@@ -37,10 +37,11 @@ import { saveTempFile } from '../upload/tempFiles';
 
 const router = Router();
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024;
 
 const upload = multer({
   dest: path.join(CACHE_DIR, 'uploads'),
-  limits: { fileSize: MAX_UPLOAD_BYTES }
+  limits: { fileSize: MAX_SINGLE_FILE_BYTES }
 });
 
 async function removeUploadedTempFiles(req: AuthRequest): Promise<void> {
@@ -57,7 +58,7 @@ function uploadTicketFiles(req: AuthRequest, res: Response, next: NextFunction):
 
     void removeUploadedTempFiles(req).finally(() => {
       if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-        res.status(413).json({ succeed: false, error: '单个上传文件不能超过 200MB' });
+        res.status(413).json({ succeed: false, error: '单个上传文件不能超过 50MB' });
         return;
       }
       res.status(400).json({
@@ -88,6 +89,12 @@ router.post(
         res.status(400).json({ succeed: false, error: '请至少上传一个文件' });
         return;
       }
+      const oversizedFile = uploadedFiles.find((f) => f.size > MAX_SINGLE_FILE_BYTES);
+      if (oversizedFile) {
+        res.status(413).json({ succeed: false, error: `单个上传文件不能超过 50MB（${oversizedFile.originalname}）` });
+        return;
+      }
+
       const totalUploadBytes = uploadedFiles.reduce((total, file) => total + file.size, 0);
       if (totalUploadBytes > MAX_UPLOAD_BYTES) {
         res.status(413).json({ succeed: false, error: '所有上传文件总大小不能超过 200MB' });
