@@ -23,6 +23,7 @@ export type TicketStatus =
   | 'pending_rd'
   | 'rd_working'
   | 'resolved'
+  | 'cancelled'
 
 export interface AnalysisVersion {
   id: number
@@ -262,6 +263,32 @@ export async function updateIssueType(id: number, issueType: IssueType): Promise
   const { data } = await ticketHttp.patch(`/tickets/${id}/issue-type`, { issueType })
   if (!data.succeed) throw new Error(data.error || '更新问题类型失败')
   return data.ticket
+}
+
+export interface UpdateTicketBasicInfoInput {
+  title?: string
+  description?: string
+  siteId?: number
+  impactLevel?: string
+  occurredStartAt?: string
+  occurredEndAt?: string
+}
+
+export async function cancelTicket(id: number): Promise<Ticket> {
+  const { data } = await ticketHttp.post(`/tickets/${id}/cancel`)
+  if (!data.succeed) throw new Error(data.error || '取消工单失败')
+  return data.ticket
+}
+
+export async function updateTicketBasicInfo(id: number, input: UpdateTicketBasicInfoInput): Promise<Ticket> {
+  const { data } = await ticketHttp.patch(`/tickets/${id}/basic-info`, input)
+  if (!data.succeed) throw new Error(data.error || '更新基本信息失败')
+  return data.ticket
+}
+
+export async function addTicketComment(id: number, content: string): Promise<void> {
+  const { data } = await ticketHttp.post(`/tickets/${id}/comments`, { content })
+  if (!data.succeed) throw new Error(data.error || '发表评论失败')
 }
 
 export async function listAnalysisVersions(ticketId: number): Promise<AnalysisVersion[]> {

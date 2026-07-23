@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   reporter_id INTEGER NOT NULL,
   assignee_id INTEGER,
   site_id INTEGER,
-  status TEXT NOT NULL CHECK(status IN ('pending_analysis', 'analyzing', 'pending_field_troubleshooting', 'field_troubleshooting', 'self_solved', 'pending_rd', 'rd_working', 'resolved')),
+  status TEXT NOT NULL CHECK(status IN ('pending_analysis', 'analyzing', 'pending_field_troubleshooting', 'field_troubleshooting', 'self_solved', 'pending_rd', 'rd_working', 'resolved', 'cancelled')),
   issue_type TEXT,
   impact_level TEXT CHECK(impact_level IS NULL OR impact_level IN ('low', 'medium', 'high', 'critical')),
   occurred_start_at TEXT,

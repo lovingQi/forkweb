@@ -435,4 +435,53 @@ test.describe.serial('工单主流程', () => {
     expect(body?.ticket.status).toBe('pending_analysis')
     expect(body?.events.some((event) => event.action === 'analysis_failed')).toBeTruthy()
   })
+
+  test('编辑基本信息并记录事件', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+    await expect(page.locator('.ticket-title').getByText('状态流测试工单')).toBeVisible()
+
+    await page.getByRole('button', { name: '编辑基本信息' }).click()
+    const dialog = page.getByRole('dialog', { name: '编辑基本信息' })
+    await expect(dialog).toBeVisible()
+
+    const titleInput = dialog.locator('input').first()
+    await titleInput.fill('状态流测试工单-已编辑')
+    const descInput = dialog.locator('textarea').first()
+    await descInput.fill('状态流测试工单描述-已编辑')
+
+    await dialog.getByRole('button', { name: '保存' }).click()
+    await expect(dialog).not.toBeVisible()
+
+    await expect(page.locator('.ticket-title').getByText('状态流测试工单-已编辑')).toBeVisible()
+    await expect(page.locator('.el-descriptions').getByText('状态流测试工单描述-已编辑').first()).toBeVisible()
+    await expect(page.locator('.el-timeline-item').getByText('basic_info_updated').first()).toBeVisible()
+  })
+
+  test('发表评论并在事件流展示', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+
+    const commentInput = page.locator('.comment-section textarea')
+    await commentInput.fill('E2E 评论内容')
+    await page.locator('.comment-section').getByRole('button', { name: '发表评论' }).click()
+
+    await expect(page.locator('.event-comment').getByText('E2E 评论内容')).toBeVisible()
+  })
+
+  test('提单人取消工单后状态变为已取消', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+
+    await page.getByRole('button', { name: '取消工单' }).click()
+    const dialog = page.getByRole('dialog', { name: '确认取消工单' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: '确认取消' }).click()
+    await expect(dialog).not.toBeVisible()
+
+    await expect(page.locator('.detail-header').getByText('已取消')).toBeVisible()
+    await expect(page.getByRole('button', { name: '取消工单' })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: '编辑基本信息' })).not.toBeVisible()
+    await expect(page.locator('.el-timeline-item').getByText('cancelled').first()).toBeVisible()
+  })
 })

@@ -170,7 +170,8 @@ const statusMap: Record<TicketStatus, { label: string; type: any }> = {
   self_solved: { label: '已自助解决', type: 'success' },
   pending_rd: { label: '待研发介入', type: 'danger' },
   rd_working: { label: '研发处理中', type: 'warning' },
-  resolved: { label: '已解决', type: 'success' }
+  resolved: { label: '已解决', type: 'success' },
+  cancelled: { label: '已取消', type: 'info' }
 }
 
 function statusLabel(status: TicketStatus) {

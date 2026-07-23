@@ -141,6 +141,16 @@
               :loading="loadingAction === 'reanalyze'"
               @click="onReanalyze"
             >重新分析</el-button>
+            <el-button
+              v-if="canEditBasicInfo"
+              @click="openBasicInfoDialog"
+            >编辑基本信息</el-button>
+            <el-button
+              v-if="canCancelTicket"
+              type="danger"
+              :loading="loadingAction === 'cancel'"
+              @click="openCancelDialog"
+            >取消工单</el-button>
             <el-button v-if="ticketStore.currentTicket.reportPath" @click="loadReport">查看报告</el-button>
           </div>
 
@@ -165,10 +175,29 @@
           :key="event.id"
           :timestamp="event.createdAt"
         >
-          {{ event.action }}
-          <div v-if="event.payload" class="event-payload">{{ JSON.stringify(event.payload, null, 2) }}</div>
+          <template v-if="event.action === 'comment'">
+            <div class="event-comment">评论：{{ event.payload?.content }}</div>
+          </template>
+          <template v-else>
+            {{ event.action }}
+            <div v-if="event.payload" class="event-payload">{{ JSON.stringify(event.payload, null, 2) }}</div>
+          </template>
         </el-timeline-item>
       </el-timeline>
+
+      <div v-if="canComment" class="comment-section">
+        <el-input
+          v-model="commentContent"
+          type="textarea"
+          :rows="3"
+          placeholder="输入评论内容"
+          maxlength="2000"
+          show-word-limit
+        />
+        <div class="comment-actions">
+          <el-button type="primary" :loading="loadingAction === 'comment'" @click="onAddComment">发表评论</el-button>
+        </div>
+      </div>
     </el-card>
 
     <el-dialog v-model="resolveDialogVisible" title="填写解决方案" width="600px">
@@ -230,6 +259,51 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="cancelDialogVisible" title="确认取消工单" width="400px">
+      <p>取消后工单将变为“已取消”状态，不可再编辑或操作。是否确认？</p>
+      <template #footer>
+        <el-button @click="cancelDialogVisible = false">再想想</el-button>
+        <el-button type="danger" :loading="loadingAction === 'cancel'" @click="onCancelTicket">确认取消</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="basicInfoDialogVisible" title="编辑基本信息" width="600px">
+      <el-form label-width="100px">
+        <el-form-item label="标题">
+          <el-input v-model="basicInfoForm.title" placeholder="一句话概括问题" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="basicInfoForm.description" type="textarea" :rows="4" placeholder="请简要描述当前遇到的问题" />
+        </el-form-item>
+        <el-form-item label="项目现场">
+          <el-select v-model="basicInfoForm.siteId" placeholder="请选择项目现场" clearable style="width: 100%" :loading="loadingSites">
+            <el-option v-for="site in sites" :key="site.id" :label="site.name" :value="site.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="影响程度">
+          <el-select v-model="basicInfoForm.impactLevel" placeholder="请选择影响程度" clearable style="width: 100%">
+            <el-option v-for="item in impactLevelOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="发生时间">
+          <el-date-picker
+            v-model="basicInfoOccurredRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="basicInfoDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="loadingAction === 'basicInfo'" @click="onUpdateBasicInfo">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="diffDialogVisible" title="分析版本差异对比" width="700px">
       <AnalysisVersionDiff
         v-if="diffBaseVersion && diffTargetVersion"
@@ -276,6 +350,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
 import { getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
+import { listSites, type Site } from '@/api/sites'
 import AnalysisVersionDiff from '@/components/AnalysisVersionDiff.vue'
 import TicketTroubleshootingGuide from '@/components/TicketTroubleshootingGuide.vue'
 import TicketEvidencePanel from '@/components/TicketEvidencePanel.vue'
@@ -300,6 +375,25 @@ const knowledgeDialogVisible = ref(false)
 const diffDialogVisible = ref(false)
 const issueTypeDialogVisible = ref(false)
 const selectedIssueType = ref<IssueType>('unknown')
+const cancelDialogVisible = ref(false)
+const basicInfoDialogVisible = ref(false)
+const commentContent = ref('')
+const commentError = ref('')
+const loadingSites = ref(false)
+const sites = ref<Site[]>([])
+const basicInfoForm = reactive({
+  title: '',
+  description: '',
+  siteId: undefined as number | undefined,
+  impactLevel: undefined as string | undefined
+})
+const basicInfoOccurredRange = ref<[string, string] | null>(null)
+const impactLevelOptions = [
+  { label: '低', value: 'low' },
+  { label: '中', value: 'medium' },
+  { label: '高', value: 'high' },
+  { label: '紧急', value: 'critical' }
+]
 const selfServiceResults = [
   { label: '重启恢复', value: 'reboot' },
   { label: '重新接线/供电恢复', value: 'rewire' },
@@ -426,6 +520,30 @@ const canReanalyze = computed(() => {
 const canEditIssueType = computed(() => {
   if (!ticket.value) return false
   return auth.isRd || auth.isAdmin || (auth.isAfterSales && ticket.value.reporterId === auth.user?.id)
+})
+
+const isTerminal = computed(() => {
+  if (!ticket.value) return false
+  return ['resolved', 'self_solved', 'cancelled'].includes(ticket.value.status)
+})
+
+const canCancelTicket = computed(() => {
+  if (!ticket.value) return false
+  return (
+    ticket.value.reporterId === auth.user?.id &&
+    ticket.value.status !== 'analyzing' &&
+    !isTerminal.value
+  )
+})
+
+const canEditBasicInfo = computed(() => {
+  if (!ticket.value) return false
+  return canEditIssueType.value && !isTerminal.value
+})
+
+const canComment = computed(() => {
+  if (!ticket.value) return false
+  return canEditIssueType.value
 })
 
 const issueTypeOptions = [
@@ -568,6 +686,77 @@ async function onIssueTypeUpdate() {
   }
 }
 
+function openCancelDialog() {
+  cancelDialogVisible.value = true
+}
+
+async function onCancelTicket() {
+  loadingAction.value = 'cancel'
+  try {
+    await ticketStore.cancelTicket(ticketId.value)
+    cancelDialogVisible.value = false
+  } finally {
+    loadingAction.value = null
+  }
+}
+
+async function loadSitesForEdit() {
+  loadingSites.value = true
+  try {
+    sites.value = await listSites()
+  } catch (e) {
+    console.error('加载现场列表失败', e)
+  } finally {
+    loadingSites.value = false
+  }
+}
+
+function openBasicInfoDialog() {
+  const t = ticketStore.currentTicket
+  if (!t) return
+  basicInfoForm.title = t.title
+  basicInfoForm.description = t.description
+  basicInfoForm.siteId = t.siteId
+  basicInfoForm.impactLevel = t.impactLevel
+  basicInfoOccurredRange.value = t.occurredStartAt && t.occurredEndAt ? [t.occurredStartAt, t.occurredEndAt] : null
+  void loadSitesForEdit()
+  basicInfoDialogVisible.value = true
+}
+
+async function onUpdateBasicInfo() {
+  if (!basicInfoForm.title.trim() || !basicInfoForm.description.trim()) return
+  loadingAction.value = 'basicInfo'
+  try {
+    await ticketStore.updateTicketBasicInfo(ticketId.value, {
+      title: basicInfoForm.title.trim(),
+      description: basicInfoForm.description.trim(),
+      siteId: basicInfoForm.siteId,
+      impactLevel: basicInfoForm.impactLevel,
+      occurredStartAt: basicInfoOccurredRange.value?.[0],
+      occurredEndAt: basicInfoOccurredRange.value?.[1]
+    })
+    basicInfoDialogVisible.value = false
+  } finally {
+    loadingAction.value = null
+  }
+}
+
+async function onAddComment() {
+  const text = commentContent.value.trim()
+  if (!text) {
+    commentError.value = '评论内容不能为空'
+    return
+  }
+  commentError.value = ''
+  loadingAction.value = 'comment'
+  try {
+    await ticketStore.addTicketComment(ticketId.value, text)
+    commentContent.value = ''
+  } finally {
+    loadingAction.value = null
+  }
+}
+
 async function onVersionChange(versionId: number) {
   await ticketStore.switchAnalysisVersion(ticketId.value, versionId)
   await ticketStore.loadTroubleshootingPaths(ticketId.value, versionId)
@@ -628,7 +817,8 @@ const statusMap: Record<TicketStatus, { label: string; type: any }> = {
   self_solved: { label: '已自助解决', type: 'success' },
   pending_rd: { label: '待研发介入', type: 'danger' },
   rd_working: { label: '研发处理中', type: 'warning' },
-  resolved: { label: '已解决', type: 'success' }
+  resolved: { label: '已解决', type: 'success' },
+  cancelled: { label: '已取消', type: 'info' }
 }
 
 function statusLabel(status: TicketStatus) {
@@ -762,5 +952,22 @@ function guideFeedbackLabel(value?: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.comment-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+}
+.comment-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+.event-comment {
+  color: #374151;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

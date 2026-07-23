@@ -16,6 +16,7 @@ import { createKnowledgeRule, recordKnowledgeRuleFeedback } from '../core/knowle
 import { createTroubleshootingPath, getTroubleshootingPathById, listTroubleshootingPaths } from '../db/troubleshootingPaths';
 import { createTroubleshootingStep, getTroubleshootingStepById } from '../db/troubleshootingSteps';
 import { createStepEvent, listStepEvents } from '../db/stepEvents';
+import { getSiteById } from '../db/sites';
 import { askReplayAssistant } from '../core/ragAssistant';
 import type { KnowledgeRule } from '../types';
 
@@ -55,6 +56,12 @@ function assertRdOperator(ticket: DbTicket, actor: AuthUser): void {
 
 function assertStatus(ticket: DbTicket, expected: TicketStatus[], action: string): void {
   if (!expected.includes(ticket.status)) throw new Error(`工单当前状态不允许${action}`);
+}
+
+const TERMINAL_STATUSES: TicketStatus[] = ['resolved', 'self_solved', 'cancelled'];
+
+function isTerminalStatus(status: TicketStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
 }
 
 export interface CreateTicketServiceInput {
@@ -349,6 +356,102 @@ export async function updateTicketIssueType(
   });
 
   return updated;
+}
+
+export async function cancelTicket(ticketId: number, actor: AuthUser): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  if (ticket.reporter_id !== actor.id) throw new Error('仅提单人可取消该工单');
+  if (isTerminalStatus(ticket.status)) throw new Error('工单已终结，不能取消');
+  if (ticket.status === 'analyzing') throw new Error('分析中的工单不能取消，请等待分析完成');
+
+  const updated = await updateTicket(ticketId, { status: 'cancelled' });
+  if (!updated) throw new Error('更新工单失败');
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'cancelled',
+    payload: { previousStatus: ticket.status }
+  });
+
+  return updated;
+}
+
+export interface UpdateTicketBasicInfoInput {
+  title?: string;
+  description?: string;
+  siteId?: number;
+  impactLevel?: string;
+  occurredStartAt?: string;
+  occurredEndAt?: string;
+}
+
+export async function updateTicketBasicInfo(
+  ticketId: number,
+  actor: AuthUser,
+  fields: UpdateTicketBasicInfoInput
+): Promise<DbTicket> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+  if (isTerminalStatus(ticket.status)) throw new Error('工单已终结，不能编辑基本信息');
+
+  const updates: Parameters<typeof updateTicket>[1] = {};
+  if (fields.title !== undefined) {
+    const title = fields.title.trim();
+    if (!title) throw new Error('标题不能为空');
+    updates.title = title;
+  }
+  if (fields.description !== undefined) {
+    const description = fields.description.trim();
+    if (!description) throw new Error('描述不能为空');
+    updates.description = description;
+  }
+  if (fields.siteId !== undefined) {
+    const site = await getSiteById(fields.siteId);
+    if (!site) throw new Error('项目现场不存在');
+    updates.site_id = fields.siteId;
+  }
+  if (fields.impactLevel !== undefined) {
+    if (!['low', 'medium', 'high', 'critical'].includes(fields.impactLevel)) throw new Error('无效的影响程度');
+    updates.impact_level = fields.impactLevel;
+  }
+  if (fields.occurredStartAt !== undefined) updates.occurred_start_at = fields.occurredStartAt || null;
+  if (fields.occurredEndAt !== undefined) updates.occurred_end_at = fields.occurredEndAt || null;
+
+  if (Object.keys(updates).length === 0) return ticket;
+
+  const updated = await updateTicket(ticketId, updates);
+  if (!updated) throw new Error('更新工单失败');
+
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'basic_info_updated',
+    payload: { ...fields }
+  });
+
+  return updated;
+}
+
+export async function addTicketComment(
+  ticketId: number,
+  actor: AuthUser,
+  content: string
+): Promise<Awaited<ReturnType<typeof createTicketEvent>>> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+  const text = content.trim();
+  if (!text) throw new Error('评论内容不能为空');
+
+  return createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'comment',
+    payload: { content: text }
+  });
 }
 
 export async function startFieldTroubleshooting(ticketId: number, actor: AuthUser): Promise<DbTicket> {

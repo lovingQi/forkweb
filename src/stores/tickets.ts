@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
+  addTicketComment as apiAddTicketComment,
   analyzeTicket as apiAnalyze,
   assignTicket as apiAssign,
+  cancelTicket as apiCancel,
   createKnowledgeFromTicket as apiCreateKnowledge,
   createTicket as apiCreate,
   escalateToRd as apiEscalate,
@@ -17,6 +19,7 @@ import {
   startFieldTroubleshooting as apiStartFieldTroubleshooting,
   switchAnalysisVersion as apiSwitchAnalysisVersion,
   updateIssueType as apiUpdateIssueType,
+  updateTicketBasicInfo as apiUpdateTicketBasicInfo,
   verifyTicket as apiVerify,
   type AnalysisVersion,
   type IssueType,
@@ -196,6 +199,25 @@ export const useTicketStore = defineStore('tickets', () => {
     return ticket
   }
 
+  async function cancelTicket(id: number) {
+    const ticket = await apiCancel(id)
+    updateTicketInList(ticket)
+    await loadTicket(id)
+    return ticket
+  }
+
+  async function updateTicketBasicInfo(id: number, input: Parameters<typeof apiUpdateTicketBasicInfo>[1]) {
+    const ticket = await apiUpdateTicketBasicInfo(id, input)
+    updateTicketInList(ticket)
+    await loadTicket(id)
+    return ticket
+  }
+
+  async function addTicketComment(id: number, content: string) {
+    await apiAddTicketComment(id, content)
+    await loadTicket(id)
+  }
+
   function updateTicketInList(ticket: Ticket) {
     const idx = tickets.value.findIndex((t) => t.id === ticket.id)
     if (idx >= 0) {
@@ -229,6 +251,9 @@ export const useTicketStore = defineStore('tickets', () => {
     startFieldTroubleshooting,
     recordStepStatus,
     switchAnalysisVersion,
-    updateIssueType
+    updateIssueType,
+    cancelTicket,
+    updateTicketBasicInfo,
+    addTicketComment
   }
 })

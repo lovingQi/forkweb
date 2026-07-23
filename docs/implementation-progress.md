@@ -19,7 +19,7 @@
 | 11 | 精简证据面板 | ✅ 已完成 | 2026-07-22 | - |
 | 12 | AI 解释器 | ✅ 已完成 | 2026-07-22 | - |
 | 13 | 存储清理与上传限制 | ✅ 已完成 | 2026-07-23 | - |
-| 14 | 工单取消、编辑与评论 | ⬜ 待开发 | - | - |
+| 14 | 工单取消、编辑与评论 | ✅ 已完成 | 2026-07-23 | - |
 | 15 | 补充上传日志 | ⬜ 待开发 | - | - |
 | 16 | 列表分页与排序 | ⬜ 待开发 | - | - |
 | 17 | 企业微信通知 | ⬜ 待开发 | - | - |
@@ -243,3 +243,21 @@
   - 测试：`tests/e2e/tickets.spec.ts` 新增“超大文件在提交前被拒绝”与“分析失败后状态回退为待分析并记录事件”两个用例；修复前者缺少 `loginAs` 导致的鉴权失败。
 - **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，阶段 13 新增的两个用例通过。完整工单 E2E 中预存在的“步骤状态切换、不适用原因、安全确认与事件记录”用例在 120s 内超时失败，阻塞后续用例串行执行，与阶段 13 改动无关。
 - **阻塞项**：完整工单 E2E 中“步骤状态切换”用例不稳定，需单独排查。
+
+---
+
+## 阶段 14：工单取消、编辑与评论
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-14工单取消编辑与评论`
+- **改动摘要**：
+  - 数据库：`replay-server/src/db/migrate.ts` 新增 `ticket_status_add_cancelled` 迁移，通过整表重建将 `tickets.status` CHECK 扩展为 9 状态（含 `cancelled`）；`replay-server/src/db/schema.ts` 同步更新。
+  - 后端：`replay-server/src/db/tickets.ts` 的 `TicketStatus` 增加 `cancelled`，`updateTicket` 增加 `title`/`description` 可更新字段。
+  - 后端：`replay-server/src/tickets/service.ts` 新增 `cancelTicket`（仅提单人可取消未终结且非分析中工单）、`updateTicketBasicInfo`（未终结工单可编辑标题/描述/现场/影响程度/发生时间）、`addTicketComment`（纯文字评论）；定义终结状态 `resolved`/`self_solved`/`cancelled`。
+  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /:id/cancel`、`PATCH /:id/basic-info`、`POST /:id/comments`；`parseStatusQuery` 增加 `cancelled`。
+  - 前端：`src/api/tickets.ts` 与 `src/stores/tickets.ts` 新增对应 API 与 action；编辑/取消后刷新事件流。
+  - 前端：`src/views/TicketDetail.vue` 增加「取消工单」「编辑基本信息」按钮与弹窗；事件流底部增加评论输入区，并对 `comment` 事件做专门渲染；状态标签增加「已取消」。
+  - 前端：`src/views/TicketList.vue` 的 `statusMap` 增加 `cancelled` 状态。
+  - 测试：`tests/e2e/tickets.spec.ts` 新增编辑基本信息、发表评论、取消工单三个用例。
+- **验证方式**：`npm run typecheck` 通过；`npx tsc -p replay-server/tsconfig.json --noEmit` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，阶段 14 新增的三个用例通过。
+- **阻塞项**：无

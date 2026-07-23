@@ -13,7 +13,9 @@ import { listTroubleshootingPaths } from '../db/troubleshootingPaths';
 import { listTroubleshootingStepsByPathIds } from '../db/troubleshootingSteps';
 import { listLatestStepEventsByStepIds } from '../db/stepEvents';
 import {
+  addTicketComment,
   assignTicket,
+  cancelTicket,
   createKnowledgeFromTicket,
   createTicketWithUploads,
   escalateToRd,
@@ -24,6 +26,7 @@ import {
   resolveTicket,
   startFieldTroubleshooting,
   startTicketAnalysis,
+  updateTicketBasicInfo,
   updateTicketIssueType,
   verifyTicket
 } from './service';
@@ -164,7 +167,8 @@ function parseStatusQuery(value: unknown): TicketStatus | TicketStatus[] | undef
     'self_solved',
     'pending_rd',
     'rd_working',
-    'resolved'
+    'resolved',
+    'cancelled'
   ];
   const items = String(value).split(',').map((s) => s.trim()).filter(Boolean);
   const statuses = items.filter((s): s is TicketStatus => validStatuses.includes(s as TicketStatus));
@@ -224,6 +228,55 @@ router.patch('/:id/issue-type', authMiddleware, async (req: AuthRequest, res) =>
     }
     const ticket = await updateTicketIssueType(ticketId, req.user!, issueType);
     res.json({ succeed: true, ticket: serializeTicket(ticket) });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 取消工单
+router.post('/:id/cancel', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const ticket = await cancelTicket(ticketId, req.user!);
+    res.json({ succeed: true, ticket: serializeTicket(ticket) });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 编辑基本信息
+router.patch('/:id/basic-info', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const fields: Parameters<typeof updateTicketBasicInfo>[2] = {};
+    if (req.body.title !== undefined) fields.title = String(req.body.title);
+    if (req.body.description !== undefined) fields.description = String(req.body.description);
+    if (req.body.siteId !== undefined) fields.siteId = Number(req.body.siteId);
+    if (req.body.impactLevel !== undefined) fields.impactLevel = String(req.body.impactLevel);
+    if (req.body.occurredStartAt !== undefined) fields.occurredStartAt = String(req.body.occurredStartAt || '');
+    if (req.body.occurredEndAt !== undefined) fields.occurredEndAt = String(req.body.occurredEndAt || '');
+    const ticket = await updateTicketBasicInfo(ticketId, req.user!, fields);
+    res.json({ succeed: true, ticket: serializeTicket(ticket) });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 发表评论
+router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const content = String(req.body.content || '');
+    const event = await addTicketComment(ticketId, req.user!, content);
+    res.json({
+      succeed: true,
+      event: {
+        id: event.id,
+        action: event.action,
+        payload: event.payload ? JSON.parse(event.payload) : null,
+        createdAt: event.created_at
+      }
+    });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }

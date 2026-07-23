@@ -8,7 +8,8 @@ export type TicketStatus =
   | 'self_solved'
   | 'pending_rd'
   | 'rd_working'
-  | 'resolved';
+  | 'resolved'
+  | 'cancelled';
 
 export interface DbTicket {
   id: number;
@@ -94,6 +95,8 @@ export async function updateTicket(
     Pick<
       DbTicket,
       | 'status'
+      | 'title'
+      | 'description'
       | 'assignee_id'
       | 'issue_type'
       | 'impact_level'
