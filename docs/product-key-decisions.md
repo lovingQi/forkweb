@@ -228,6 +228,18 @@ forkweb 当前已有 Vue3 + Vite + Element Plus + Pinia 前端，以及本地 re
 
 107. 过渡动画：不做。
 
+## 第四轮关键决策（阶段 24：大日志内存优化）
+
+108. 大日志原始行不落内存：`ParsedLogLine` 不再冗余保存完整 `raw` 字符串，解析后的结构体只保留时间戳、级别、模块、消息等字段。
+
+109. 原始日志行持久化到磁盘：分析完成后，原始日志行以 JSONL 格式写入 `RawLogStore` 文件（`raw-lines-<sessionId>.jsonl`），按需提供。
+
+110. 日志解析流式化：`session.load()` 使用 `readline` 逐行读取日志文件，禁止用 `fs.readFile` 一次性把整个日志载入内存。
+
+111. 缓存失效与清理：`cache.ts` 的 `CACHE_VERSION` 升级到 4，使包含 `rawLines` 的旧缓存失效；缓存清理时同步删除对应的 `raw-lines-*.jsonl` 文件。
+
+112. API 按需读取原始行：`/api/replay/logs`、`/api/replay/folded-logs/:id/lines`、`/api/replay/knowledge/test` 等接口从 `RawLogStore` 异步读取指定范围，响应前补回 `raw` 字段，保持 API 契约兼容。
+
 ## 产品闭环
 
 1. 现场人员登录后进入工单列表。

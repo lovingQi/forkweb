@@ -29,6 +29,7 @@
 | 21 | 车型管理 | ✅ 已完成 | 2026-07-23 | - |
 | 22 | 知识库车型类别绑定 | ✅ 已完成 | 2026-07-23 | - |
 | 23 | 前端美化与品牌 | ✅ 已完成 | 2026-07-23 | - |
+| 24 | 大日志 OOM 修复 | ✅ 已完成 | 2026-07-23 | - |
 
 ## 审查修复（2026-07-22）
 
@@ -39,6 +40,30 @@
 - **E2E 隔离**：工单 E2E 必须显式指定 `REPLAY_E2E_BASE_URL`、`REPLAY_E2E_API_BASE`；后端支持通过 `FORKWEB_CACHE_DIR` 与 `FORKWEB_CONFIG_DIR` 指向独立测试数据目录，避免污染默认数据。
 - **验证环境说明**：隔离前端可通过 `VITE_REPLAY_API_BASE` 与 `VITE_REPLAY_WS_BASE` 覆盖 `public/config.js` 中的默认地址；工单 E2E 的隔离启动需使用 Node 20，以匹配 `better-sqlite3` 原生模块与 Vite 运行时要求。
 - **本轮验证结果**：`npm run typecheck`、`npm run replay:build`、`git diff --check` 均通过。隔离 E2E 使用独立缓存、配置与端口运行，前 8 个用例（登录、建单、状态流、重新分析、版本切换、差异对比）通过；后续用例未在 180 秒内完成，需单独拆分排查，未影响默认项目数据。
+
+---
+
+## 阶段 24：大日志 OOM 修复
+
+- **状态**：✅ 已完成
+- **问题根因**：用户上传大日志文件后，`session.load()` 通过 `readLogFilesWithIndex()` 把完整日志读入内存并生成大量 `ParsedLogLine` 对象；随后 `writeSessionCache()` 与 `finalizeTicketAnalysis()` 中的 `buildJsonReport` 均使用 `JSON.stringify` 全量序列化 `ReplaySessionData`，内存对象膨胀后触发 Node.js heap OOM。
+- **改动摘要**：
+  - 新增 `replay-server/src/core/rawLogStore.ts`：使用 JSONL 把原始日志行持久化到磁盘，提供 `RawLogStore` 按需读取，避免常驻内存。
+  - 修改 `replay-server/src/types.ts`：`ParsedLogLine` 删除 `raw` 字段；`ReplaySessionData` 新增 `rawLinesPath`。
+  - 修改 `replay-server/src/parser/logLine.ts`：`parseLogLine` 不再返回 `raw`；新增 `formatRawLine` 用于重构原始行。
+  - 修改 `replay-server/src/core/logIndex.ts`：日志索引缓存不再保存 `rawLines`。
+  - 修改 `replay-server/src/core/session.ts`：日志解析改为流式读取；分析完成后把 `rawLines` 写入 `RawLogStore` 并清空内存。
+  - 修改 `replay-server/src/core/knowledgeBase.ts`、`knowledgeEmbedding.ts`、`ragAssistant.ts`、`report.ts`、`redaction.ts`：所有 `line.raw` 引用改为 `line.message` 或 `formatRawLine(line)`。
+  - 修改 `replay-server/src/index.ts`：`/api/replay/logs`、`/api/replay/folded-logs/:id/lines`、`/api/replay/knowledge/test` 改为从 `RawLogStore` 异步读取，响应前补回 `raw` 字段。
+  - 修改 `replay-server/src/core/cache.ts`：`CACHE_VERSION` 从 3 升到 4，使旧缓存失效；清理 sessions 桶时同步删除 `raw-lines-*.jsonl`。
+  - 适配脚本：`replay-server/scripts/verify-knowledge.ts`、`verify-assistant.ts`、`audit-knowledge.ts` 适配新的 `rawLines` 存储方式。
+  - 修改 `src/views/Replay.vue`：证据行和上下文复制的 fallback 改为 `message || raw || ''`。
+- **验证方式**：
+  - `npm run replay:build` 通过。
+  - `npm run replay:verify:knowledge` 通过。
+  - `npm run replay:verify:assistant` 失败原因为当前环境 Node 16 缺少全局 `fetch`（项目预期 Node 20），与本次改动无关。
+  - 20MB 合成大日志 OOM 机制验证通过：`rawLines` 成功落盘、会话缓存不再包含巨量 `rawLines`、`buildJsonReport` 可正常序列化。
+- **阻塞项**：无
 
 ---
 

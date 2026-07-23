@@ -624,6 +624,35 @@ CREATE TABLE IF NOT EXISTS site_vehicle_models (
 
 ---
 
+## 阶段 24：大日志 OOM 修复
+
+### 目标
+
+解决上传大日志文件后 Node.js 堆内存不足导致崩溃的问题，保证 200MB 原始日志在默认容器内存限制内可完成解析、分析与报告生成。
+
+### 步骤
+
+1. 新增 `replay-server/src/core/rawLogStore.ts`：使用 JSONL 把原始日志行持久化到磁盘，提供 `RawLogStore` 按需读取。
+2. 修改 `replay-server/src/types.ts`：`ParsedLogLine` 删除 `raw` 字段；`ReplaySessionData` 新增 `rawLinesPath`。
+3. 修改 `replay-server/src/parser/logLine.ts`：`parseLogLine` 不再返回 `raw`；新增 `formatRawLine` 用于重构原始行。
+4. 修改 `replay-server/src/core/logIndex.ts`：日志索引缓存不再保存 `rawLines`。
+5. 修改 `replay-server/src/core/session.ts`：日志解析改为流式读取；分析完成后把 `rawLines` 写入 `RawLogStore` 并清空内存。
+6. 修改 `replay-server/src/core/knowledgeBase.ts`、`knowledgeEmbedding.ts`、`ragAssistant.ts`、`report.ts`、`redaction.ts`：所有 `line.raw` 引用改为 `line.message` 或 `formatRawLine(line)`。
+7. 修改 `replay-server/src/index.ts`：`/api/replay/logs`、`/api/replay/folded-logs/:id/lines`、`/api/replay/knowledge/test` 改为从 `RawLogStore` 异步读取，响应前补回 `raw` 字段。
+8. 修改 `replay-server/src/core/cache.ts`：`CACHE_VERSION` 从 3 升到 4，使旧缓存失效；清理 sessions 桶时同步删除 `raw-lines-*.jsonl`。
+9. 适配脚本 `replay-server/scripts/verify-knowledge.ts`、`verify-assistant.ts`、`audit-knowledge.ts` 到新的 `rawLines` 存储方式。
+10. 修改 `src/views/Replay.vue`：证据行和上下文复制的 fallback 改为 `message || raw || ''`。
+11. 更新 `docs/implementation-progress.md`，标记阶段 24 完成。
+
+### 验收标准
+
+- 20MB 合成大日志可完成完整分析流程，不再触发 `FATAL ERROR: Reached heap limit`。
+- `npm run replay:build` 通过。
+- `npm run replay:verify:knowledge` 通过。
+- 旧缓存自动失效，重新分析时生成新的 `raw-lines-*.jsonl`。
+
+---
+
 ## 5. 风险与回退策略
 
 1. **数据库迁移失败**：所有迁移在 `migrate.ts` 中通过 `columnExists`/`tableExists` 做幂等判断；关键重命名迁移先备份数据到临时表。
