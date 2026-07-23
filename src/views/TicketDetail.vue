@@ -39,6 +39,12 @@
             </el-descriptions-item>
             <el-descriptions-item label="描述">{{ ticketStore.currentTicket.description }}</el-descriptions-item>
             <el-descriptions-item label="项目现场">{{ ticketStore.currentTicket.siteName || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="车型">
+              <span v-if="ticketStore.currentTicket.vehicleModelName">
+                {{ ticketStore.currentTicket.vehicleCategoryName ? `${ticketStore.currentTicket.vehicleCategoryName} - ` : '' }}{{ ticketStore.currentTicket.vehicleModelName }}
+              </span>
+              <span v-else>-</span>
+            </el-descriptions-item>
             <el-descriptions-item label="问题类型">
               <div class="issue-type-cell">
                 <span>{{ issueTypeLabel(ticketStore.currentTicket.issueType) || '-' }}</span>

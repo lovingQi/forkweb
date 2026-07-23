@@ -38,6 +38,7 @@ export interface DbTicket {
   ai_conclusion: string | null;
   ai_offline: number | null;
   latest_analysis_version_id: number | null;
+  vehicle_model_id: number | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -53,6 +54,7 @@ export interface CreateTicketInput {
   impactLevel?: string;
   occurredStartAt?: string;
   occurredEndAt?: string;
+  vehicleModelId?: number;
   logDir: string;
   mapDir?: string;
   mapFile?: string;
@@ -62,8 +64,8 @@ export interface CreateTicketInput {
 export async function createTicket(input: CreateTicketInput): Promise<DbTicket> {
   const db = await getDb();
   const stmt = db.prepare(
-    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, issue_type, impact_level, occurred_start_at, occurred_end_at, log_dir, map_dir, map_file, ai_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, issue_type, impact_level, occurred_start_at, occurred_end_at, vehicle_model_id, log_dir, map_dir, map_file, ai_enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const result = stmt.run(
     input.ticketNo,
@@ -76,6 +78,7 @@ export async function createTicket(input: CreateTicketInput): Promise<DbTicket> 
     input.impactLevel ?? null,
     input.occurredStartAt ?? null,
     input.occurredEndAt ?? null,
+    input.vehicleModelId ?? null,
     input.logDir,
     input.mapDir || null,
     input.mapFile || null,
@@ -113,6 +116,7 @@ export async function updateTicket(
       | 'map_dir'
       | 'map_file'
       | 'site_id'
+      | 'vehicle_model_id'
       | 'ai_enabled'
       | 'ai_conclusion'
       | 'ai_offline'
@@ -144,6 +148,8 @@ export async function updateTicket(
 export interface TicketWithReporter extends DbTicket {
   reporter_username: string;
   site_name?: string;
+  vehicle_model_name?: string;
+  vehicle_category_name?: string;
 }
 
 export async function listTickets(filters?: {
@@ -151,6 +157,7 @@ export async function listTickets(filters?: {
   status?: TicketStatus | TicketStatus[];
   assigneeId?: number | null;
   issueType?: string;
+  vehicleModelId?: number;
   limit?: number;
   offset?: number;
 }): Promise<DbTicket[]> {
@@ -182,6 +189,10 @@ export async function listTickets(filters?: {
     where.push('issue_type = ?');
     values.push(filters.issueType);
   }
+  if (filters?.vehicleModelId !== undefined) {
+    where.push('vehicle_model_id = ?');
+    values.push(filters.vehicleModelId);
+  }
   const sql =
     'SELECT * FROM tickets' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
@@ -198,6 +209,7 @@ export async function countTickets(filters?: {
   status?: TicketStatus | TicketStatus[];
   assigneeId?: number | null;
   issueType?: string;
+  vehicleModelId?: number;
 }): Promise<number> {
   const db = await getDb();
   const where: string[] = [];
@@ -227,6 +239,10 @@ export async function countTickets(filters?: {
     where.push('issue_type = ?');
     values.push(filters.issueType);
   }
+  if (filters?.vehicleModelId !== undefined) {
+    where.push('vehicle_model_id = ?');
+    values.push(filters.vehicleModelId);
+  }
   const sql = 'SELECT COUNT(*) as c FROM tickets' + (where.length ? ` WHERE ${where.join(' AND ')}` : '');
   const row = db.prepare(sql).get(...values) as { c: number };
   return row.c;
@@ -250,6 +266,7 @@ export async function listTicketsWithReporter(filters?: {
   assigneeId?: number | null;
   siteId?: number;
   issueType?: string;
+  vehicleModelId?: number;
   limit?: number;
   offset?: number;
 }): Promise<TicketWithReporter[]> {
@@ -285,10 +302,16 @@ export async function listTicketsWithReporter(filters?: {
     where.push('t.issue_type = ?');
     values.push(filters.issueType);
   }
+  if (filters?.vehicleModelId !== undefined) {
+    where.push('t.vehicle_model_id = ?');
+    values.push(filters.vehicleModelId);
+  }
   const sql =
-    'SELECT t.*, u.username as reporter_username, s.name as site_name FROM tickets t' +
+    'SELECT t.*, u.username as reporter_username, s.name as site_name, vm.name as vehicle_model_name, vc.name as vehicle_category_name FROM tickets t' +
     ' JOIN users u ON t.reporter_id = u.id' +
     ' LEFT JOIN sites s ON t.site_id = s.id' +
+    ' LEFT JOIN vehicle_models vm ON t.vehicle_model_id = vm.id' +
+    ' LEFT JOIN vehicle_categories vc ON vm.category_id = vc.id' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ' ORDER BY t.created_at DESC, t.id DESC' +
     (filters?.limit ? ' LIMIT ?' : '') +
@@ -304,6 +327,7 @@ export async function countTicketsWithReporter(filters?: {
   assigneeId?: number | null;
   siteId?: number;
   issueType?: string;
+  vehicleModelId?: number;
 }): Promise<number> {
   const db = await getDb();
   const where: string[] = [];
@@ -336,6 +360,10 @@ export async function countTicketsWithReporter(filters?: {
   if (filters?.issueType !== undefined) {
     where.push('t.issue_type = ?');
     values.push(filters.issueType);
+  }
+  if (filters?.vehicleModelId !== undefined) {
+    where.push('t.vehicle_model_id = ?');
+    values.push(filters.vehicleModelId);
   }
   const sql =
     'SELECT COUNT(*) as c FROM tickets t' +

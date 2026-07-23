@@ -43,6 +43,7 @@ export const useTicketStore = defineStore('tickets', () => {
     status?: string
     reporterId?: number
     siteId?: number
+    vehicleModelId?: number
     page?: number
     pageSize?: number
   }) {
@@ -75,6 +76,7 @@ export const useTicketStore = defineStore('tickets', () => {
     title: string
     description: string
     siteId: number
+    vehicleModelId?: number
     issueType?: string
     impactLevel?: string
     occurredStartAt?: string

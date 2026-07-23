@@ -17,12 +17,19 @@ siteHttp.interceptors.request.use((req) => {
 export interface Site {
   id: number
   name: string
+  vehicleModelIds: number[]
   createdAt: string
   updatedAt: string
 }
 
 export interface CreateSiteInput {
   name: string
+  vehicleModelIds?: number[]
+}
+
+export interface UpdateSiteInput {
+  name: string
+  vehicleModelIds?: number[]
 }
 
 export async function listSites(): Promise<Site[]> {
@@ -37,7 +44,7 @@ export async function createSite(input: CreateSiteInput): Promise<Site> {
   return data.site
 }
 
-export async function updateSite(id: number, input: CreateSiteInput): Promise<Site> {
+export async function updateSite(id: number, input: UpdateSiteInput): Promise<Site> {
   const { data } = await siteHttp.put(`/sites/${id}`, input)
   if (!data.succeed) throw new Error(data.error || '更新现场失败')
   return data.site

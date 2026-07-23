@@ -53,6 +53,22 @@ export async function updateSite(id: number, input: Partial<CreateSiteInput>): P
 
 export async function deleteSite(id: number): Promise<boolean> {
   const db = await getDb();
+  db.prepare('DELETE FROM site_vehicle_models WHERE site_id = ?').run(id);
   const result = db.prepare('DELETE FROM sites WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export async function setSiteVehicleModels(siteId: number, modelIds: number[]): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM site_vehicle_models WHERE site_id = ?').run(siteId);
+  const stmt = db.prepare('INSERT INTO site_vehicle_models (site_id, vehicle_model_id) VALUES (?, ?)');
+  for (const modelId of modelIds) {
+    stmt.run(siteId, modelId);
+  }
+}
+
+export async function getSiteVehicleModelIds(siteId: number): Promise<number[]> {
+  const db = await getDb();
+  const rows = db.prepare('SELECT vehicle_model_id FROM site_vehicle_models WHERE site_id = ?').all(siteId) as Array<{ vehicle_model_id: number }>;
+  return rows.map((r) => r.vehicle_model_id);
 }

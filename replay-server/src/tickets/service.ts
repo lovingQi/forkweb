@@ -74,6 +74,7 @@ export interface CreateTicketServiceInput {
   originalNames?: string[];
   reporter: AuthUser;
   siteId?: number;
+  vehicleModelId?: number;
   issueType?: string;
   impactLevel?: string;
   occurredStartAt?: string;
@@ -91,6 +92,7 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     description: input.description,
     reporterId: input.reporter.id,
     siteId: input.siteId,
+    vehicleModelId: input.vehicleModelId,
     issueType: input.issueType,
     impactLevel: input.impactLevel,
     occurredStartAt: input.occurredStartAt,
@@ -390,6 +392,7 @@ export interface UpdateTicketBasicInfoInput {
   title?: string;
   description?: string;
   siteId?: number;
+  vehicleModelId?: number;
   impactLevel?: string;
   occurredStartAt?: string;
   occurredEndAt?: string;
@@ -420,6 +423,9 @@ export async function updateTicketBasicInfo(
     const site = await getSiteById(fields.siteId);
     if (!site) throw new Error('项目现场不存在');
     updates.site_id = fields.siteId;
+  }
+  if (fields.vehicleModelId !== undefined) {
+    updates.vehicle_model_id = fields.vehicleModelId;
   }
   if (fields.impactLevel !== undefined) {
     if (!['low', 'medium', 'high', 'critical'].includes(fields.impactLevel)) throw new Error('无效的影响程度');
@@ -886,10 +892,11 @@ export interface ListUserTicketsInput {
   status?: TicketStatus | TicketStatus[];
   siteId?: number;
   issueType?: string;
+  vehicleModelId?: number;
 }
 
 export interface ListUserTicketsOutput {
-  tickets: Array<DbTicket & { reporter_username: string; site_name?: string }>;
+  tickets: Array<DbTicket & { reporter_username: string; site_name?: string; vehicle_model_name?: string; vehicle_category_name?: string }>;
   total: number;
 }
 
@@ -910,6 +917,7 @@ export async function listUserTickets(
     if (filters?.status !== undefined) target.status = filters.status;
     if (filters?.siteId !== undefined) target.siteId = filters.siteId;
     if (filters?.issueType !== undefined) target.issueType = filters.issueType;
+    if (filters?.vehicleModelId !== undefined) target.vehicleModelId = filters.vehicleModelId;
   };
   applyFilters(baseFilters);
   applyFilters(countFilters);

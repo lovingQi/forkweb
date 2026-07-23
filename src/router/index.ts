@@ -73,6 +73,12 @@ const routes = [
     meta: { title: '现场管理', requiresRd: true }
   },
   {
+    path: '/vehicles',
+    name: 'vehicles',
+    component: () => import('@/views/VehicleManage.vue'),
+    meta: { title: '车型管理', requiresRd: true }
+  },
+  {
     path: '/stats',
     name: 'stats',
     component: () => import('@/views/StatsBoard.vue'),

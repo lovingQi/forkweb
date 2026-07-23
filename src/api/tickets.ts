@@ -53,6 +53,9 @@ export interface Ticket {
   reporterName?: string
   siteId?: number
   siteName?: string
+  vehicleModelId?: number
+  vehicleModelName?: string
+  vehicleCategoryName?: string
   assigneeId: number | null
   status: TicketStatus
   issueType?: string
@@ -89,6 +92,7 @@ export async function createTicket(form: {
   title: string
   description: string
   siteId: number
+  vehicleModelId?: number
   issueType?: string
   impactLevel?: string
   occurredStartAt?: string
@@ -100,6 +104,7 @@ export async function createTicket(form: {
   data.append('title', form.title)
   data.append('description', form.description)
   data.append('siteId', String(form.siteId))
+  if (form.vehicleModelId) data.append('vehicleModelId', String(form.vehicleModelId))
   if (form.issueType) data.append('issueType', form.issueType)
   if (form.impactLevel) data.append('impactLevel', form.impactLevel)
   if (form.occurredStartAt) data.append('occurredStartAt', form.occurredStartAt)
@@ -120,6 +125,7 @@ export interface ListTicketsFilters {
   reporterId?: number
   siteId?: number
   issueType?: string
+  vehicleModelId?: number
   page?: number
   pageSize?: number
 }
@@ -130,6 +136,7 @@ export async function listTickets(filters?: ListTicketsFilters): Promise<{ ticke
   if (filters?.reporterId !== undefined) params.reporterId = String(filters.reporterId)
   if (filters?.siteId !== undefined) params.siteId = String(filters.siteId)
   if (filters?.issueType) params.issueType = filters.issueType
+  if (filters?.vehicleModelId !== undefined) params.vehicleModelId = String(filters.vehicleModelId)
   if (filters?.page !== undefined) params.page = String(filters.page)
   if (filters?.pageSize !== undefined) params.pageSize = String(filters.pageSize)
   const { data } = await ticketHttp.get('/tickets', { params })
@@ -280,6 +287,7 @@ export interface UpdateTicketBasicInfoInput {
   title?: string
   description?: string
   siteId?: number
+  vehicleModelId?: number
   impactLevel?: string
   occurredStartAt?: string
   occurredEndAt?: string

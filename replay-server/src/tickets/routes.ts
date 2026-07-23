@@ -8,6 +8,7 @@ import { authMiddleware, requireRole, type AuthRequest } from '../auth/middlewar
 import type { DbTicket, TicketStatus } from '../db/tickets';
 import { getTicketById } from '../db/tickets';
 import { getSiteById } from '../db/sites';
+import { getModelById } from '../db/vehicleModels';
 import { getAnalysisVersionById, listAnalysisVersions, type DbAnalysisVersion } from '../db/analysisVersions';
 import { listTroubleshootingPaths } from '../db/troubleshootingPaths';
 import { listTroubleshootingStepsByPathIds } from '../db/troubleshootingSteps';
@@ -101,6 +102,8 @@ router.post(
       const aiEnabled = req.body.aiEnabled === 'true' || req.body.aiEnabled === true;
       const rawSiteId = req.body.siteId ? Number(req.body.siteId) : undefined;
       const siteId = Number.isFinite(rawSiteId) && rawSiteId! > 0 ? rawSiteId : undefined;
+      const rawVehicleModelId = req.body.vehicleModelId ? Number(req.body.vehicleModelId) : undefined;
+      const vehicleModelId = Number.isFinite(rawVehicleModelId) && rawVehicleModelId! > 0 ? rawVehicleModelId : undefined;
       const issueType = req.body.issueType ? String(req.body.issueType).trim() : undefined;
       const impactLevel = req.body.impactLevel ? String(req.body.impactLevel).trim() : undefined;
       const occurredStartAt = req.body.occurredStartAt ? String(req.body.occurredStartAt).trim() : undefined;
@@ -120,6 +123,7 @@ router.post(
         originalNames: uploadedFiles.map((f) => f.originalname),
         reporter: req.user!,
         siteId,
+        vehicleModelId,
         issueType,
         impactLevel,
         occurredStartAt,
@@ -146,6 +150,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
     const reporterId = req.query.reporterId ? Number(req.query.reporterId) : undefined;
     const siteId = req.query.siteId ? Number(req.query.siteId) : undefined;
     const issueType = req.query.issueType ? String(req.query.issueType).trim() : undefined;
+    const vehicleModelId = req.query.vehicleModelId ? Number(req.query.vehicleModelId) : undefined;
     const page = req.query.page ? Number(req.query.page) : undefined;
     const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
     const { tickets, total } = await listUserTickets(req.user!, {
@@ -153,6 +158,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
       reporterId: Number.isFinite(reporterId) ? reporterId : undefined,
       siteId: Number.isFinite(siteId) && siteId! > 0 ? siteId : undefined,
       issueType,
+      vehicleModelId: Number.isFinite(vehicleModelId) && vehicleModelId! > 0 ? vehicleModelId : undefined,
       page: Number.isFinite(page) && page! > 0 ? page : undefined,
       pageSize: Number.isFinite(pageSize) && pageSize! > 0 ? pageSize : undefined
     });
@@ -190,6 +196,13 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
       const site = await getSiteById(ticket.site_id);
       if (site) {
         (ticket as DbTicket & { site_name?: string }).site_name = site.name;
+      }
+    }
+    if (ticket.vehicle_model_id) {
+      const model = await getModelById(ticket.vehicle_model_id);
+      if (model) {
+        (ticket as DbTicket & { vehicle_model_name?: string; vehicle_category_name?: string }).vehicle_model_name = model.name;
+        (ticket as DbTicket & { vehicle_model_name?: string; vehicle_category_name?: string }).vehicle_category_name = model.category_name;
       }
     }
     if (req.user!.role === 'after_sales' && ticket.reporter_id !== req.user!.id) {
@@ -257,6 +270,7 @@ router.patch('/:id/basic-info', authMiddleware, async (req: AuthRequest, res) =>
     if (req.body.title !== undefined) fields.title = String(req.body.title);
     if (req.body.description !== undefined) fields.description = String(req.body.description);
     if (req.body.siteId !== undefined) fields.siteId = Number(req.body.siteId);
+    if (req.body.vehicleModelId !== undefined) fields.vehicleModelId = Number(req.body.vehicleModelId);
     if (req.body.impactLevel !== undefined) fields.impactLevel = String(req.body.impactLevel);
     if (req.body.occurredStartAt !== undefined) fields.occurredStartAt = String(req.body.occurredStartAt || '');
     if (req.body.occurredEndAt !== undefined) fields.occurredEndAt = String(req.body.occurredEndAt || '');
@@ -622,7 +636,7 @@ router.get('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
 });
 
 function serializeTicket(ticket: DbTicket) {
-  const withExtra = ticket as DbTicket & { reporter_username?: string; site_name?: string };
+  const withExtra = ticket as DbTicket & { reporter_username?: string; site_name?: string; vehicle_model_name?: string; vehicle_category_name?: string };
   return {
     id: ticket.id,
     ticketNo: ticket.ticket_no,
@@ -632,6 +646,9 @@ function serializeTicket(ticket: DbTicket) {
     reporterName: withExtra.reporter_username || '',
     siteId: ticket.site_id ?? undefined,
     siteName: withExtra.site_name || undefined,
+    vehicleModelId: ticket.vehicle_model_id ?? undefined,
+    vehicleModelName: withExtra.vehicle_model_name || undefined,
+    vehicleCategoryName: withExtra.vehicle_category_name || undefined,
     assigneeId: ticket.assignee_id,
     status: ticket.status,
     issueType: ticket.issue_type ?? undefined,

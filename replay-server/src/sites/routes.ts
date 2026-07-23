@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../auth/middleware';
-import { createSite, deleteSite, getSiteById, listSites, updateSite } from '../db/sites';
+import { createSite, deleteSite, getSiteById, listSites, updateSite, setSiteVehicleModels, getSiteVehicleModelIds } from '../db/sites';
 import { getDb } from '../db/index';
 
 const router = Router();
 
-function serializeSite(site: Awaited<ReturnType<typeof getSiteById>>) {
+async function serializeSite(site: Awaited<ReturnType<typeof getSiteById>>) {
   if (!site) return null;
+  const vehicleModelIds = await getSiteVehicleModelIds(site.id);
   return {
     id: site.id,
     name: site.name,
+    vehicleModelIds,
     createdAt: site.created_at,
     updatedAt: site.updated_at
   };
@@ -19,7 +21,7 @@ function serializeSite(site: Awaited<ReturnType<typeof getSiteById>>) {
 router.get('/', authMiddleware, async (_req, res) => {
   try {
     const sites = await listSites();
-    res.json({ succeed: true, sites: sites.map(serializeSite) });
+    res.json({ succeed: true, sites: await Promise.all(sites.map(serializeSite)) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
@@ -34,7 +36,11 @@ router.post('/', authMiddleware, requireRole('rd', 'admin'), async (req, res) =>
       return;
     }
     const site = await createSite({ name });
-    res.json({ succeed: true, site: serializeSite(site) });
+    const vehicleModelIds: number[] = Array.isArray(req.body.vehicleModelIds) ? req.body.vehicleModelIds : [];
+    if (vehicleModelIds.length > 0) {
+      await setSiteVehicleModels(site.id, vehicleModelIds);
+    }
+    res.json({ succeed: true, site: await serializeSite(site) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }
@@ -54,7 +60,10 @@ router.put('/:id', authMiddleware, requireRole('rd', 'admin'), async (req, res) 
       res.status(404).json({ succeed: false, error: '现场不存在' });
       return;
     }
-    res.json({ succeed: true, site: serializeSite(site) });
+    if (Array.isArray(req.body.vehicleModelIds)) {
+      await setSiteVehicleModels(id, req.body.vehicleModelIds);
+    }
+    res.json({ succeed: true, site: await serializeSite(site) });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }

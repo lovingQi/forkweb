@@ -46,12 +46,14 @@ CREATE TABLE IF NOT EXISTS tickets (
   ai_conclusion TEXT,
   ai_offline INTEGER,
   latest_analysis_version_id INTEGER,
+  vehicle_model_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   resolved_at TEXT,
   FOREIGN KEY (reporter_id) REFERENCES users(id),
   FOREIGN KEY (assignee_id) REFERENCES users(id),
-  FOREIGN KEY (site_id) REFERENCES sites(id)
+  FOREIGN KEY (site_id) REFERENCES sites(id),
+  FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_events (
@@ -147,6 +149,31 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 );
 CREATE INDEX IF NOT EXISTS idx_step_events_ticket ON ticket_step_events(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_step_events_step ON ticket_step_events(step_id);
+
+CREATE TABLE IF NOT EXISTS vehicle_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vehicle_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (category_id) REFERENCES vehicle_categories(id),
+  UNIQUE(category_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS site_vehicle_models (
+  site_id INTEGER NOT NULL,
+  vehicle_model_id INTEGER NOT NULL,
+  PRIMARY KEY (site_id, vehicle_model_id),
+  FOREIGN KEY (site_id) REFERENCES sites(id),
+  FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id)
+);
 
 CREATE TABLE IF NOT EXISTS json_stores (
   key TEXT PRIMARY KEY,

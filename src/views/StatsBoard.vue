@@ -61,6 +61,16 @@
               <el-table-column prop="issueType" label="问题类型" />
               <el-table-column prop="count" label="数量" width="100" />
             </el-table>
+
+            <div class="stat-subtitle">按车型分布</div>
+            <el-table :data="ticketStats.byVehicleModel" size="small" stripe>
+              <el-table-column label="车型">
+                <template #default="{ row }">
+                  {{ row.vehicleCategoryName ? `${row.vehicleCategoryName} - ` : '' }}{{ row.vehicleModelName }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="count" label="数量" width="100" />
+            </el-table>
           </el-card>
         </el-col>
 
@@ -160,7 +170,8 @@ const emptyTicketStats: TicketStats = {
   avgResolutionSeconds: 0,
   avgResolutionText: '无数据',
   bySite: [],
-  byIssueType: []
+  byIssueType: [],
+  byVehicleModel: []
 }
 
 const emptyKnowledgeStats: KnowledgeStats = {

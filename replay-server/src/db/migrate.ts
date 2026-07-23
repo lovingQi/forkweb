@@ -303,6 +303,41 @@ const MIGRATIONS = [
 
       PRAGMA foreign_keys = ON;
     `
+  },
+  {
+    id: 'create_vehicle_tables',
+    sql: `
+      CREATE TABLE IF NOT EXISTS vehicle_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS vehicle_models (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (category_id) REFERENCES vehicle_categories(id),
+        UNIQUE(category_id, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS site_vehicle_models (
+        site_id INTEGER NOT NULL,
+        vehicle_model_id INTEGER NOT NULL,
+        PRIMARY KEY (site_id, vehicle_model_id),
+        FOREIGN KEY (site_id) REFERENCES sites(id),
+        FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id)
+      );
+    `
+  },
+  {
+    id: 'ticket_vehicle_model_id',
+    sql: `
+      ALTER TABLE tickets ADD COLUMN vehicle_model_id INTEGER REFERENCES vehicle_models(id);
+    `
   }
 ];
 
@@ -406,6 +441,12 @@ export async function runMigrations(db: Database.Database): Promise<void> {
       if (createSql && createSql.sql.includes('cancelled')) {
         continue;
       }
+    }
+    if (migration.id === 'create_vehicle_tables' && tableExists(db, 'vehicle_categories')) {
+      continue;
+    }
+    if (migration.id === 'ticket_vehicle_model_id' && columnExists(db, 'tickets', 'vehicle_model_id')) {
+      continue;
     }
     try {
       db.exec(migration.sql);

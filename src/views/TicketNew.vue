@@ -27,6 +27,27 @@
             暂无可用现场，请联系管理员或研发预设
           </div>
         </el-form-item>
+        <el-form-item label="车型">
+          <el-select
+            v-model="form.vehicleModelId"
+            placeholder="请选择车型"
+            style="width: 100%"
+            :loading="loadingModels"
+            filterable
+          >
+            <el-option-group v-for="cat in availableModelCategories" :key="cat.id" :label="cat.name">
+              <el-option
+                v-for="model in availableModelsByCategory[cat.id]"
+                :key="model.id"
+                :label="`${cat.name} - ${model.name}`"
+                :value="model.id"
+              />
+            </el-option-group>
+          </el-select>
+          <div v-if="form.siteId && !loadingModels && availableModels.length === 0" class="site-tip">
+            该现场未关联车型，请联系管理员配置
+          </div>
+        </el-form-item>
         <el-form-item label="问题描述">
           <el-input v-model="form.description" type="textarea" :rows="4" placeholder="请简要描述当前遇到的问题" />
         </el-form-item>
@@ -87,11 +108,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { useTicketStore } from '@/stores/tickets'
 import { listSites, type Site } from '@/api/sites'
+import { listCategories, listModels, type VehicleCategory, type VehicleModel } from '@/api/vehicles'
 import type { UploadFile, UploadUserFile } from 'element-plus'
 
 const router = useRouter()
@@ -103,6 +125,7 @@ const form = reactive({
   title: '',
   description: '',
   siteId: undefined as number | undefined,
+  vehicleModelId: undefined as number | undefined,
   impactLevel: undefined as string | undefined,
   aiEnabled: false
 })
@@ -115,12 +138,45 @@ const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 const sites = ref<Site[]>([])
 const loadingSites = ref(false)
 
+const allCategories = ref<VehicleCategory[]>([])
+const availableModels = ref<VehicleModel[]>([])
+const loadingModels = ref(false)
+
+const availableModelsByCategory = computed(() => {
+  const map: Record<number, VehicleModel[]> = {}
+  for (const m of availableModels.value) {
+    ;(map[m.category_id] ??= []).push(m)
+  }
+  return map
+})
+
+const availableModelCategories = computed(() => {
+  const ids = new Set(availableModels.value.map((m) => m.category_id))
+  return allCategories.value.filter((c) => ids.has(c.id))
+})
+
+watch(() => form.siteId, async (newSiteId) => {
+  form.vehicleModelId = undefined
+  if (!newSiteId) {
+    availableModels.value = []
+    return
+  }
+  loadingModels.value = true
+  try {
+    availableModels.value = await listModels({ siteId: newSiteId })
+  } catch {
+    availableModels.value = []
+  } finally {
+    loadingModels.value = false
+  }
+})
+
 onMounted(async () => {
   loadingSites.value = true
   try {
-    sites.value = await listSites()
+    ;[sites.value, allCategories.value] = await Promise.all([listSites(), listCategories()])
   } catch (e) {
-    console.error('加载现场列表失败', e)
+    console.error('加载数据失败', e)
   } finally {
     loadingSites.value = false
   }
@@ -145,6 +201,10 @@ async function onSubmit() {
     error.value = '请选择项目现场'
     return
   }
+  if (!form.vehicleModelId) {
+    error.value = '请选择车型'
+    return
+  }
   const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
   if (rawFiles.length === 0) {
     error.value = '请至少上传一个文件'
@@ -161,6 +221,7 @@ async function onSubmit() {
       title: form.title.trim(),
       description: form.description.trim(),
       siteId: form.siteId,
+      vehicleModelId: form.vehicleModelId,
       impactLevel: form.impactLevel,
       occurredStartAt: occurredRange.value?.[0],
       occurredEndAt: occurredRange.value?.[1],

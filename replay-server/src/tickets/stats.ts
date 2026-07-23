@@ -43,6 +43,7 @@ export interface TicketStats {
   avgResolutionText: string;
   bySite: { siteId: number | null; siteName: string; count: number }[];
   byIssueType: { issueType: string; count: number }[];
+  byVehicleModel: { vehicleModelId: number | null; vehicleModelName: string; vehicleCategoryName: string; count: number }[];
 }
 
 export async function getTicketStats(range?: DateRange): Promise<TicketStats> {
@@ -88,6 +89,7 @@ export async function getTicketStats(range?: DateRange): Promise<TicketStats> {
 
   const bySite = await getTicketsBySite(range);
   const byIssueType = await getTicketsByIssueType(range);
+  const byVehicleModel = await getTicketsByVehicleModel(range);
 
   return {
     totalTickets: totalRow.c,
@@ -97,7 +99,8 @@ export async function getTicketStats(range?: DateRange): Promise<TicketStats> {
     avgResolutionSeconds,
     avgResolutionText: formatDuration(avgResolutionSeconds),
     bySite,
-    byIssueType
+    byIssueType,
+    byVehicleModel
   };
 }
 
@@ -126,6 +129,21 @@ export async function getTicketsByIssueType(range?: DateRange): Promise<{ issueT
      ORDER BY c DESC`;
   const rows = db.prepare(sql).all(...dateSql.values) as Array<{ issueType: string; c: number }>;
   return rows.map((r) => ({ issueType: r.issueType, count: r.c }));
+}
+
+export async function getTicketsByVehicleModel(range?: DateRange): Promise<{ vehicleModelId: number | null; vehicleModelName: string; vehicleCategoryName: string; count: number }[]> {
+  const db = await getDb();
+  const dateSql = buildDateRangeSql('t', range);
+  const sql =
+    `SELECT t.vehicle_model_id as vehicleModelId, vm.name as vehicleModelName, COALESCE(vc.name, '') as vehicleCategoryName, COUNT(*) as c
+     FROM tickets t
+     LEFT JOIN vehicle_models vm ON t.vehicle_model_id = vm.id
+     LEFT JOIN vehicle_categories vc ON vm.category_id = vc.id
+     ${dateSql.where ? `WHERE ${dateSql.where}` : ''}
+     GROUP BY t.vehicle_model_id
+     ORDER BY c DESC`;
+  const rows = db.prepare(sql).all(...dateSql.values) as Array<{ vehicleModelId: number | null; vehicleModelName: string | null; vehicleCategoryName: string; c: number }>;
+  return rows.map((r) => ({ vehicleModelId: r.vehicleModelId, vehicleModelName: r.vehicleModelName || '未指定车型', vehicleCategoryName: r.vehicleCategoryName, count: r.c }));
 }
 
 export interface KnowledgeStats {

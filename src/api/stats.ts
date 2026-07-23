@@ -33,6 +33,7 @@ export interface TicketStats {
   avgResolutionText: string
   bySite: { siteId: number | null; siteName: string; count: number }[]
   byIssueType: { issueType: string; count: number }[]
+  byVehicleModel: { vehicleModelId: number | null; vehicleModelName: string; vehicleCategoryName: string; count: number }[]
 }
 
 export interface KnowledgeStats {

@@ -429,6 +429,89 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 6. [ ] 根据反馈修复问题，全面推开。
 7. [ ] 更新 `docs/implementation-progress.md`。
 
+### 阶段 21：车型管理
+
+目标：实现车型类别和型号的两级管理；现场关联车型；工单必填车型并联动现场；列表筛选和统计。
+
+#### 21.1 数据库
+
+1. [ ] 在 `replay-server/src/db/migrate.ts` 新增迁移 `create_vehicle_tables`，创建以下表：
+
+```sql
+CREATE TABLE IF NOT EXISTS vehicle_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vehicle_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (category_id) REFERENCES vehicle_categories(id),
+  UNIQUE(category_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS site_vehicle_models (
+  site_id INTEGER NOT NULL,
+  vehicle_model_id INTEGER NOT NULL,
+  PRIMARY KEY (site_id, vehicle_model_id),
+  FOREIGN KEY (site_id) REFERENCES sites(id),
+  FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id)
+);
+```
+
+2. [ ] 在 `replay-server/src/db/migrate.ts` 新增迁移 `ticket_vehicle_model_id`，为 `tickets` 表添加 `vehicle_model_id INTEGER` 字段。
+
+#### 21.2 后端
+
+3. [ ] 新增 `replay-server/src/db/vehicleCategories.ts`：实现 `createCategory`、`listCategories`、`updateCategory`、`deleteCategory`（删除前校验无关联型号）。
+4. [ ] 新增 `replay-server/src/db/vehicleModels.ts`：实现 `createModel`、`listModelsByCategoryId`、`listAllModels`、`updateModel`、`deleteModel`（删除前校验无关联现场和工单）。
+5. [ ] 修改 `replay-server/src/db/sites.ts`：`DbSite` 增加 `vehicleModelIds?: number[]`；新增 `setSiteVehicleModels(siteId, modelIds)`、`getSiteVehicleModels(siteId)` 函数。
+6. [ ] 修改 `replay-server/src/db/tickets.ts`：`DbTicket` 增加 `vehicle_model_id` 字段；查询函数支持按 `vehicle_model_id` 筛选。
+7. [ ] 新增 `replay-server/src/vehicles/routes.ts`：实现车型类别和型号的 CRUD 接口，限制研发和管理员访问：
+   - `GET /api/vehicle-categories`
+   - `POST /api/vehicle-categories`
+   - `PUT /api/vehicle-categories/:id`
+   - `DELETE /api/vehicle-categories/:id`
+   - `GET /api/vehicle-categories/:id/models`
+   - `POST /api/vehicle-categories/:id/models`
+   - `PUT /api/vehicle-models/:id`
+   - `DELETE /api/vehicle-models/:id`
+   - `GET /api/vehicle-models`（全量列表，用于筛选）
+8. [ ] 修改 `replay-server/src/sites/routes.ts`：创建/更新现场接口支持 `vehicleModelIds` 参数；列表接口返回关联的型号信息。
+9. [ ] 修改 `replay-server/src/tickets/routes.ts`：
+   - `POST /` 创建工单接口要求 `siteId` 和 `vehicleModelId` 必填；校验 `vehicleModelId` 属于所选现场关联的型号。
+   - `GET /` 列表接口支持 `vehicleModelId` 查询参数。
+   - `PATCH /:id/basic-info` 支持修改 `vehicleModelId`。
+   - `serializeTicket` 增加 `vehicleModelId`、`vehicleModelName`、`vehicleCategoryName` 字段。
+10. [ ] 修改 `replay-server/src/tickets/stats.ts`：新增 `getTicketsByVehicleModel(dateRange)` 统计函数。
+11. [ ] 在 `replay-server/src/index.ts` 中注册 `/api` 下的车型路由。
+
+#### 21.3 前端
+
+12. [ ] 新增 `src/api/vehicles.ts`：车型类别和型号的 API 类型与调用函数。
+13. [ ] 新增 `src/views/VehicleManage.vue`：车型管理页面，左侧类别列表（新增/编辑/删除），右侧选中类别下的型号列表（新增/编辑/删除）。删除时提示已关联的不允许删除。
+14. [ ] 修改 `src/router/index.ts`：新增 `/vehicles` 路由，`meta: { requiresRd: true }`。
+15. [ ] 修改 `src/App.vue`：研发和管理员侧边栏新增"车型管理"入口。
+16. [ ] 修改 `src/views/SiteManage.vue`：新增/编辑现场对话框增加"关联车型"多选组件（按类别分组的多选下拉或穿梭框）；现场列表展示关联的车型。
+17. [ ] 修改 `src/views/TicketNew.vue`：
+   - 现场改为必填。
+   - 新增车型选择器（必填），按类别 > 型号两级联动。
+   - 选择现场后自动加载该现场关联的型号列表；切换现场时清空车型选择。
+18. [ ] 修改 `src/views/TicketDetail.vue`：基本信息区域展示车型信息（类别 + 型号）；编辑模式支持修改车型。
+19. [ ] 修改 `src/views/TicketList.vue`：增加车型筛选下拉；列表增加车型列。
+20. [ ] 修改 `src/views/StatsBoard.vue`：增加"按车型分布"统计图表。
+21. [ ] 修改 `src/api/tickets.ts`：`Ticket` 类型增加 `vehicleModelId`、`vehicleModelName`、`vehicleCategoryName`；`createTicket` 增加 `vehicleModelId` 参数。
+
+#### 21.4 测试与文档
+
+22. [ ] 新增/更新 `tests/e2e/tickets.spec.ts`：覆盖车型管理 CRUD、现场关联车型、新建工单车型联动、工单列表车型筛选。
+23. [ ] 更新 `docs/implementation-progress.md`。
+
 ---
 
 ## 4. 验收检查清单映射
@@ -481,6 +564,12 @@ CREATE TABLE IF NOT EXISTS ticket_step_events (
 | 44. HTTPS + 健康监控 | 19 |
 | 45. 真实日志端到端测试通过 | 20 |
 | 46. 知识库预填充完成 | 20 |
+| 47. 管理员可动态管理车型类别和具体型号 | 21 |
+| 48. 新增/编辑现场时可关联多种具体型号 | 21 |
+| 49. 新建工单时现场和车型均为必填，车型列表根据现场联动 | 21 |
+| 50. 工单列表支持按车型筛选 | 21 |
+| 51. 统计仪表盘展示按车型分布 | 21 |
+| 52. 已被关联的车型不允许删除 | 21 |
 
 ---
 
