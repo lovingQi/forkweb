@@ -125,34 +125,24 @@ export async function createTicket(form: {
   occurredStartAt?: string
   occurredEndAt?: string
   tempFileIds?: string[]
-  files?: File[]
   aiEnabled?: boolean
 }): Promise<Ticket> {
-  const data = new FormData()
-  data.append('title', form.title)
-  data.append('description', form.description)
-  data.append('siteId', String(form.siteId))
-  if (form.vehicleModelId) data.append('vehicleModelId', String(form.vehicleModelId))
-  if (form.issueType) data.append('issueType', form.issueType)
-  if (form.impactLevel) data.append('impactLevel', form.impactLevel)
-  if (form.occurredStartAt) data.append('occurredStartAt', form.occurredStartAt)
-  if (form.occurredEndAt) data.append('occurredEndAt', form.occurredEndAt)
-
+  const body: Record<string, any> = {
+    title: form.title,
+    description: form.description,
+    siteId: form.siteId,
+    aiEnabled: form.aiEnabled ? 'true' : 'false'
+  }
+  if (form.vehicleModelId) body.vehicleModelId = form.vehicleModelId
+  if (form.issueType) body.issueType = form.issueType
+  if (form.impactLevel) body.impactLevel = form.impactLevel
+  if (form.occurredStartAt) body.occurredStartAt = form.occurredStartAt
+  if (form.occurredEndAt) body.occurredEndAt = form.occurredEndAt
   if (form.tempFileIds && form.tempFileIds.length > 0) {
-    for (const id of form.tempFileIds) {
-      data.append('tempFileIds', id)
-    }
-  } else if (form.files && form.files.length > 0) {
-    // 兜底兼容旧逻辑
-    for (const file of form.files) {
-      data.append('files', file)
-    }
+    body.tempFileIds = form.tempFileIds
   }
 
-  data.append('aiEnabled', form.aiEnabled ? 'true' : 'false')
-  const { data: res } = await ticketHttp.post('/tickets', data, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
+  const { data: res } = await ticketHttp.post('/tickets', body)
   if (!res.succeed) throw new Error(res.error || '创建工单失败')
   return res.ticket
 }
