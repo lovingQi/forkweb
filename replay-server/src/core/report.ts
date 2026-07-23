@@ -1,4 +1,5 @@
 import type { ReplaySessionData } from '../types'
+import { formatRawLine } from './rawLogStore'
 import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
 
@@ -58,7 +59,7 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
       lines.push(`  - 事件证据: ${event.timestamp} ${event.title}: ${event.detail}`)
     }
     for (const line of (cause.evidenceLines || []).slice(0, 3)) {
-      lines.push(`  - 日志证据: ${line.raw}`)
+      lines.push(`  - 日志证据: ${formatRawLine(line)}`)
     }
   }
   lines.push('', '## 知识库命中', '')
@@ -67,7 +68,7 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
   for (const match of knowledgeMatches) {
     lines.push(`- ${match.title}: 置信度 ${Math.round(match.confidence * 100)}%，处理办法: ${match.solution || match.suggestion || '-'}`)
     for (const item of match.matchedPatterns.slice(0, 8)) lines.push(`  - 命中: ${item}`)
-    for (const line of match.evidenceLines.slice(0, 5)) lines.push(`  - 证据: ${line.raw}`)
+    for (const line of match.evidenceLines.slice(0, 5)) lines.push(`  - 证据: ${formatRawLine(line)}`)
   }
   lines.push('', '## 地图匹配', '')
   lines.push(`- 策略: ${matchLabel(o.mapMatch.matchStrategy)}`)

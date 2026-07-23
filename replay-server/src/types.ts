@@ -37,7 +37,6 @@ export interface ParsedLogLine {
   sourceLine: number | null
   level: LogLevel
   message: string
-  raw: string
 }
 
 export interface ReplayFrame {
@@ -555,6 +554,7 @@ export interface ReplaySessionData {
   tasks: TaskSegment[]
   foldedLogs: FoldedLogGroup[]
   rawLines: ParsedLogLine[]
+  rawLinesPath?: string
   bookmarks?: ReplayBookmark[]
   caseMeta?: ReplayCaseMeta
   knowledgeMatches?: KnowledgeMatch[]

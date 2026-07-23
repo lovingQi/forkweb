@@ -97,7 +97,7 @@ function buildPositiveContext(rule: KnowledgeRule): KnowledgeMatchContext {
   const vehicleStateOccurrences: VehicleStateOccurrence[] = []
   let lineNumber = 1
   for (const regex of rule.pattern.requiredLineRegexes) {
-    const example = rule.examples.flatMap((item) => item.lines).find((item) => new RegExp(regex, 'i').test(item.raw))
+    const example = rule.examples.flatMap((item) => item.lines).find((item) => new RegExp(regex, 'i').test(item.message))
     if (example) rawLines.push(example)
   }
   for (const code of rule.pattern.errorCodes) {

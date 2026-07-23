@@ -1296,7 +1296,7 @@ function causeEvidenceText(cause: any) {
     `置信因素：${(cause.confidenceFactors || []).join('；') || '-'}`
   ]
   const events = (cause.evidenceEvents || []).slice(0, 3).map((event: any) => `${event.timestamp} ${event.title}: ${event.detail}`)
-  const lines = (cause.evidenceLines || []).slice(0, 3).map((line: any) => line.raw)
+  const lines = (cause.evidenceLines || []).slice(0, 3).map((line: any) => line.message || line.raw || '')
   return [...meta, ...events, ...lines].join('\n')
 }
 
@@ -1478,7 +1478,7 @@ function contextText(row: any) {
   const after = row.contextAfter || []
   return [...before, row.line, ...after]
     .filter(Boolean)
-    .map((line: any) => line.raw)
+    .map((line: any) => line.message || line.raw || '')
     .join('\n')
 }
 

@@ -25,8 +25,7 @@ export function redactLogLine(line: ParsedLogLine, options: LlmConfig['redaction
   return {
     ...line,
     file: redactText(line.file, options),
-    message: redactText(line.message, options),
-    raw: redactText(line.raw, options)
+    message: redactText(line.message, options)
   }
 }
 

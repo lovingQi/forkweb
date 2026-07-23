@@ -42,6 +42,8 @@ import {
 } from './core/mapAlias'
 import { buildJsonReport, buildMarkdownReportAsync } from './core/report'
 import { askReplayAssistant, buildAssistantContext, recommendSimilarCases } from './core/ragAssistant'
+import { RawLogStore, formatRawLine } from './core/rawLogStore'
+import type { ParsedLogLine } from './types'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
 import { createSessionJob, getSessionJob } from './core/sessionJobs'
@@ -301,7 +303,7 @@ app.post('/api/replay/knowledge/suggest-pattern', authMiddleware, requireRole('r
 app.post('/api/replay/knowledge/test', authMiddleware, requireRole('rd', 'admin'), async (req, res) => {
   const rule = req.body.rule || req.body
   const match = matchKnowledgeRule(rule, {
-    rawLines: session.data.rawLines,
+    rawLines: await getAllRawLines(),
     errorOccurrences: session.data.errorOccurrences,
     vehicleStateOccurrences: session.data.vehicleStateOccurrences
   })
@@ -461,7 +463,25 @@ app.post('/api/replay/root-causes/:id/feedback', async (req, res) => {
   res.json({ succeed: true, feedback })
 })
 
-app.get('/api/replay/logs', (req, res) => {
+function getRawLineStore(): RawLogStore | null {
+  if (session.data.rawLinesPath) {
+    return RawLogStore.load(session.data.rawLinesPath)
+  }
+  return null
+}
+
+async function getAllRawLines(): Promise<ParsedLogLine[]> {
+  if (session.data.rawLines.length > 0) return session.data.rawLines
+  const store = getRawLineStore()
+  if (store) return store.readAll()
+  return []
+}
+
+function withRawField(line: ParsedLogLine): ParsedLogLine & { raw: string } {
+  return { ...line, raw: formatRawLine(line) }
+}
+
+app.get('/api/replay/logs', async (req, res) => {
   const level = req.query.level ? String(req.query.level) : ''
   const moduleName = req.query.module ? String(req.query.module) : ''
   const keyword = req.query.keyword ? String(req.query.keyword) : ''
@@ -486,17 +506,31 @@ app.get('/api/replay/logs', (req, res) => {
       .map((event) => event.line && `${event.line.file}:${event.line.line}`)
       .filter(Boolean) as string[]
   )
-  let lines = session.data.rawLines
-    .filter((line) => !level || line.level === level)
-    .filter((line) => !moduleName || line.module.includes(moduleName))
-    .filter((line) => !keyword || line.raw.includes(keyword))
-    .filter((line) => keywords.length === 0 || keywords.every((item) => line.raw.includes(item)))
-    .filter((line) => !errorCode || line.raw.includes(errorCode))
-    .filter((line) => !taskId || line.raw.includes(taskId))
-    .filter((line) => !startMs || line.timeMs >= startMs)
-    .filter((line) => !endMs || line.timeMs <= endMs)
-    .filter((line) => !noise || (noise === 'true' ? isNoiseLine(line) : !isNoiseLine(line)))
-    .filter((line) => !important || eventLineKeys.has(`${line.file}:${line.line}`))
+  const predicate = (line: ParsedLogLine) => {
+    if (level && line.level !== level) return false
+    if (moduleName && !line.module.includes(moduleName)) return false
+    if (keyword && !line.message.includes(keyword)) return false
+    if (keywords.length > 0 && !keywords.every((item) => line.message.includes(item))) return false
+    if (errorCode && !line.message.includes(errorCode)) return false
+    if (taskId && !line.message.includes(taskId)) return false
+    if (startMs && line.timeMs < startMs) return false
+    if (endMs && line.timeMs > endMs) return false
+    if (noise) {
+      const isNoise = isNoiseLine(line)
+      if (noise === 'true' ? !isNoise : isNoise) return false
+    }
+    if (important && !eventLineKeys.has(`${line.file}:${line.line}`)) return false
+    return true
+  }
+
+  let lines: ParsedLogLine[]
+  if (session.data.rawLines.length > 0) {
+    lines = session.data.rawLines.filter(predicate)
+  } else {
+    const store = getRawLineStore()
+    lines = store ? await store.readFiltered(predicate) : []
+  }
+
   if (aroundTimeMs && aroundLines) {
     let nearestIndex = 0
     for (let i = 0; i < lines.length; i++) {
@@ -513,25 +547,32 @@ app.get('/api/replay/logs', (req, res) => {
     total: lines.length,
     offset,
     limit,
-    lines: page,
+    lines: page.map(withRawField),
     keywordMatches: keywords,
-    copyText: page.map((line) => line.raw).join('\n'),
+    copyText: page.map((line) => formatRawLine(line)).join('\n'),
     folded: session.data.foldedLogs
   })
 })
 
-app.get('/api/replay/folded-logs/:id/lines', (req, res) => {
+app.get('/api/replay/folded-logs/:id/lines', async (req, res) => {
   const offset = Math.max(0, Number(req.query.offset || 0))
   const limit = Math.min(Number(req.query.limit || 200), 1000)
-  const lines = session.data.rawLines.filter((line) => noiseRuleId(line) === req.params.id)
+  const ruleId = req.params.id
+  let lines: ParsedLogLine[]
+  if (session.data.rawLines.length > 0) {
+    lines = session.data.rawLines.filter((line) => noiseRuleId(line) === ruleId)
+  } else {
+    const store = getRawLineStore()
+    lines = store ? await store.readFiltered((line) => noiseRuleId(line) === ruleId) : []
+  }
   const page = lines.slice(offset, offset + limit)
   res.json({
-    id: req.params.id,
+    id: ruleId,
     total: lines.length,
     offset,
     limit,
-    lines: page,
-    copyText: page.map((line) => line.raw).join('\n')
+    lines: page.map(withRawField),
+    copyText: page.map((line) => formatRawLine(line)).join('\n')
   })
 })
 

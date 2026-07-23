@@ -16,10 +16,20 @@ import { ReplaySession } from '../src/core/session'
 import { parseLogLine } from '../src/parser/logLine'
 import { writeSessionCache } from '../src/core/cache'
 import { parseVehicleState } from '../src/parser/vehicleState'
+import { RawLogStore } from '../src/core/rawLogStore'
 
 const LOG_DIR = '/home/xbl/Desktop'
 const MAP_DIR = '/home/xbl/Desktop/jarvis-fork/params/map'
 const KNOWLEDGE_PATH = path.resolve(process.cwd(), 'replay-server/config/knowledge-base.json')
+
+async function getSessionRawLines(session: ReplaySession): Promise<ParsedLogLine[]> {
+  if (session.data.rawLines.length > 0) return session.data.rawLines
+  if (session.data.rawLinesPath) {
+    const store = RawLogStore.load(session.data.rawLinesPath)
+    if (store) return store.readAll()
+  }
+  return []
+}
 
 async function main() {
   const backup = await readKnowledgeLibrary()
@@ -35,9 +45,10 @@ async function main() {
 
     const baselineSession = new ReplaySession()
     const baseline = await baselineSession.load({ logDir: LOG_DIR, mapDir: MAP_DIR, forceReload: true })
-    assert(baseline.rawLines.length > 0, '应解析到原始日志行，供研发选择证据')
+    const baselineRawLines = await getSessionRawLines(baselineSession)
+    assert(baselineRawLines.length > 0, '应解析到原始日志行，供研发选择证据')
 
-    const evidenceRules = buildRulesFromEvidence(baseline.rawLines)
+    const evidenceRules = buildRulesFromEvidence(baselineRawLines)
     assert(evidenceRules.length >= 3, '样本验证应准备至少 3 条知识库规则')
 
     for (const rule of evidenceRules) {
@@ -47,7 +58,7 @@ async function main() {
       assert(saved.id === rule.id, `${rule.title} 应能保存为知识条目`)
     }
 
-    const directMatches = evidenceRules.map((rule) => matchKnowledgeRule(rule, baseline.rawLines))
+    const directMatches = evidenceRules.map((rule) => matchKnowledgeRule(rule, baselineRawLines))
     assert(directMatches.every(Boolean), '3 条知识库规则直接试跑均应命中')
 
     const replaySession = new ReplaySession()
@@ -353,7 +364,7 @@ function stateCode(state: string) {
 
 function pickEvidence(rawLines: ParsedLogLine[], keywords: string[], limit: number): ParsedLogLine[] {
   return rawLines
-    .filter((line) => keywords.some((keyword) => line.raw.includes(keyword)))
+    .filter((line) => keywords.some((keyword) => line.message.includes(keyword)))
     .slice(0, limit)
 }
 

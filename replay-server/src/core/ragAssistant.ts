@@ -7,6 +7,7 @@ import type {
   VectorSearchResult
 } from '../types'
 import { buildCurrentSessionChunks, rankChunks } from './knowledgeEmbedding'
+import { formatRawLine } from './rawLogStore'
 import { readLlmConfig } from './llmConfig'
 import { LlmProviderError, type LlmMessage } from './llmProvider'
 import { OpenAiCompatibleClient } from './openAiCompatibleClient'
@@ -145,14 +146,14 @@ function compactAssistantContext(context: AssistantContext) {
       confidence: cause.confidence,
       suggestion: cause.suggestion,
       source: cause.source,
-      evidence: cause.evidenceLines.slice(0, 3).map((line) => line.raw)
+      evidence: cause.evidenceLines.slice(0, 3).map((line) => formatRawLine(line))
     })),
     knowledgeMatches: context.knowledgeMatches.map((match) => ({
       title: match.title,
       rootCause: match.rootCause,
       solution: match.solution,
       confidence: match.confidence,
-      evidence: match.evidenceLines.slice(0, 3).map((line) => line.raw)
+      evidence: match.evidenceLines.slice(0, 3).map((line) => formatRawLine(line))
     })),
     similarCases: context.similarChunks.map((item) => ({
       title: item.chunk.source.title,
@@ -165,7 +166,7 @@ function compactAssistantContext(context: AssistantContext) {
       timestamp: line.timestamp,
       module: line.module,
       level: line.level,
-      raw: line.raw
+      raw: formatRawLine(line)
     })),
     redaction: context.redaction
   }
@@ -178,7 +179,7 @@ export function searchRelatedLogExcerpts(data: ReplaySessionData, question: stri
   const rootCauseLines = data.overview.rootCauses.flatMap((cause) => cause.evidenceLines || [])
   const knowledgeLines = (data.knowledgeMatches || []).flatMap((match) => match.evidenceLines || [])
   const keywordLines = keywords.length
-    ? data.rawLines.filter((line) => keywords.some((keyword) => line.raw.toLowerCase().includes(keyword))).slice(0, limit)
+    ? data.rawLines.filter((line) => keywords.some((keyword) => line.message.toLowerCase().includes(keyword))).slice(0, limit)
     : []
   return uniqueLines([...eventLines, ...rootCauseLines, ...knowledgeLines, ...keywordLines]).slice(0, limit)
 }
@@ -200,13 +201,13 @@ function buildOfflineAnswer(question: string, context: AssistantContext, model: 
       ...context.knowledgeMatches.slice(0, 4).map((match) => ({
         title: match.title,
         source: 'knowledge_base',
-        excerpt: match.evidenceLines[0]?.raw || match.description,
+        excerpt: (match.evidenceLines[0] ? formatRawLine(match.evidenceLines[0]) : '') || match.description,
         score: match.confidence
       })),
       ...context.logExcerpts.slice(0, 4).map((line) => ({
         title: `${line.timestamp} ${line.module}`,
         source: 'log',
-        excerpt: line.raw,
+        excerpt: formatRawLine(line),
         timestamp: line.timestamp
       }))
     ],

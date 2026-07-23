@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import { CACHE_DIR } from '../paths'
-import type { ErrorCodeDefinition, ErrorOccurrence, ParsedLogLine, ReplayFrame } from '../types'
+import type { ErrorCodeDefinition, ErrorOccurrence, ReplayFrame } from '../types'
 
 export const LOG_INDEX_VERSION = 1
 const INDEX_DIR = path.join(CACHE_DIR, 'indexes')
@@ -11,7 +11,6 @@ export interface LogIndexPayload {
   version: number
   fingerprint: string
   file: string
-  rawLines: ParsedLogLine[]
   frames: ReplayFrame[]
   definitions: ErrorCodeDefinition[]
   occurrences: ErrorOccurrence[]

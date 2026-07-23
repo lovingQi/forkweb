@@ -272,7 +272,7 @@ export function suggestKnowledgePattern(lines: ParsedLogLine[]): KnowledgePatter
   const sorted = [...lines].sort((a, b) => a.timeMs - b.timeMs)
   const modules = topValues(sorted.map((line) => line.module).filter(Boolean), 6)
   const levels = topValues(sorted.map((line) => line.level).filter((level) => level !== 'UNKNOWN'), 4) as LogLevel[]
-  const errorCodes = topValues(sorted.flatMap((line) => line.raw.match(/ERROR\d{3,6}/g) || []), 8)
+  const errorCodes = topValues(sorted.flatMap((line) => line.message.match(/ERROR\d{3,6}/g) || []), 8)
   const keywords = extractKeywords(sorted)
   const spanMs = sorted.length >= 2 ? Math.max(0, sorted[sorted.length - 1].timeMs - sorted[0].timeMs) : 0
   return {
@@ -318,10 +318,10 @@ function preFilterRules(rules: KnowledgeRule[], context: KnowledgeMatchContext):
   return rules.filter((rule) => {
     const p = normalizeRule(rule).pattern
     const regexes = compileRequiredLineRegexes(p.requiredLineRegexes)
-    if (regexes.length > 0 && !context.rawLines.some((line) => matchesAnyRegex(line.raw, regexes))) return false
+    if (regexes.length > 0 && !context.rawLines.some((line) => matchesAnyRegex(line.message, regexes))) return false
     if (p.errorCodes.length > 0 && !context.errorOccurrences.some((item) => item.kind === 'real_fault' && p.errorCodes.includes(item.code))) return false
     if (p.requiredVehicleStates.length > 0 && !context.vehicleStateOccurrences.some((item) => p.requiredVehicleStates.includes(item.state))) return false
-    if (!hasStructuredCore(p) && p.requiredKeywords.some((keyword) => !context.rawLines.some((line) => matchesKeyword(line.raw, keyword)))) return false
+    if (!hasStructuredCore(p) && p.requiredKeywords.some((keyword) => !context.rawLines.some((line) => matchesKeyword(line.message, keyword)))) return false
     return hasStructuredCore(p) || hasTextCore(p)
   })
 }
@@ -413,19 +413,19 @@ async function recordKnowledgeHits(matches: KnowledgeMatch[], logDir: string) {
 }
 
 function requiredKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
-  return keywords.every((keyword) => lines.some((line) => matchesKeyword(line.raw, keyword)))
+  return keywords.every((keyword) => lines.some((line) => matchesKeyword(line.message, keyword)))
 }
 
 function anyKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
-  return keywords.length === 0 || keywords.some((keyword) => lines.some((line) => matchesKeyword(line.raw, keyword)))
+  return keywords.length === 0 || keywords.some((keyword) => lines.some((line) => matchesKeyword(line.message, keyword)))
 }
 
 function errorCodesMatched(lines: ParsedLogLine[], errorCodes: string[]) {
-  return errorCodes.length === 0 || errorCodes.some((code) => lines.some((line) => matchesKeyword(line.raw, code)))
+  return errorCodes.length === 0 || errorCodes.some((code) => lines.some((line) => matchesKeyword(line.message, code)))
 }
 
 function hasExcludedKeyword(line: ParsedLogLine, keywords: string[]) {
-  return keywords.some((keyword) => matchesKeyword(line.raw, keyword))
+  return keywords.some((keyword) => matchesKeyword(line.message, keyword))
 }
 
 function collectMatchedPatterns(
@@ -437,7 +437,7 @@ function collectMatchedPatterns(
 ): string[] {
   const matched = new Set<string>()
   for (let i = 0; i < requiredRegexes.length; i++) {
-    if (evidence.some((line) => requiredRegexes[i].test(line.raw))) {
+    if (evidence.some((line) => requiredRegexes[i].test(line.message))) {
       matched.add(`核心正则 ${pattern.requiredLineRegexes[i]}`)
     }
   }
@@ -454,7 +454,7 @@ function collectMatchedPatterns(
     if (lines.some((line) => line.level === level)) matched.add(`等级 ${level}`)
   }
   for (const keyword of [...pattern.requiredKeywords, ...pattern.anyKeywords]) {
-    if (lines.some((line) => matchesKeyword(line.raw, keyword))) matched.add(`关键词 ${keyword}`)
+    if (lines.some((line) => matchesKeyword(line.message, keyword))) matched.add(`关键词 ${keyword}`)
   }
   return Array.from(matched)
 }
@@ -505,10 +505,10 @@ function calculateConfidence(pattern: KnowledgeEvidencePattern, lines: ParsedLog
     const weightKey = `${weight.type}:${value.toLowerCase()}`
     if (appliedWeights.has(weightKey)) continue
     const matched = lines.some((line) => {
-      if (weight.type === 'keyword') return matchesKeyword(line.raw, value)
+      if (weight.type === 'keyword') return matchesKeyword(line.message, value)
       if (weight.type === 'module') return matchesModule(line.module, value)
       if (weight.type === 'level') return line.level === value
-      if (weight.type === 'errorCode') return matchesKeyword(line.raw, value)
+      if (weight.type === 'errorCode') return matchesKeyword(line.message, value)
       return false
     })
     if (matched) {
@@ -557,7 +557,7 @@ function collectStructuredEvidence(
   regexes: RegExp[]
 ): ParsedLogLine[] {
   const groups: ParsedLogLine[][] = []
-  if (regexes.length > 0) groups.push(context.rawLines.filter((line) => matchesAnyRegex(line.raw, regexes)))
+  if (regexes.length > 0) groups.push(context.rawLines.filter((line) => matchesAnyRegex(line.message, regexes)))
   if (pattern.errorCodes.length > 0) {
     groups.push(context.errorOccurrences
       .filter((item) => item.kind === 'real_fault' && pattern.errorCodes.includes(item.code))
@@ -594,7 +594,7 @@ function sameLine(a: ParsedLogLine, b: ParsedLogLine): boolean {
 
 function lineMatchesTextCore(line: ParsedLogLine, pattern: KnowledgeEvidencePattern): boolean {
   return [...pattern.requiredKeywords, ...pattern.anyKeywords, ...pattern.errorCodes]
-    .some((value) => matchesKeyword(line.raw, value))
+    .some((value) => matchesKeyword(line.message, value))
 }
 
 function buildCandidateWindows(lines: ParsedLogLine[], anchors: ParsedLogLine[], windowSeconds: number): ParsedLogLine[][] {

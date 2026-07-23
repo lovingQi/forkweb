@@ -2,9 +2,10 @@ import crypto from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import { CACHE_DIR } from '../paths'
+import { RAW_LINES_PREFIX } from './rawLogStore'
 import type { ReplaySessionData } from '../types'
 
-const CACHE_VERSION = 3
+const CACHE_VERSION = 4
 const CACHE_ROOT_DIR = CACHE_DIR
 const DEFAULT_MAX_AGE_DAYS = 14
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
@@ -104,7 +105,13 @@ export async function clearReplayCache(bucketKey?: string): Promise<void> {
     const bucket = cacheBuckets().find((it) => it.key === bucketKey)
     if (!bucket) return
     const files = (await listFiles(bucket.dir)).filter((file) => bucketContainsFile(bucket.key, file))
-    for (const file of files) await fs.rm(file, { force: true }).catch(() => undefined)
+    for (const file of files) {
+      await fs.rm(file, { force: true }).catch(() => undefined)
+      if (bucket.key === 'sessions') {
+        const key = path.basename(file).replace(/^session-/, '').replace(/\.json$/, '')
+        await fs.rm(path.join(CACHE_ROOT_DIR, `${RAW_LINES_PREFIX}${key}.jsonl`), { force: true }).catch(() => undefined)
+      }
+    }
     if (bucket.key === 'packages' || bucket.key === 'imports') {
       await fs.rm(bucket.dir, { recursive: true, force: true }).catch(() => undefined)
     }

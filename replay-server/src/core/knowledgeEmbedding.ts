@@ -25,14 +25,14 @@ export function buildKnowledgeRuleChunks(rules: KnowledgeRule[]): VectorDocument
       `标签: ${rule.tags.join(', ')}`,
       `核心行正则: ${rule.pattern.requiredLineRegexes.join(', ')}`,
       `关键词: ${[...rule.pattern.requiredKeywords, ...rule.pattern.anyKeywords, ...rule.pattern.errorCodes, ...rule.pattern.modules].join(', ')}`,
-      ...rule.examples.flatMap((example) => (example.lines || []).slice(0, 12).map((line) => `证据: ${line.raw}`))
+      ...rule.examples.flatMap((example) => (example.lines || []).slice(0, 12).map((line) => `证据: ${line.message}`))
     ].filter(Boolean).join('\n'),
     metadata: {
       severity: rule.severity,
       enabled: rule.enabled,
       hitCount: rule.hitCount,
       solution: rule.solution,
-      evidence: rule.examples.flatMap((example) => (example.lines || []).slice(0, 3).map((line) => line.raw)).slice(0, 5)
+      evidence: rule.examples.flatMap((example) => (example.lines || []).slice(0, 3).map((line) => line.message)).slice(0, 5)
     },
     updatedAt: rule.updatedAt
   }))
@@ -74,13 +74,13 @@ export function buildCurrentSessionChunks(data: ReplaySessionData): VectorDocume
         `建议: ${cause.suggestion}`,
         `来源: ${cause.source || 'built_in'}`,
         `正向证据: ${(cause.positiveEvidence || []).join('; ')}`,
-        ...cause.evidenceLines.slice(0, 8).map((line) => `证据: ${line.raw}`)
+        ...cause.evidenceLines.slice(0, 8).map((line) => `证据: ${line.message}`)
       ].filter(Boolean).join('\n'),
       metadata: {
         confidence: cause.confidence,
         severity: cause.severity,
         solution: cause.suggestion,
-        evidence: cause.evidenceLines.slice(0, 5).map((line) => line.raw)
+        evidence: cause.evidenceLines.slice(0, 5).map((line) => line.message)
       },
       updatedAt: new Date().toISOString()
     }))
@@ -100,13 +100,13 @@ export function buildKnowledgeMatchChunks(matches: KnowledgeMatch[]): VectorDocu
       `根因: ${match.rootCause}`,
       `处理办法: ${match.solution}`,
       `命中条件: ${match.matchedPatterns.join(', ')}`,
-      ...match.evidenceLines.slice(0, 12).map((line) => `证据: ${line.raw}`)
+      ...match.evidenceLines.slice(0, 12).map((line) => `证据: ${line.message}`)
     ].filter(Boolean).join('\n'),
     metadata: {
       confidence: match.confidence,
       severity: match.severity,
       solution: match.solution,
-      evidence: match.evidenceLines.slice(0, 5).map((line) => line.raw)
+      evidence: match.evidenceLines.slice(0, 5).map((line) => line.message)
     },
     updatedAt: new Date().toISOString()
   }))

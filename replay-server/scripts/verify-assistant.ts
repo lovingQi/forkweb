@@ -10,7 +10,17 @@ import { rebuildVectorStore } from '../src/core/vectorStore'
 import { buildJsonReport } from '../src/core/report'
 import { exportDiagnosticPackage } from '../src/core/diagnosticPackage'
 import { ReplaySession } from '../src/core/session'
+import { RawLogStore } from '../src/core/rawLogStore'
 import type { ParsedLogLine } from '../src/types'
+
+async function getSessionRawLines(session: ReplaySession): Promise<ParsedLogLine[]> {
+  if (session.data.rawLines.length > 0) return session.data.rawLines
+  if (session.data.rawLinesPath) {
+    const store = RawLogStore.load(session.data.rawLinesPath)
+    if (store) return store.readAll()
+  }
+  return []
+}
 
 async function main() {
   const originalEnv = snapshotDeepSeekEnv()
@@ -35,7 +45,8 @@ async function main() {
     })
     assert(data.overview.hasFrames, '样本日志应能正常解析，保证离线规则知识库不受助手影响')
 
-    const evidence = pickEvidence(data.rawLines, ['get battery failed'], 3)
+    const rawLines = await getSessionRawLines(session)
+    const evidence = pickEvidence(rawLines, ['get battery failed'], 3)
     assert(evidence.length > 0, '应能从当前日志中选出知识库证据')
     await createKnowledgeRule({
       id: 'verify-assistant-battery-knowledge',
@@ -77,6 +88,7 @@ async function main() {
       mapDir: '/home/xbl/Desktop/jarvis-fork/params/map',
       forceReload: true
     })
+    const offlineRawLines = await getSessionRawLines(offlineSession)
     assert(offlineData.knowledgeMatches?.some((match) => match.ruleId === 'verify-assistant-battery-knowledge'), '未配置 API Key 时规则知识库仍应正常命中')
 
     const store = await rebuildVectorStore()
@@ -95,7 +107,7 @@ async function main() {
       maxKnowledge: 5
     })
     assert(context.logExcerpts.length <= 20, '请求上下文不应上传全量日志，应受 maxLogLines 限制')
-    assert(context.logExcerpts.length < offlineData.rawLines.length, '请求上下文日志片段数量应小于全量日志')
+    assert(context.logExcerpts.length < offlineRawLines.length, '请求上下文日志片段数量应小于全量日志')
     assert(context.knowledgeMatches.some((match) => match.ruleId === 'verify-assistant-battery-knowledge'), '上下文应包含知识库命中')
     assert(context.similarChunks.length <= 5, '知识上下文应受 maxKnowledge 限制')
 
@@ -175,7 +187,7 @@ async function main() {
       onlineProvider: onlineAnswer.provider,
       offlineProvider: offlineAnswer.provider,
       contextLogLines: context.logExcerpts.length,
-      totalLogLines: offlineData.rawLines.length,
+      totalLogLines: offlineRawLines.length,
       similarTitle: batterySimilar.chunk.source.title,
       similarSolution: batterySimilar.chunk.source.solution,
       localProvider: compatibleAnswer.provider,
@@ -196,7 +208,7 @@ async function main() {
 }
 
 function pickEvidence(rawLines: ParsedLogLine[], keywords: string[], limit: number): ParsedLogLine[] {
-  return rawLines.filter((line) => keywords.some((keyword) => line.raw.includes(keyword))).slice(0, limit)
+  return rawLines.filter((line) => keywords.some((keyword) => line.message.includes(keyword))).slice(0, limit)
 }
 
 function startMockDeepSeekServer(): Promise<http.Server> {

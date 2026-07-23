@@ -1,5 +1,7 @@
 import fs from 'fs/promises'
+import { createReadStream } from 'fs'
 import path from 'path'
+import { createInterface } from 'readline'
 import type {
   ErrorCodeDefinition,
   ErrorOccurrence,
@@ -13,6 +15,7 @@ import type {
   VehicleStateOccurrence
 } from '../types'
 import { buildCacheKey, cleanupReplayCache, readSessionCache, writeSessionCache } from './cache'
+import { RawLogStore, rawLinesFilePath } from './rawLogStore'
 import { loadManualErrorDictionary, loadSourceErrorDictionary } from './errorDictionary'
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
@@ -91,6 +94,7 @@ export class ReplaySession {
     tasks: [],
     foldedLogs: [],
     rawLines: [],
+    rawLinesPath: undefined,
     bookmarks: [],
     caseMeta: {},
     knowledgeMatches: []
@@ -134,7 +138,7 @@ export class ReplaySession {
         timings['读取缓存'] = Date.now() - stepStart
         onProgress?.('缓存命中', 100)
         this.data = cached
-        this.control.currentMs = cached.frames[0]?.timeMs || cached.rawLines[0]?.timeMs || 0
+        this.control.currentMs = cached.frames[0]?.timeMs || 0
         this.control.currentFrameIndex = 0
         this.control.playing = false
         this.data.overview.parseStats = {
@@ -275,9 +279,21 @@ export class ReplaySession {
       caseMeta: await readCaseMeta(),
       knowledgeMatches
     }
-    this.control.currentMs = mergedFrames[0]?.timeMs || rawLines[0]?.timeMs || 0
+    this.control.currentMs = mergedFrames[0]?.timeMs || 0
     this.control.currentFrameIndex = 0
     this.control.playing = false
+
+    // 把原始日志行持久化到磁盘，避免会话缓存和报告 JSON 序列化时 OOM
+    const rawLinesPath = rawLinesFilePath(cacheKey)
+    try {
+      const store = await RawLogStore.create(rawLines, rawLinesPath)
+      this.data.rawLines = []
+      this.data.rawLinesPath = store.filePath
+    } catch (e) {
+      console.error('[session] rawLines 持久化失败:', e)
+      overview.dataWarnings.push('原始日志行缓存写入失败，后续大日志查询可能受限。')
+    }
+
     const cacheWritten = await writeSessionCache(cacheKey, this.data)
     if (!cacheWritten) overview.dataWarnings.push('会话数据过大或缓存写入失败，本次分析结果未写入会话缓存。')
     timings['写入缓存'] = Date.now() - stepStart
@@ -369,21 +385,20 @@ async function readLogFilesWithIndex(files: string[]): Promise<{
     const cached = await readLogIndex(file)
     if (cached) {
       cacheHits += 1
-      appendAll(rawLines, cached.rawLines)
       appendAll(frames, cached.frames)
       appendAll(definitions, cached.definitions)
       appendAll(occurrences, cached.occurrences)
+      // 日志索引不再缓存 rawLines，改为流式重新解析原文
+      for await (const line of streamLogLines(file)) {
+        rawLines.push(line)
+      }
       continue
     }
     const fileLines: ParsedLogLine[] = []
     const fileFrames: ReplayFrame[] = []
     const fileDefinitions: ErrorCodeDefinition[] = []
-    const text = await fs.readFile(file, 'utf8')
-    const rows = text.split(/\r?\n/)
     const definitionMap = new Map<string, ErrorCodeDefinition>()
-    for (let i = 0; i < rows.length; i++) {
-      const line = parseLogLine(rows[i], file, i + 1)
-      if (!line) continue
+    for await (const line of streamLogLines(file)) {
       fileLines.push(line)
       const def = parseErrorDefinition(line)
       if (def) {
@@ -399,7 +414,6 @@ async function readLogFilesWithIndex(files: string[]): Promise<{
     await writeLogIndex({
       fingerprint: await fileFingerprint(file),
       file,
-      rawLines: fileLines,
       frames: fileFrames,
       definitions: fileDefinitions,
       occurrences: []
@@ -411,6 +425,19 @@ async function readLogFilesWithIndex(files: string[]): Promise<{
     definitions,
     occurrences,
     cacheHits
+  }
+}
+
+async function* streamLogLines(file: string): AsyncGenerator<ParsedLogLine> {
+  const rl = createInterface({
+    input: createReadStream(file),
+    crlfDelay: Infinity
+  })
+  let lineNumber = 0
+  for await (const row of rl) {
+    lineNumber++
+    const line = parseLogLine(row, file, lineNumber)
+    if (line) yield line
   }
 }
 

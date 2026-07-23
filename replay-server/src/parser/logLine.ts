@@ -19,9 +19,13 @@ export function parseLogLine(raw: string, file: string, line: number): ParsedLog
     module,
     sourceLine: Number.isFinite(sourceLine) ? sourceLine : null,
     level,
-    message,
-    raw
+    message
   }
+}
+
+export function formatRawLine(line: ParsedLogLine): string {
+  const sourceLine = line.sourceLine ?? '?'
+  return `${line.timestamp} ${line.module}: ${sourceLine} [${line.level}] : ${line.message}`
 }
 
 export function sortLogLines(a: ParsedLogLine, b: ParsedLogLine): number {
