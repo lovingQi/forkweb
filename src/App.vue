@@ -35,6 +35,10 @@
             <el-icon><OfficeBuilding /></el-icon>
             <span>现场管理</span>
           </el-menu-item>
+          <el-menu-item index="/stats">
+            <el-icon><TrendCharts /></el-icon>
+            <span>数据统计</span>
+          </el-menu-item>
         </template>
 
         <!-- 管理员专属 -->

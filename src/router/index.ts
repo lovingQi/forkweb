@@ -71,6 +71,12 @@ const routes = [
     name: 'sites',
     component: () => import('@/views/SiteManage.vue'),
     meta: { title: '现场管理', requiresRd: true }
+  },
+  {
+    path: '/stats',
+    name: 'stats',
+    component: () => import('@/views/StatsBoard.vue'),
+    meta: { title: '数据统计', requiresRd: true }
   }
 ]
 

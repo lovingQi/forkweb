@@ -48,6 +48,8 @@ async function readKnowledgeHits(): Promise<KnowledgeHitsData> {
   return readJsonStore<KnowledgeHitsData>(HITS_KEY, { updatedAt: '', hits: {} })
 }
 
+export type { KnowledgeHitsData }
+
 async function writeKnowledgeHits(data: KnowledgeHitsData): Promise<void> {
   await writeJsonStore(HITS_KEY, data)
 }

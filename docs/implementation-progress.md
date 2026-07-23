@@ -23,7 +23,7 @@
 | 15 | 补充上传日志 | ✅ 已完成 | 2026-07-23 | - |
 | 16 | 列表分页与排序 | ✅ 已完成 | 2026-07-23 | - |
 | 17 | 企业微信通知 | ✅ 已完成 | 2026-07-23 | - |
-| 18 | 数据统计仪表盘 | ⬜ 待开发 | - | - |
+| 18 | 数据统计仪表盘 | ✅ 已完成 | 2026-07-23 | - |
 | 19 | 部署与运维 | ⬜ 待开发 | - | - |
 | 20 | 上线准备 | ⬜ 待开发 | - | - |
 
@@ -306,4 +306,22 @@
   - 后端：`replay-server/src/core/knowledgeBase.ts` 的 `recordKnowledgeRuleFeedback` 在规则累计 3 次「没用」反馈被标记为 `needs_review` 时，写库成功后批量发送「知识规则需要复查」通知。
   - 脚本：新增 `replay-server/scripts/verify-wechat-work.ts`，用于在无 webhook 配置时验证通知模块不会抛异常。
 - **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过；`npx tsx replay-server/scripts/verify-wechat-work.ts` 不抛异常。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，20 个工单用例全部通过。
+- **阻塞项**：无
+
+---
+
+## 阶段 18：数据统计仪表盘
+
+- **状态**：✅ 已完成
+- **计划**：见 `docs/implementation-plan.md#阶段-18数据统计仪表盘`
+- **改动摘要**：
+  - 后端：新增 `replay-server/src/tickets/stats.ts`，实现 `getTicketStats`、`getTicketsBySite`、`getTicketsByIssueType`、`getKnowledgeStats`、`getUserStats` 五个统计函数；工单统计基于 `tickets` 表聚合，知识库统计读取 `json_stores` 中的 `knowledgeBase` 与 `knowledgeHits`。
+  - 后端：新增 `replay-server/src/stats/routes.ts`，注册 `GET /api/stats/tickets`、`GET /api/stats/knowledge`、`GET /api/stats/users`，使用 `requireRole('admin', 'rd')` 限制访问；并在 `replay-server/src/index.ts` 挂载 `/api/stats`。
+  - 后端：导出 `replay-server/src/core/knowledgeBase.ts` 中的 `KnowledgeHitsData` 类型，供统计模块复用。
+  - 前端：新增 `src/api/stats.ts`，定义统计类型与三个 fetch 函数。
+  - 前端：新增 `src/views/StatsBoard.vue`，使用 `el-date-picker` 选择日期范围，分「工单统计」「知识库统计」「人员统计」三个卡片区域展示指标、排行与分布。
+  - 前端：修改 `src/router/index.ts` 新增 `/stats` 路由，`meta: { title: '数据统计', requiresRd: true }`。
+  - 前端：修改 `src/App.vue`，研发/管理员侧边栏新增「数据统计」入口。
+  - 测试：`tests/e2e/tickets.spec.ts` 新增「数据统计页面加载」用例，验证管理员可访问 `/stats` 并展示三维度统计区域。
+- **验证方式**：`npm run typecheck` 通过；`npm run replay:build` 通过。隔离 E2E 使用独立 `FORKWEB_CACHE_DIR`/`FORKWEB_CONFIG_DIR` 运行，21 个工单用例全部通过。
 - **阻塞项**：无

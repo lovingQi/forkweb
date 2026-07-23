@@ -50,6 +50,7 @@ import authRoutes, { ensureAdminUser } from './users/routes'
 import { authMiddleware, requireRole } from './auth/middleware'
 import ticketRoutes from './tickets/routes'
 import siteRoutes from './sites/routes'
+import statsRoutes from './stats/routes'
 
 const app = express()
 const server = http.createServer(app)
@@ -64,6 +65,7 @@ app.use(express.json({ limit: '80mb' }))
 app.use('/api/auth', authRoutes)
 app.use('/api/tickets', ticketRoutes)
 app.use('/api/sites', siteRoutes)
+app.use('/api/stats', statsRoutes)
 
 app.post('/api/replay/session', async (req, res) => {
   try {

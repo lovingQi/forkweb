@@ -583,4 +583,22 @@ test.describe.serial('工单主流程', () => {
     await expect(page.getByRole('button', { name: '编辑基本信息' })).not.toBeVisible()
     await expect(page.locator('.el-timeline-item').getByText('cancelled').first()).toBeVisible()
   })
+
+  test('数据统计页面加载', async () => {
+    await loginAs('admin')
+    await page.goto('/stats')
+    await expect(page.locator('.stats-header').getByText('数据统计')).toBeVisible()
+
+    await expect(page.locator('.stats-section').getByText('工单统计').first()).toBeVisible()
+    await expect(page.locator('.stats-section').getByText('知识库统计').first()).toBeVisible()
+    await expect(page.locator('.stats-section').getByText('人员统计').first()).toBeVisible()
+
+    // 默认至少能看到状态分布表格
+    await expect(page.locator('.stats-section').getByText('状态分布').first()).toBeVisible()
+    await expect(page.locator('.stats-section').getByText('命中次数排行').first()).toBeVisible()
+    await expect(page.locator('.stats-section').getByText('售后提单量排行').first()).toBeVisible()
+
+    // 验证数据接口成功且无错误提示
+    await expect(page.locator('.error-alert')).not.toBeVisible()
+  })
 })
