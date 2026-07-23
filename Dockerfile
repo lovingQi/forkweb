@@ -11,6 +11,8 @@ RUN npm install
 
 # 复制源码并构建前后端
 COPY . .
+# 生产环境前后端同源，API 使用相对路径
+RUN echo "window.__APP_CONFIG__ = { apiBase: '/api', wsBase: '/ws', replayApiBase: '/api', replayWsBase: '/ws' }" > public/config.js
 RUN npm run build
 RUN npm run replay:build
 # ESM 要求相对 import 必须带 .js 后缀，TypeScript 编译不会自动添加
