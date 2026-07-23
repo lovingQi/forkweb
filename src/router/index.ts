@@ -85,9 +85,32 @@ const router = createRouter({
   routes
 })
 
+function isTokenExpired(token: string): boolean {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return true
+    const payload = JSON.parse(atob(parts[1]))
+    if (!payload.exp) return true
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return true
+  }
+}
+
+function clearAuth() {
+  localStorage.removeItem('forkweb_token')
+  localStorage.removeItem('forkweb_user')
+}
+
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('forkweb_token')
+  let token = localStorage.getItem('forkweb_token')
   const cachedUser = JSON.parse(localStorage.getItem('forkweb_user') || 'null')
+
+  if (token && isTokenExpired(token)) {
+    clearAuth()
+    token = null
+  }
+
   if (!to.meta.public && !token) {
     next('/login')
     return

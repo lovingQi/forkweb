@@ -16,9 +16,6 @@
         </el-form-item>
       </el-form>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <div class="login-tip">
-        默认管理员账号：admin / admin123
-      </div>
     </el-card>
   </div>
 </template>
@@ -63,11 +60,5 @@ async function onLogin() {
   text-align: center;
   font-size: 18px;
   font-weight: 600;
-}
-.login-tip {
-  margin-top: 16px;
-  color: #6b7280;
-  font-size: 13px;
-  text-align: center;
 }
 </style>
