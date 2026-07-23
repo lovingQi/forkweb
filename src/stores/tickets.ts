@@ -8,6 +8,7 @@ import {
   cancelTicket as apiCancel,
   createKnowledgeFromTicket as apiCreateKnowledge,
   createTicket as apiCreate,
+  deleteTicket as apiDeleteTicket,
   escalateToRd as apiEscalate,
   getAnalysisVersion as apiGetAnalysisVersion,
   getTicket as apiGet,
@@ -223,6 +224,18 @@ export const useTicketStore = defineStore('tickets', () => {
     return ticket
   }
 
+  async function deleteTicket(id: number) {
+    await apiDeleteTicket(id)
+    const idx = tickets.value.findIndex((t) => t.id === id)
+    if (idx >= 0) {
+      tickets.value.splice(idx, 1)
+    }
+    if (currentTicket.value?.id === id) {
+      currentTicket.value = null
+      currentEvents.value = []
+    }
+  }
+
   async function updateTicketBasicInfo(id: number, input: Parameters<typeof apiUpdateTicketBasicInfo>[1]) {
     const ticket = await apiUpdateTicketBasicInfo(id, input)
     updateTicketInList(ticket)
@@ -278,6 +291,7 @@ export const useTicketStore = defineStore('tickets', () => {
     switchAnalysisVersion,
     updateIssueType,
     cancelTicket,
+    deleteTicket,
     updateTicketBasicInfo,
     addTicketComment,
     appendFiles

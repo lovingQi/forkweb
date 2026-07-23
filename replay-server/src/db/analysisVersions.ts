@@ -81,3 +81,8 @@ export async function getLatestAnalysisVersion(ticketId: number): Promise<DbAnal
   return db.prepare('SELECT * FROM ticket_analysis_versions WHERE ticket_id = ? ORDER BY version_no DESC LIMIT 1')
     .get(ticketId) as DbAnalysisVersion | undefined;
 }
+
+export async function deleteAnalysisVersionsByTicketId(ticketId: number): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM ticket_analysis_versions WHERE ticket_id = ?').run(ticketId);
+}

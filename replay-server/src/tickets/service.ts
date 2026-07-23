@@ -3,8 +3,9 @@ import fsSync from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
-import { createTicketEvent, listTicketEvents } from '../db/events';
-import { createAnalysisVersion } from '../db/analysisVersions';
+import { getDb } from '../db/index';
+import { createTicketEvent, deleteEventsByTicketId, listTicketEvents } from '../db/events';
+import { createAnalysisVersion, deleteAnalysisVersionsByTicketId, listAnalysisVersions } from '../db/analysisVersions';
 import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
 import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
@@ -16,9 +17,9 @@ import { classifyFromAnalysis } from '../core/issueClassifier';
 import { generateTroubleshootingPaths } from '../core/troubleshootingGuide';
 import { ReplaySession } from '../core/session';
 import { createKnowledgeRule, recordKnowledgeRuleFeedback } from '../core/knowledgeBase';
-import { createTroubleshootingPath, getTroubleshootingPathById, listTroubleshootingPaths } from '../db/troubleshootingPaths';
-import { createTroubleshootingStep, getTroubleshootingStepById } from '../db/troubleshootingSteps';
-import { createStepEvent, listStepEvents } from '../db/stepEvents';
+import { createTroubleshootingPath, deletePathsByTicketId, getTroubleshootingPathById, listTroubleshootingPaths } from '../db/troubleshootingPaths';
+import { createTroubleshootingStep, deleteStepsByTicketId, getTroubleshootingStepById } from '../db/troubleshootingSteps';
+import { createStepEvent, deleteStepEventsByTicketId, listStepEvents } from '../db/stepEvents';
 import { getSiteById } from '../db/sites';
 import { getModelById } from '../db/vehicleModels';
 import { askReplayAssistant } from '../core/ragAssistant';
@@ -436,6 +437,56 @@ export async function cancelTicket(ticketId: number, actor: AuthUser): Promise<D
   });
 
   return updated;
+}
+
+export async function deleteTicket(ticketId: number, actor: AuthUser): Promise<void> {
+  if (actor.role !== 'admin') {
+    throw new Error('仅管理员可删除工单');
+  }
+
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+
+  // 若该工单仍有在内存中的分析任务，先清理超时器，避免删除后回调继续写库
+  const activeRun = activeAnalysisRuns.get(ticketId);
+  if (activeRun) {
+    clearTimeout(activeRun.timeout);
+    activeAnalysisRuns.delete(ticketId);
+  }
+
+  // 审计留痕：记录删除人和删除前状态
+  await createTicketEvent({
+    ticketId,
+    actorId: actor.id,
+    action: 'deleted',
+    payload: { previousStatus: ticket.status, force: ticket.status === 'analyzing' }
+  });
+
+  // 收集需要清理的文件路径
+  const filePathsToDelete: string[] = [];
+  if (ticket.report_path) filePathsToDelete.push(ticket.report_path);
+  if (ticket.package_path) filePathsToDelete.push(ticket.package_path);
+
+  const analysisVersions = await listAnalysisVersions(ticketId);
+  for (const version of analysisVersions) {
+    if (version.report_path) filePathsToDelete.push(version.report_path);
+    if (version.package_path) filePathsToDelete.push(version.package_path);
+  }
+
+  // 按依赖顺序删除数据库记录
+  await deleteStepEventsByTicketId(ticketId);
+  await deleteStepsByTicketId(ticketId);
+  await deletePathsByTicketId(ticketId);
+  await deleteAnalysisVersionsByTicketId(ticketId);
+  await deleteEventsByTicketId(ticketId);
+  const db = await getDb();
+  db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+
+  // 删除磁盘文件和目录
+  for (const filePath of filePathsToDelete) {
+    await fs.rm(filePath, { recursive: true, force: true }).catch(() => undefined);
+  }
+  await fs.rm(getTicketDir(ticketId), { recursive: true, force: true }).catch(() => undefined);
 }
 
 export interface UpdateTicketBasicInfoInput {

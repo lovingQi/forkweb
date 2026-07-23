@@ -105,3 +105,8 @@ export async function listLatestStepEventsByStepIds(
   `;
   return db.prepare(sql).all(analysisVersionId, ...stepIds) as DbStepEvent[];
 }
+
+export async function deleteStepEventsByTicketId(ticketId: number): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM ticket_step_events WHERE ticket_id = ?').run(ticketId);
+}

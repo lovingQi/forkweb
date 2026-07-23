@@ -68,3 +68,11 @@ export async function listTroubleshootingStepsByPathIds(pathIds: number[]): Prom
   const sql = `SELECT * FROM ticket_troubleshooting_steps WHERE path_id IN (${pathIds.map(() => '?').join(', ')}) ORDER BY step_no ASC`;
   return db.prepare(sql).all(...pathIds) as DbTroubleshootingStep[];
 }
+
+export async function deleteStepsByTicketId(ticketId: number): Promise<void> {
+  const db = await getDb();
+  db.prepare(`
+    DELETE FROM ticket_troubleshooting_steps
+    WHERE path_id IN (SELECT id FROM ticket_troubleshooting_paths WHERE ticket_id = ?)
+  `).run(ticketId);
+}
