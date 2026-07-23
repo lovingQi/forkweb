@@ -32,7 +32,7 @@ npm run replay:dev:all
 
 ```bash
 # 首次部署
-docker-compose up -d --build
+docker compose up -d --build
 
 # 后续更新（自动备份数据库、拉代码、重建、启动）
 ./scripts/update.sh

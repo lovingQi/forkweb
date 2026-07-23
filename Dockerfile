@@ -13,6 +13,8 @@ RUN npm install
 COPY . .
 RUN npm run build
 RUN npm run replay:build
+# ESM 要求相对 import 必须带 .js 后缀，TypeScript 编译不会自动添加
+RUN node scripts/fix-esm-imports.mjs replay-server/dist
 
 # ---- 运行阶段 ----
 FROM node:20-slim AS runtime

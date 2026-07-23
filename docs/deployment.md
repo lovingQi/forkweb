@@ -21,6 +21,10 @@ cd forkweb
 ### 2. 启动服务
 
 ```bash
+# Docker Compose V2（推荐）
+docker compose up -d --build
+
+# 或旧版 docker-compose
 docker-compose up -d --build
 ```
 
@@ -82,8 +86,8 @@ curl http://localhost:8091/api/health
 
 1. 备份 `data/cache/forkweb.db` 到 `data/backups/forkweb.db.bak.<时间戳>`。
 2. `git pull --ff-only` 拉取最新代码。
-3. `docker-compose build` 重新构建镜像。
-4. `docker-compose up -d` 启动服务。
+3. `docker compose build` 重新构建镜像。
+4. `docker compose up -d` 启动服务。
 
 常用场景：
 
@@ -96,10 +100,10 @@ DATA_DIR=./data ./scripts/update.sh
 
 若更新后服务异常，可按以下步骤回退：
 
-1. 停止容器：`docker-compose down`
+1. 停止容器：`docker compose down`
 2. 回退代码：`git reset --hard <上一个稳定 commit>`
 3. 恢复数据库：从 `data/backups` 复制最近的备份覆盖 `data/cache/forkweb.db`。
-4. 重新启动：`docker-compose up -d --build`
+4. 重新启动：`docker compose up -d --build`
 
 ## 健康检查与告警
 
@@ -145,10 +149,10 @@ sudo nginx -s reload
 
 ```bash
 # 实时查看服务日志
-docker-compose logs -f
+docker compose logs -f
 
 # 查看最近 100 行
-docker-compose logs --tail=100
+docker compose logs --tail=100
 ```
 
 ## 安全建议
@@ -163,7 +167,7 @@ docker-compose logs --tail=100
 ### 容器无法启动
 
 ```bash
-docker-compose logs
+docker compose logs
 ```
 
 常见原因：
@@ -177,7 +181,7 @@ docker-compose logs
 
 ```bash
 cp data/backups/forkweb.db.bak.20260723060000 data/cache/forkweb.db
-docker-compose restart
+docker compose restart
 ```
 
 ### 健康检查失败
@@ -211,7 +215,7 @@ curl -v http://localhost:8091/api/health
 npx tsx replay-server/scripts/seed-knowledge.ts
 
 # 生产环境（容器内）
-docker-compose exec forkweb npx tsx replay-server/scripts/seed-knowledge.ts
+docker compose exec forkweb npx tsx replay-server/scripts/seed-knowledge.ts
 ```
 
 脚本幂等，已存在的标题不会重复导入。导入后可在「日志诊断」->「知识库管理」中查看并继续补充。
