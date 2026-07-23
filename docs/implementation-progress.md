@@ -49,7 +49,7 @@
 - **对应决策编号**：113-116
 - **改动摘要**：
   - 后端：新增 `replay-server/src/upload/tempFiles.ts`，实现预上传临时文件管理（保存、读取、删除、24 小时过期清理）。
-  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`，接收文件后存入临时目录并返回 `tempFileId`。
+  - 后端：`replay-server/src/tickets/routes.ts` 新增 `POST /api/tickets/upload-files`，接收文件后存入临时目录并返回 `tempFileId`；单个文件大小限制为 50MB，总大小限制为 200MB。
   - 后端：`replay-server/src/tickets/service.ts` 新增 `createTicketWithTempFiles`，根据 `tempFileIds` 把临时文件正式移入工单目录，成功后删除临时文件。
   - 后端：`POST /api/tickets` 改为接收 `tempFileIds` 而不是 `files`；`replay-server/src/core/storageCleaner.ts` 跳过 `pending` 目录并单独清理过期预上传文件。
   - 前端：`src/api/tickets.ts` 新增 `uploadTicketFiles`，支持上传进度回调；`createTicket` 支持 `tempFileIds` 并保留旧 `files` 兼容。
@@ -258,8 +258,8 @@
 - **状态**：✅ 已完成
 - **计划**：见 `docs/implementation-plan.md#阶段-13存储清理与上传限制`
 - **改动摘要**：
-  - 后端：`replay-server/src/tickets/routes.ts` 将 multer `fileSize` 从 500MB 改为 200MB；`POST /` 增加所有上传文件总大小校验（>200MB 返回 413）；上传失败或超限时统一清理临时文件。
-  - 前端：`src/views/TicketNew.vue` 上传提示改为“支持 .log、.zip、.tar.gz 格式，总大小不超过 200MB”；`onFilesChange` 与 `onSubmit` 双阶段校验总大小，超限显示错误提示。
+  - 后端：`replay-server/src/tickets/routes.ts` 将 multer `fileSize` 改为 50MB；`POST /api/tickets/upload-files` 显式校验单个文件不超过 50MB、所有上传文件总大小不超过 200MB（均返回 413）；上传失败或超限时统一清理临时文件。
+  - 前端：`src/views/TicketNew.vue` 上传提示改为“支持 .log、.zip、.tar.gz 格式，单个文件不超过 50MB，总大小不超过 200MB”；`beforeUpload` 校验单文件大小，`onSubmit` 校验总大小，超限显示错误提示。
   - 后端：`replay-server/src/tickets/service.ts` 的 `runTicketAnalysisInBackground` 用 try-catch 包裹分析主流程，失败时调用 `revertFailedAnalysis` 将工单状态回退为 `pending_analysis`，并记录 `analysis_failed` 事件及失败原因。
   - 后端：`replay-server/src/tickets/service.ts` 的 `startTicketAnalysis` 增加 10 分钟 `setTimeout` 超时保护，超时后自动回退状态并记录 `analysis_timeout` 事件；通过 `runId` 与 `activeAnalysisRuns` 避免超时与正常完成并发冲突。
   - 后端：新增 `replay-server/src/core/storageCleaner.ts` 的 `cleanExpiredFiles()`，查询 `latest_analysis_version_id` 对应版本创建时间超过 7 天的工单，删除其 `log_dir`；同时清理 `CACHE_DIR/uploads` 下 7 天前的上传临时文件，保留报告和数据库记录。
