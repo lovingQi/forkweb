@@ -147,7 +147,7 @@ const form = reactive({
   siteId: undefined as number | undefined,
   vehicleModelId: undefined as number | undefined,
   impactLevel: undefined as string | undefined,
-  aiEnabled: false
+  aiEnabled: true
 })
 
 const occurredRange = ref<[string, string] | null>(null)
