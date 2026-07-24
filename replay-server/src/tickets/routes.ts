@@ -6,7 +6,7 @@ import type { NextFunction, Response } from 'express';
 import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
-import { getTicketById } from '../db/tickets';
+import { getTicketById, getTicketByNo } from '../db/tickets';
 import { getSiteById } from '../db/sites';
 import { getModelById } from '../db/vehicleModels';
 import { getAnalysisVersionById, listAnalysisVersions, type DbAnalysisVersion } from '../db/analysisVersions';
@@ -267,6 +267,38 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
         payload: e.payload ? JSON.parse(e.payload) : null,
         createdAt: e.created_at
       }))
+    });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 按工单号查询（用于日志诊断页面导入路径）
+router.get('/by-no/:ticketNo', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketNo = String(req.params.ticketNo || '').trim();
+    if (!ticketNo) {
+      res.status(400).json({ succeed: false, error: '工单号不能为空' });
+      return;
+    }
+    const ticket = await getTicketByNo(ticketNo);
+    if (!ticket) {
+      res.status(404).json({ succeed: false, error: '工单不存在' });
+      return;
+    }
+    if (req.user!.role === 'after_sales' && ticket.reporter_id !== req.user!.id) {
+      res.status(403).json({ succeed: false, error: '无权查看该工单' });
+      return;
+    }
+    res.json({
+      succeed: true,
+      ticket: {
+        id: ticket.id,
+        ticketNo: ticket.ticket_no,
+        logDir: ticket.log_dir,
+        mapDir: ticket.map_dir,
+        mapFile: ticket.map_file
+      }
     });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });

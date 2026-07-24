@@ -14,10 +14,14 @@
         <el-form-item label="诊断包">
           <el-input v-model="packagePath" class="path-input" placeholder="大包可填本地 zip 路径" />
         </el-form-item>
+        <el-form-item label="工单号">
+          <el-input v-model="ticketNo" class="path-input" placeholder="如 TK20260724-XXXXXX" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="replay.loading" @click="load()">加载诊断</el-button>
           <el-button :loading="replay.loading" @click="loadAsync()">异步加载</el-button>
           <el-button :loading="replay.loading" @click="load(true)">重新解析</el-button>
+          <el-button :disabled="!ticketNo.trim() || replay.loading" @click="importFromTicket">从工单导入</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('md')">Markdown</el-button>
           <el-button :disabled="!replay.loaded" @click="openReport('json')">JSON</el-button>
           <el-button :disabled="!replay.loaded" @click="openPackageExport">导出诊断包</el-button>
@@ -974,6 +978,7 @@ import {
   replayReportUrl
 } from '@/api/replay'
 import { listCategories, type VehicleCategory } from '@/api/vehicles'
+import { getTicketByNo } from '@/api/tickets'
 import { useReplayStore } from '@/stores/replay'
 import { useRobotStore } from '@/stores/robot'
 
@@ -986,6 +991,7 @@ const selectedReplayPoint = ref<any>(null)
 const selectedFold = ref<any>(null)
 const highlightedLogKey = ref('')
 const packagePath = ref('')
+const ticketNo = ref('')
 const foldDialogVisible = ref(false)
 const aliasDialogVisible = ref(false)
 const packageInfoVisible = ref(false)
@@ -1190,6 +1196,21 @@ async function loadAsync(forceReload = false) {
     syncProgressValue()
     startProgressTimer()
     ElMessage.success('日志诊断已加载')
+  } catch (e: any) {
+    ElMessage.error(e && e.message ? e.message : String(e))
+  }
+}
+
+async function importFromTicket() {
+  const no = ticketNo.value.trim()
+  if (!no) return
+  try {
+    const ticket = await getTicketByNo(no)
+    replay.logDir = ticket.logDir
+    replay.mapDir = ticket.mapDir || ''
+    replay.mapFile = ticket.mapFile || ''
+    ElMessage.success(`已导入工单 ${ticket.ticketNo} 的日志/地图路径`)
+    await load(true)
   } catch (e: any) {
     ElMessage.error(e && e.message ? e.message : String(e))
   }

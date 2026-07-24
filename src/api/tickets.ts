@@ -178,6 +178,20 @@ export async function getTicket(id: number): Promise<{ ticket: Ticket; events: T
   return { ticket: data.ticket, events: data.events }
 }
 
+export interface TicketPathInfo {
+  id: number
+  ticketNo: string
+  logDir: string
+  mapDir: string | null
+  mapFile: string | null
+}
+
+export async function getTicketByNo(ticketNo: string): Promise<TicketPathInfo> {
+  const { data } = await ticketHttp.get(`/tickets/by-no/${encodeURIComponent(ticketNo)}`)
+  if (!data.succeed) throw new Error(data.error || '获取工单失败')
+  return data.ticket
+}
+
 export async function analyzeTicket(id: number): Promise<Ticket> {
   const { data } = await ticketHttp.post(`/tickets/${id}/analyze`)
   if (!data.succeed) throw new Error(data.error || '触发分析失败')

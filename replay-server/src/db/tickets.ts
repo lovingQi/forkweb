@@ -92,6 +92,11 @@ export async function getTicketById(id: number): Promise<DbTicket | undefined> {
   return db.prepare('SELECT * FROM tickets WHERE id = ?').get(id) as DbTicket | undefined;
 }
 
+export async function getTicketByNo(ticketNo: string): Promise<DbTicket | undefined> {
+  const db = await getDb();
+  return db.prepare('SELECT * FROM tickets WHERE ticket_no = ?').get(ticketNo) as DbTicket | undefined;
+}
+
 export async function updateTicket(
   id: number,
   input: Partial<
