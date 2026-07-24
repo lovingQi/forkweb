@@ -27,6 +27,7 @@ import { readLlmConfig } from '../core/llmConfig';
 import { OpenAiCompatibleClient } from '../core/openAiCompatibleClient';
 import { LlmProviderError } from '../core/llmProvider';
 import type { KnowledgeRule } from '../types';
+import { ZipArchive, type Archiver } from 'archiver';
 
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -640,6 +641,45 @@ async function calculateDirSize(dir: string): Promise<number> {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   return total;
+}
+
+async function dirExists(dir: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(dir);
+    return stat.isDirectory();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export async function streamTicketFilesZip(
+  ticketId: number,
+  actor: AuthUser
+): Promise<{ archive: Archiver; filename: string }> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+
+  const logDir = getTicketLogDir(ticketId);
+  const mapDir = getTicketMapDir(ticketId);
+
+  const hasLogs = await dirExists(logDir);
+  const hasMaps = await dirExists(mapDir);
+  if (!hasLogs && !hasMaps) {
+    throw new Error('工单没有可下载的文件');
+  }
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  if (hasLogs) {
+    archive.directory(logDir, 'logs');
+  }
+  if (hasMaps) {
+    archive.directory(mapDir, 'maps');
+  }
+
+  const filename = `ticket-${ticket.ticket_no}-files.zip`;
+  return { archive, filename };
 }
 
 export async function startFieldTroubleshooting(ticketId: number, actor: AuthUser): Promise<DbTicket> {

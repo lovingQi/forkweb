@@ -221,6 +221,14 @@ export async function getTicketReport(id: number): Promise<string> {
   return data
 }
 
+export async function downloadTicketFiles(id: number): Promise<Blob> {
+  const { data } = await ticketHttp.get(`/tickets/${id}/files`, {
+    responseType: 'blob',
+    timeout: 300000
+  })
+  return data
+}
+
 export async function createKnowledgeFromTicket(
   id: number,
   input: {

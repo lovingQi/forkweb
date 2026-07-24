@@ -30,12 +30,14 @@ import {
   resolveTicket,
   startFieldTroubleshooting,
   startTicketAnalysis,
+  streamTicketFilesZip,
   suggestKnowledgeFromTicket,
   updateTicketBasicInfo,
   updateTicketIssueType,
   verifyTicket
 } from './service';
 import { saveTempFile } from '../upload/tempFiles';
+import type { ArchiverError } from 'archiver';
 
 const router = Router();
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -699,6 +701,34 @@ router.get('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
     const content = await fs.readFile(ticket.report_path, 'utf8');
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.send(content);
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 下载工单上传的日志/地图文件打包
+router.get('/:id/files', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const { archive, filename } = await streamTicketFilesZip(ticketId, req.user!);
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+    archive.on('error', (err: ArchiverError) => {
+      console.error('[ticket] 打包下载失败:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ succeed: false, error: '文件打包失败' });
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    });
+    archive.on('warning', (err: ArchiverError) => {
+      console.warn('[ticket] 打包下载警告:', err);
+    });
+
+    archive.pipe(res);
+    await archive.finalize();
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
   }

@@ -169,6 +169,11 @@
               @click="openDeleteDialog"
             >删除工单</el-button>
             <el-button v-if="ticketStore.currentTicket.reportPath" @click="loadReport">查看报告</el-button>
+            <el-button
+              v-if="canDownloadFiles"
+              :loading="loadingAction === 'downloadFiles'"
+              @click="onDownloadFiles"
+            >下载上传文件</el-button>
           </div>
 
           <div v-if="reportHtml" class="report-preview">
@@ -404,7 +409,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
-import { getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
+import { downloadTicketFiles, getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
 import { listSites, type Site } from '@/api/sites'
 import type { UploadUserFile } from 'element-plus'
 import { ElMessage } from 'element-plus'
@@ -614,6 +619,11 @@ const canAppendFiles = computed(() => {
   return canEditIssueType.value && !isTerminal.value
 })
 
+const canDownloadFiles = computed(() => {
+  if (!ticket.value) return false
+  return !!(ticket.value.logDir || ticket.value.mapDir)
+})
+
 const issueTypeOptions = [
   { label: '定位', value: 'positioning' },
   { label: '激光', value: 'laser' },
@@ -736,6 +746,25 @@ async function onResolve() {
 
 async function loadReport() {
   reportHtml.value = await getTicketReport(ticketId.value)
+}
+
+async function onDownloadFiles() {
+  loadingAction.value = 'downloadFiles'
+  try {
+    const blob = await downloadTicketFiles(ticketId.value)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ticket-${ticketStore.currentTicket?.ticketNo || ticketId.value}-files.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '下载失败')
+  } finally {
+    loadingAction.value = null
+  }
 }
 
 function openIssueTypeDialog() {
