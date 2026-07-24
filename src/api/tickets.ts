@@ -84,6 +84,7 @@ export interface Ticket {
 export interface TicketEvent {
   id: number
   action: string
+  actorName?: string
   payload: Record<string, any> | null
   createdAt: string
 }

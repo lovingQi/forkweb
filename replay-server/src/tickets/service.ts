@@ -21,6 +21,7 @@ import { createTroubleshootingPath, deletePathsByTicketId, getTroubleshootingPat
 import { createTroubleshootingStep, deleteStepsByTicketId, getTroubleshootingStepById } from '../db/troubleshootingSteps';
 import { createStepEvent, deleteStepEventsByTicketId, listStepEvents } from '../db/stepEvents';
 import { getSiteById } from '../db/sites';
+import { getUserById } from '../db/users';
 import { getModelById } from '../db/vehicleModels';
 import { askReplayAssistant } from '../core/ragAssistant';
 import { readLlmConfig } from '../core/llmConfig';
@@ -1142,9 +1143,19 @@ function normalizeKnowledgeSuggestion(response: unknown): KnowledgeSuggestion {
   return suggestion;
 }
 
+export interface TicketEventWithActor {
+  id: number;
+  ticket_id: number;
+  actor_id: number | null;
+  action: string;
+  payload: string | null;
+  created_at: string;
+  actorName: string;
+}
+
 export async function getTicketDetail(ticketId: number): Promise<{
   ticket: DbTicket;
-  events: Awaited<ReturnType<typeof listTicketEvents>>;
+  events: TicketEventWithActor[];
 }> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
@@ -1168,7 +1179,21 @@ export async function getTicketDetail(ticketId: number): Promise<{
       created_at: e.created_at,
     })),
   ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  return { ticket, events: mergedEvents };
+
+  const actorIds = Array.from(
+    new Set(mergedEvents.map((e) => e.actor_id).filter((id): id is number => id !== null))
+  );
+  const users = await Promise.all(actorIds.map((id) => getUserById(id)));
+  const userMap = new Map(
+    users.filter((u): u is NonNullable<typeof u> => !!u).map((u) => [u.id, u.display_name || u.username])
+  );
+
+  const events: TicketEventWithActor[] = mergedEvents.map((e) => ({
+    ...e,
+    actorName: e.actor_id ? userMap.get(e.actor_id) || '未知用户' : '系统'
+  }));
+
+  return { ticket, events };
 }
 
 export interface ListUserTicketsInput {

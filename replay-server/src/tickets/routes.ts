@@ -263,6 +263,7 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
       events: events.map((e) => ({
         id: e.id,
         action: e.action,
+        actorName: e.actorName,
         payload: e.payload ? JSON.parse(e.payload) : null,
         createdAt: e.created_at
       }))

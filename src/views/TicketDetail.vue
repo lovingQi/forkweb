@@ -198,10 +198,12 @@
           :timestamp="event.createdAt"
         >
           <template v-if="event.action === 'comment'">
-            <div class="event-comment">评论：{{ event.payload?.content }}</div>
+            <div class="event-comment">
+              <span class="event-actor">{{ event.actorName || '未知用户' }}</span>：{{ event.payload?.content }}
+            </div>
           </template>
           <template v-else>
-            {{ event.action }}
+            <div>{{ event.action }} <span class="event-actor">（{{ event.actorName || '未知用户' }}）</span></div>
             <div v-if="event.payload" class="event-payload">{{ JSON.stringify(event.payload, null, 2) }}</div>
           </template>
         </el-timeline-item>
@@ -1163,5 +1165,9 @@ function guideFeedbackLabel(value?: string) {
   color: #374151;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.event-actor {
+  font-weight: 600;
+  color: #2563eb;
 }
 </style>
