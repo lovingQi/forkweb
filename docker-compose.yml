@@ -11,6 +11,14 @@ services:
       - REPLAY_HOST=0.0.0.0
       - FORKWEB_CACHE_DIR=/app/data/cache
       - FORKWEB_CONFIG_DIR=/app/data/config
+      # 邮件通知配置（售后申请研发介入时发送通知）
+      - SMTP_HOST=smtp.163.com
+      - SMTP_PORT=465
+      - SMTP_SECURE=true
+      - SMTP_USER=18551736795@163.com
+      - SMTP_PASS=RPUHfeassxPaufpD
+      - SMTP_FROM=18551736795@163.com
+      - SMTP_TO=zhenyan.huang@juniontech.com,fawang.lin@juniontech.com
       # 可选：企业微信 Webhook 用于健康检查告警
       # - WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
     volumes:
