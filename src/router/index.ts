@@ -83,6 +83,12 @@ const routes = [
     name: 'stats',
     component: () => import('@/views/StatsBoard.vue'),
     meta: { title: '数据统计', requiresRd: true }
+  },
+  {
+    path: '/help',
+    name: 'help',
+    component: () => import('@/views/Help.vue'),
+    meta: { title: '帮助中心' }
   }
 ]
 

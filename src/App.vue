@@ -34,6 +34,12 @@
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+
+        <!-- 帮助中心：所有角色可见 -->
+        <el-menu-item index="/help">
+          <el-icon><QuestionFilled /></el-icon>
+          <span>帮助中心</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
