@@ -1,7 +1,8 @@
 import type {
   ErrorOccurrence,
+  LogLineRef,
   MapMatchInfo,
-  ParsedLogLine,
+  RawLineReader,
   ReplayFrame,
   RootCauseCandidate,
   TaskSegment,
@@ -13,25 +14,34 @@ export interface RootCauseContext {
   frames: ReplayFrame[]
   occurrences: ErrorOccurrence[]
   tasks: TaskSegment[]
-  rawLines: ParsedLogLine[]
+  rawStore: RawLineReader
   mapMatch: MapMatchInfo
 }
 
 export interface RootCauseRule {
   id: string
   weight: number
-  build(ctx: RootCauseContext): RootCauseCandidate | null
+  build(ctx: RootCauseContext): Promise<RootCauseCandidate | null>
+}
+
+function toRef(line: { globalIndex: number; timeMs: number; timestamp: string; file: string; line: number; module: string }): LogLineRef {
+  return {
+    globalIndex: line.globalIndex,
+    timeMs: line.timeMs,
+    timestamp: line.timestamp,
+    file: line.file,
+    line: line.line,
+    module: line.module
+  }
 }
 
 export const ROOT_CAUSE_RULES: RootCauseRule[] = [
   {
     id: 'map-config',
     weight: 1.1,
-    build(ctx) {
+    async build(ctx) {
       const configEvents = ctx.events.filter((event) => event.category === 'config').slice(0, 10)
-      const mapLines = ctx.rawLines
-        .filter((line) => /\b(map|地图|params|configure error|config fail|参数|配置)\b/i.test(line.message))
-        .slice(0, 10)
+      const mapLines = (await ctx.rawStore.readFiltered((line) => /\b(map|地图|params|configure error|config fail|参数|配置)\b/i.test(line.message))).slice(0, 10)
       if (ctx.mapMatch.confidence >= 0.8 && configEvents.length < 3 && mapLines.length < 3) return null
       return {
         id: 'map-config',
@@ -39,7 +49,7 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         confidence: 0.72,
         severity: ctx.mapMatch.confidence < 0.8 ? 'warning' : 'info',
         evidenceEvents: configEvents,
-        evidenceLines: mapLines,
+        evidenceLines: mapLines.map(toRef),
         suggestion: '未能精确匹配到日志对应的地图文件，请确认地图目录中是否包含正确版本的地图；若该日志来自测试/演示环境，可忽略本条提示。',
         triggeredRules: ['map-config'],
         positiveEvidence: [`地图匹配策略: ${ctx.mapMatch.matchStrategy}`, `地图匹配置信度 ${Math.round(ctx.mapMatch.confidence * 100)}%`],
@@ -51,7 +61,7 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
   {
     id: 'localization',
     weight: 1,
-    build(ctx) {
+    async build(ctx) {
       const locEvents = ctx.events.filter((event) => ['loc_score', 'lost'].includes(event.category || '')).slice(0, 10)
       const lowScoreFrames = ctx.frames.filter((frame) => typeof frame.score === 'number' && frame.score < 60).slice(0, 10)
       if (locEvents.length === 0 && lowScoreFrames.length === 0) return null
@@ -73,7 +83,7 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
   {
     id: 'device-timeout',
     weight: 1,
-    build(ctx) {
+    async build(ctx) {
       const deviceErrors = ctx.occurrences
         .filter((it) => it.kind === 'real_fault' && /^ERROR0[56]\d{2}$/.test(it.code))
         .slice(0, 10)
@@ -96,13 +106,13 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
   {
     id: 'safety',
     weight: 1,
-    build(ctx) {
+    async build(ctx) {
       const safetyEvents = ctx.events.filter((event) => ['estop'].includes(event.category || '')).slice(0, 10)
       const safetyFrames = ctx.frames.filter((frame) => frame.estop).slice(0, 10)
-      const safetyLines = ctx.rawLines.filter((line) =>
+      const safetyLines = (await ctx.rawStore.readFiltered((line) =>
         /(?:EStopHard|EStopSoft|CollisionStrip)\s*(?:=|:|is)\s*(?:1|true)\b/i.test(line.message) ||
         /(?:急停|防撞条).*(?:触发|按下)/.test(line.message)
-      ).slice(0, 10)
+      )).slice(0, 10)
       if (safetyEvents.length === 0 && safetyFrames.length === 0 && safetyLines.length === 0) return null
       return {
         id: 'safety',
@@ -110,7 +120,7 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         confidence: 0.7,
         severity: 'error',
         evidenceEvents: safetyEvents,
-        evidenceLines: [...safetyFrames.map((frame) => frame.rawLine), ...safetyLines].slice(0, 10),
+        evidenceLines: [...safetyFrames.map((frame) => frame.rawLine), ...safetyLines.map(toRef)].slice(0, 10),
         suggestion: '检查急停、挡板、安全触边、避障输入和现场安全 PLC 状态。',
         triggeredRules: ['safety'],
         positiveEvidence: [`安全事件 ${safetyEvents.length} 个`, `急停状态帧 ${safetyFrames.length} 个`],
@@ -122,17 +132,15 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
   {
     id: 'task-failure',
     weight: 1,
-    build(ctx) {
+    async build(ctx) {
       const failedTasks = ctx.tasks
         .filter((task) => task.lastFinishedTaskSuccess === false || task.errors.some((error) => /^E?ERROR\d{4,5}$/.test(error)))
         .slice(0, 10)
-      const taskLines = ctx.rawLines
-        .filter((line) =>
-          /current_task_error_code\s+is\s+E?ERROR\d{4,5}\b/i.test(line.message) ||
-          /task failed/i.test(line.message) ||
-          /last_finished_task_is_success["']?\s*[:=]\s*false/i.test(line.message)
-        )
-        .slice(0, 10)
+      const taskLines = (await ctx.rawStore.readFiltered((line) =>
+        /current_task_error_code\s+is\s+E?ERROR\d{4,5}\b/i.test(line.message) ||
+        /task failed/i.test(line.message) ||
+        /last_finished_task_is_success["']?\s*[:=]\s*false/i.test(line.message)
+      )).slice(0, 10)
       if (failedTasks.length === 0 && taskLines.length === 0) return null
       return {
         id: 'task-failure',
@@ -140,7 +148,7 @@ export const ROOT_CAUSE_RULES: RootCauseRule[] = [
         confidence: failedTasks.length > 0 ? 0.76 : 0.56,
         severity: 'warning',
         evidenceEvents: ctx.events.filter((event) => event.category === 'task').slice(0, 10),
-        evidenceLines: taskLines,
+        evidenceLines: taskLines.map(toRef),
         suggestion: '从失败任务开始时间向前查看路径、货叉状态、定位分、错误码和未完成路径变化。',
         triggeredRules: ['task-failure'],
         positiveEvidence: [`失败候选任务 ${failedTasks.length} 个`, `任务失败相关日志 ${taskLines.length} 行`],

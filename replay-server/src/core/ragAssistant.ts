@@ -2,12 +2,13 @@ import type {
   AssistantAnswer,
   AssistantAskRequest,
   AssistantContext,
+  LogLineRef,
   ParsedLogLine,
   ReplaySessionData,
   VectorSearchResult
 } from '../types'
 import { buildCurrentSessionChunks, rankChunks } from './knowledgeEmbedding'
-import { formatRawLine } from './rawLogStore'
+import { formatRawLine, RawLogStore } from './rawLogStore'
 import { readLlmConfig } from './llmConfig'
 import { LlmProviderError, type LlmMessage } from './llmProvider'
 import { OpenAiCompatibleClient } from './openAiCompatibleClient'
@@ -17,7 +18,8 @@ import { rebuildVectorStore, searchVectorStore } from './vectorStore'
 export async function recommendSimilarCases(data: ReplaySessionData, question = ''): Promise<VectorSearchResult[]> {
   const query = buildSearchQuery(data, question)
   const persistent = await searchVectorStore(query, { limit: 8, rebuildIfEmpty: true })
-  const current = rankChunks(query, buildCurrentSessionChunks(data), 5)
+  const rawStore = data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null
+  const current = rankChunks(query, await buildCurrentSessionChunks(data, rawStore), 5)
   return [...persistent, ...current]
     .sort((a, b) => b.score - a.score)
     .slice(0, 8)
@@ -28,7 +30,7 @@ export async function buildAssistantContext(data: ReplaySessionData, request: As
   const maxKnowledge = clamp(Number(request.maxKnowledge || 8), 1, 20)
   const maxLogLines = clamp(Number(request.maxLogLines || 80), 0, 300)
   const similarChunks = (await recommendSimilarCases(data, request.question)).slice(0, maxKnowledge)
-  const logExcerpts = request.includeLogs === false ? [] : searchRelatedLogExcerpts(data, request.question, maxLogLines)
+  const logExcerpts = request.includeLogs === false ? [] : await searchRelatedLogExcerpts(data, request.question, maxLogLines)
   const context: AssistantContext = {
     overview: {
       logDir: data.overview.logDir,
@@ -52,10 +54,12 @@ export async function buildAssistantContext(data: ReplaySessionData, request: As
     knowledgeMatches: (data.knowledgeMatches || []).slice(0, maxKnowledge),
     similarChunks,
     logExcerpts,
+    rawLinesPath: data.rawLinesPath,
     redaction: { enabled: false, rules: [] }
   }
   const config = await readLlmConfig()
-  return redactAssistantContext(context, config.redaction)
+  const rawStore = data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null
+  return redactAssistantContext(context, config.redaction, rawStore)
 }
 
 export async function askReplayAssistant(data: ReplaySessionData, request: AssistantAskRequest): Promise<AssistantAnswer> {
@@ -70,7 +74,7 @@ export async function askReplayAssistant(data: ReplaySessionData, request: Assis
   }
   try {
     const client = new OpenAiCompatibleClient(config)
-    const payload = await client.chatJson(buildDeepSeekMessages(context, question), {
+    const payload = await client.chatJson(await buildDeepSeekMessages(context, question), {
       model: config.model,
       temperature: config.temperature,
       maxTokens: config.maxTokens,
@@ -92,7 +96,7 @@ export async function askReplayAssistant(data: ReplaySessionData, request: Assis
   }
 }
 
-export function buildDeepSeekMessages(context: AssistantContext, question: string): LlmMessage[] {
+export async function buildDeepSeekMessages(context: AssistantContext, question: string): Promise<LlmMessage[]> {
   return [
     {
       role: 'system',
@@ -107,13 +111,23 @@ export function buildDeepSeekMessages(context: AssistantContext, question: strin
       role: 'user',
       content: JSON.stringify({
         question,
-        context: compactAssistantContext(context)
+        context: await compactAssistantContext(context)
       }).slice(0, 60000)
     }
   ]
 }
 
-function compactAssistantContext(context: AssistantContext) {
+async function compactAssistantContext(context: AssistantContext) {
+  const rawStore = context.rawLinesPath ? RawLogStore.load(context.rawLinesPath) : null
+  const allRefs: LogLineRef[] = []
+  for (const cause of context.rootCauses) allRefs.push(...cause.evidenceLines)
+  for (const match of context.knowledgeMatches) allRefs.push(...match.evidenceLines)
+  const resolved = rawStore && allRefs.length > 0 ? await rawStore.resolveRefs(allRefs) : []
+  const refMap = new Map(resolved.map((line, i) => [allRefs[i].globalIndex, line]))
+  const formatRef = (ref: LogLineRef): string => {
+    const line = refMap.get(ref.globalIndex)
+    return line ? formatRawLine(line) : `[ref:${ref.globalIndex}]`
+  }
   return {
     overview: {
       logDir: context.overview.logDir,
@@ -146,14 +160,14 @@ function compactAssistantContext(context: AssistantContext) {
       confidence: cause.confidence,
       suggestion: cause.suggestion,
       source: cause.source,
-      evidence: cause.evidenceLines.slice(0, 3).map((line) => formatRawLine(line))
+      evidence: cause.evidenceLines.slice(0, 3).map(formatRef)
     })),
     knowledgeMatches: context.knowledgeMatches.map((match) => ({
       title: match.title,
       rootCause: match.rootCause,
       solution: match.solution,
       confidence: match.confidence,
-      evidence: match.evidenceLines.slice(0, 3).map((line) => formatRawLine(line))
+      evidence: match.evidenceLines.slice(0, 3).map(formatRef)
     })),
     similarCases: context.similarChunks.map((item) => ({
       title: item.chunk.source.title,
@@ -172,15 +186,22 @@ function compactAssistantContext(context: AssistantContext) {
   }
 }
 
-export function searchRelatedLogExcerpts(data: ReplaySessionData, question: string, limit: number): ParsedLogLine[] {
+export async function searchRelatedLogExcerpts(data: ReplaySessionData, question: string, limit: number): Promise<ParsedLogLine[]> {
   if (limit <= 0) return []
   const keywords = extractQuestionKeywords(question)
-  const eventLines = data.overview.topIssues.flatMap((event) => [event.line, ...(event.contextBefore || []), ...(event.contextAfter || [])]).filter(Boolean) as ParsedLogLine[]
-  const rootCauseLines = data.overview.rootCauses.flatMap((cause) => cause.evidenceLines || [])
-  const knowledgeLines = (data.knowledgeMatches || []).flatMap((match) => match.evidenceLines || [])
-  const keywordLines = keywords.length
-    ? data.rawLines.filter((line) => keywords.some((keyword) => line.message.toLowerCase().includes(keyword))).slice(0, limit)
+  const rawStore = data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null
+  const eventRefs = data.overview.topIssues.flatMap((event) => [event.line, ...(event.contextBefore || []), ...(event.contextAfter || [])]).filter(Boolean) as LogLineRef[]
+  const rootCauseRefs = data.overview.rootCauses.flatMap((cause) => cause.evidenceLines || [])
+  const knowledgeRefs = (data.knowledgeMatches || []).flatMap((match) => match.evidenceLines || [])
+  const keywordLines = rawStore && keywords.length
+    ? await rawStore.readFiltered((line) => keywords.some((keyword) => line.message.toLowerCase().includes(keyword)))
     : []
+  const allRefs = [...eventRefs, ...rootCauseRefs, ...knowledgeRefs]
+  const resolved = rawStore && allRefs.length > 0 ? await rawStore.resolveRefs(allRefs) : []
+  let pos = 0
+  const eventLines = resolved.slice(pos, pos += eventRefs.length)
+  const rootCauseLines = resolved.slice(pos, pos += rootCauseRefs.length)
+  const knowledgeLines = resolved.slice(pos, pos += knowledgeRefs.length)
   return uniqueLines([...eventLines, ...rootCauseLines, ...knowledgeLines, ...keywordLines]).slice(0, limit)
 }
 
@@ -201,7 +222,7 @@ function buildOfflineAnswer(question: string, context: AssistantContext, model: 
       ...context.knowledgeMatches.slice(0, 4).map((match) => ({
         title: match.title,
         source: 'knowledge_base',
-        excerpt: (match.evidenceLines[0] ? formatRawLine(match.evidenceLines[0]) : '') || match.description,
+        excerpt: match.description || match.suggestion || match.rootCause || '',
         score: match.confidence
       })),
       ...context.logExcerpts.slice(0, 4).map((line) => ({

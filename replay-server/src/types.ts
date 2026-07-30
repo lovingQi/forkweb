@@ -39,6 +39,28 @@ export interface ParsedLogLine {
   message: string
 }
 
+export interface LogLineRef {
+  globalIndex: number
+  timeMs: number
+  timestamp: string
+  file: string
+  line: number
+  module: string
+}
+
+export type IndexedLogLine = ParsedLogLine & { globalIndex: number }
+
+export interface RawLineReader {
+  getCount(): Promise<number>
+  streamLines(): AsyncGenerator<IndexedLogLine>
+  readAll(): Promise<IndexedLogLine[]>
+  readFiltered(predicate: (line: IndexedLogLine) => boolean): Promise<IndexedLogLine[]>
+  readRange(startMs: number, endMs: number): Promise<IndexedLogLine[]>
+  readSlice(start: number, end: number): Promise<IndexedLogLine[]>
+  readAroundTime(timeMs: number, count: number): Promise<IndexedLogLine[]>
+  resolveRefs(refs: LogLineRef[]): Promise<ParsedLogLine[]>
+}
+
 export interface ReplayFrame {
   timestamp: string
   timeMs: number
@@ -64,7 +86,7 @@ export interface ReplayFrame {
   vx?: number
   vy?: number
   w?: number
-  rawLine: ParsedLogLine
+  rawLine: LogLineRef
 }
 
 export interface ErrorCodeDefinition {
@@ -91,7 +113,7 @@ export interface ErrorCodeDefinition {
   sourceLine?: number
   dictionaryConfidence?: number
   raw?: Record<string, unknown>
-  firstLine?: ParsedLogLine
+  firstLine?: LogLineRef
 }
 
 export interface ErrorOccurrence {
@@ -101,7 +123,7 @@ export interface ErrorOccurrence {
   source: string
   kind: ErrorOccurrenceKind
   taskId?: string
-  line: ParsedLogLine
+  line: LogLineRef
   definition?: ErrorCodeDefinition
 }
 
@@ -110,7 +132,7 @@ export interface VehicleStateOccurrence {
   stateCode: number
   timestamp: string
   timeMs: number
-  line: ParsedLogLine
+  line: LogLineRef
 }
 
 export interface TimelineEvent {
@@ -125,9 +147,9 @@ export interface TimelineEvent {
   module?: string
   code?: string
   taskId?: string
-  line?: ParsedLogLine
-  contextBefore?: ParsedLogLine[]
-  contextAfter?: ParsedLogLine[]
+  line?: LogLineRef
+  contextBefore?: LogLineRef[]
+  contextAfter?: LogLineRef[]
 }
 
 export interface TaskSegment {
@@ -145,13 +167,13 @@ export interface TaskSegment {
   relatedEvents?: TimelineEvent[]
   failureReasonCandidates?: string[]
   routeSummary?: string
-  startEvidence?: ParsedLogLine
-  endEvidence?: ParsedLogLine
+  startEvidence?: LogLineRef
+  endEvidence?: LogLineRef
   trajectoryFrameRange?: [number, number]
-  failureLine?: ParsedLogLine
+  failureLine?: LogLineRef
   failureContextCount?: number
-  beforeFailureLines?: ParsedLogLine[]
-  afterFailureLines?: ParsedLogLine[]
+  beforeFailureLines?: LogLineRef[]
+  afterFailureLines?: LogLineRef[]
   frames: number
 }
 
@@ -161,8 +183,8 @@ export interface FoldedLogGroup {
   count: number
   firstTime: string
   lastTime: string
-  firstLine: ParsedLogLine
-  lastLine: ParsedLogLine
+  firstLine: LogLineRef
+  lastLine: LogLineRef
 }
 
 export interface MapMatchInfo {
@@ -182,7 +204,7 @@ export interface RootCauseCandidate {
   confidence: number
   severity: 'info' | 'warning' | 'error'
   evidenceEvents: TimelineEvent[]
-  evidenceLines: ParsedLogLine[]
+  evidenceLines: LogLineRef[]
   suggestion: string
   triggeredRules?: string[]
   positiveEvidence?: string[]
@@ -287,7 +309,7 @@ export interface KnowledgeMatch {
   confidence: number
   severity: 'info' | 'warning' | 'error'
   matchedPatterns: string[]
-  evidenceLines: ParsedLogLine[]
+  evidenceLines: LogLineRef[]
   suggestion: string
   description: string
   rootCause: string
@@ -298,7 +320,7 @@ export interface KnowledgeMatch {
 }
 
 export interface KnowledgeMatchContext {
-  rawLines: ParsedLogLine[]
+  rawStore: RawLineReader
   errorOccurrences: ErrorOccurrence[]
   vehicleStateOccurrences: VehicleStateOccurrence[]
 }
@@ -352,6 +374,7 @@ export interface AssistantContext {
   knowledgeMatches: KnowledgeMatch[]
   similarChunks: VectorSearchResult[]
   logExcerpts: ParsedLogLine[]
+  rawLinesPath?: string
   redaction: {
     enabled: boolean
     rules: string[]

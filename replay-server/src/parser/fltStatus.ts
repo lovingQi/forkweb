@@ -30,7 +30,7 @@ export function parseFltStatus(line: ParsedLogLine): ReplayFrame | null {
       forkHeight: numberOrUndefined(data.fork_height),
       loaded: boolOrUndefined(data.loaded),
       estop: boolOrUndefined(data.estop),
-      rawLine: line
+      rawLine: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module }
     }
   } catch {
     return null

@@ -1,5 +1,5 @@
-import type { ReplaySessionData } from '../types'
-import { formatRawLine } from './rawLogStore'
+import type { LogLineRef, ParsedLogLine, ReplaySessionData } from '../types'
+import { formatRawLine, RawLogStore } from './rawLogStore'
 import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
 
@@ -7,7 +7,18 @@ export async function buildMarkdownReportAsync(data: ReplaySessionData): Promise
   return buildMarkdownReport(data, { bookmarks: await readBookmarks(), caseMeta: await readCaseMeta() })
 }
 
-export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks?: any[]; caseMeta?: any } = {}): string {
+export async function buildMarkdownReport(
+  data: ReplaySessionData,
+  extras: { bookmarks?: any[]; caseMeta?: any; rawStore?: RawLogStore | null } = {}
+): Promise<string> {
+  const rawStore = extras.rawStore ?? (data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null)
+  const refMap = rawStore ? await resolveMarkdownRefs(rawStore, data) : new Map<number, ParsedLogLine>()
+  const formatRef = (ref?: LogLineRef): string => {
+    if (!ref) return ''
+    const line = refMap.get(ref.globalIndex)
+    return line ? formatRawLine(line) : `[ref:${ref.globalIndex}]`
+  }
+
   const o = data.overview
   const lines = [
     '# 叉车日志诊断报告',
@@ -58,8 +69,8 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
     for (const event of (cause.evidenceEvents || []).slice(0, 3)) {
       lines.push(`  - 事件证据: ${event.timestamp} ${event.title}: ${event.detail}`)
     }
-    for (const line of (cause.evidenceLines || []).slice(0, 3)) {
-      lines.push(`  - 日志证据: ${formatRawLine(line)}`)
+    for (const ref of (cause.evidenceLines || []).slice(0, 3)) {
+      lines.push(`  - 日志证据: ${formatRef(ref)}`)
     }
   }
   lines.push('', '## 知识库命中', '')
@@ -68,7 +79,7 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
   for (const match of knowledgeMatches) {
     lines.push(`- ${match.title}: 置信度 ${Math.round(match.confidence * 100)}%，处理办法: ${match.solution || match.suggestion || '-'}`)
     for (const item of match.matchedPatterns.slice(0, 8)) lines.push(`  - 命中: ${item}`)
-    for (const line of match.evidenceLines.slice(0, 5)) lines.push(`  - 证据: ${formatRawLine(line)}`)
+    for (const ref of match.evidenceLines.slice(0, 5)) lines.push(`  - 证据: ${formatRef(ref)}`)
   }
   lines.push('', '## 地图匹配', '')
   lines.push(`- 策略: ${matchLabel(o.mapMatch.matchStrategy)}`)
@@ -118,7 +129,25 @@ export function buildMarkdownReport(data: ReplaySessionData, extras: { bookmarks
   return `${lines.join('\n')}\n`
 }
 
-export function buildJsonReport(data: ReplaySessionData): unknown {
+export async function buildJsonReport(data: ReplaySessionData): Promise<unknown> {
+  const rawStore = data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null
+  const resolved = rawStore ? await resolveJsonRefs(rawStore, data) : new Map<number, ParsedLogLine>()
+
+  const resolveLine = (ref?: LogLineRef): ParsedLogLine | undefined => {
+    if (!ref) return undefined
+    return resolved.get(ref.globalIndex)
+  }
+  const resolveLines = (refs?: LogLineRef[]): ParsedLogLine[] => {
+    if (!refs) return []
+    return refs.map((ref) => resolved.get(ref.globalIndex)).filter(Boolean) as ParsedLogLine[]
+  }
+  const resolveEvent = (event: any) => ({
+    ...event,
+    line: event.line ? resolveLine(event.line) : undefined,
+    contextBefore: event.contextBefore ? resolveLines(event.contextBefore) : undefined,
+    contextAfter: event.contextAfter ? resolveLines(event.contextAfter) : undefined
+  })
+
   return {
     overview: data.overview,
     diagnosticFiles: {
@@ -128,8 +157,15 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     },
     topIssues: data.overview.topIssues,
     mapMatch: data.overview.mapMatch,
-    rootCauses: data.overview.rootCauses,
-    knowledgeMatches: data.knowledgeMatches || [],
+    rootCauses: data.overview.rootCauses.map((cause) => ({
+      ...cause,
+      evidenceEvents: cause.evidenceEvents.map(resolveEvent),
+      evidenceLines: resolveLines(cause.evidenceLines)
+    })),
+    knowledgeMatches: (data.knowledgeMatches || []).map((match) => ({
+      ...match,
+      evidenceLines: resolveLines(match.evidenceLines)
+    })),
     assistant: data.assistant || {},
     similarCases: data.assistant?.similarCases || [],
     parseStats: data.overview.parseStats,
@@ -137,15 +173,30 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
     evidenceSnippets: data.overview.rootCauses.map((cause) => ({
       id: cause.id,
       title: cause.title,
-      events: cause.evidenceEvents.slice(0, 5),
-      lines: cause.evidenceLines.slice(0, 5)
+      events: cause.evidenceEvents.slice(0, 5).map(resolveEvent),
+      lines: resolveLines(cause.evidenceLines.slice(0, 5))
     })),
     dataWarnings: data.overview.dataWarnings,
     errorCodes: data.errorDefinitions,
-    errorOccurrences: data.errorOccurrences,
-    realErrorOccurrences: data.errorOccurrences.filter((it) => it.kind === 'real_fault'),
-    configNotices: data.errorOccurrences.filter((it) => it.kind === 'config_notice'),
-    tasks: data.tasks,
+    errorOccurrences: data.errorOccurrences.map((occ) => ({
+      ...occ,
+      line: resolveLine(occ.line)
+    })),
+    realErrorOccurrences: data.errorOccurrences
+      .filter((it) => it.kind === 'real_fault')
+      .map((occ) => ({ ...occ, line: resolveLine(occ.line) })),
+    configNotices: data.errorOccurrences
+      .filter((it) => it.kind === 'config_notice')
+      .map((occ) => ({ ...occ, line: resolveLine(occ.line) })),
+    tasks: data.tasks.map((task) => ({
+      ...task,
+      startEvidence: resolveLine(task.startEvidence),
+      endEvidence: resolveLine(task.endEvidence),
+      failureLine: resolveLine(task.failureLine),
+      beforeFailureLines: resolveLines(task.beforeFailureLines),
+      afterFailureLines: resolveLines(task.afterFailureLines),
+      relatedEvents: (task.relatedEvents || []).map(resolveEvent)
+    })),
     taskSummary: data.tasks.map((task) => ({
       id: task.id,
       startTime: task.startTime,
@@ -155,9 +206,65 @@ export function buildJsonReport(data: ReplaySessionData): unknown {
       errors: task.errors,
       failureReasonCandidates: task.failureReasonCandidates
     })),
-    keyTimeline: data.events.filter((it) => it.level === 'error' || it.level === 'warning').slice(0, 100),
+    keyTimeline: data.events
+      .filter((it) => it.level === 'error' || it.level === 'warning')
+      .slice(0, 100)
+      .map(resolveEvent),
     foldedLogs: data.foldedLogs
   }
+}
+
+async function resolveMarkdownRefs(rawStore: RawLogStore, data: ReplaySessionData): Promise<Map<number, ParsedLogLine>> {
+  const refs: LogLineRef[] = []
+  const add = (ref?: LogLineRef) => { if (ref) refs.push(ref) }
+  const addAll = (refsArray?: LogLineRef[]) => { if (refsArray) refs.push(...refsArray) }
+  for (const cause of data.overview.rootCauses) addAll(cause.evidenceLines)
+  for (const match of data.knowledgeMatches || []) addAll(match.evidenceLines)
+  return resolveRefMap(rawStore, refs)
+}
+
+async function resolveJsonRefs(rawStore: RawLogStore, data: ReplaySessionData): Promise<Map<number, ParsedLogLine>> {
+  const refs: LogLineRef[] = []
+  const add = (ref?: LogLineRef) => { if (ref) refs.push(ref) }
+  const addAll = (refsArray?: LogLineRef[]) => { if (refsArray) refs.push(...refsArray) }
+  for (const event of data.events) {
+    add(event.line)
+    addAll(event.contextBefore)
+    addAll(event.contextAfter)
+  }
+  for (const cause of data.overview.rootCauses) {
+    for (const event of cause.evidenceEvents) {
+      add(event.line)
+      addAll(event.contextBefore)
+      addAll(event.contextAfter)
+    }
+    addAll(cause.evidenceLines)
+  }
+  for (const match of data.knowledgeMatches || []) addAll(match.evidenceLines)
+  for (const occ of data.errorOccurrences) add(occ.line)
+  for (const task of data.tasks) {
+    add(task.startEvidence)
+    add(task.endEvidence)
+    add(task.failureLine)
+    addAll(task.beforeFailureLines)
+    addAll(task.afterFailureLines)
+    for (const event of task.relatedEvents || []) {
+      add(event.line)
+      addAll(event.contextBefore)
+      addAll(event.contextAfter)
+    }
+  }
+  for (const group of data.foldedLogs) {
+    add(group.firstLine)
+    add(group.lastLine)
+  }
+  return resolveRefMap(rawStore, refs)
+}
+
+async function resolveRefMap(rawStore: RawLogStore, refs: LogLineRef[]): Promise<Map<number, ParsedLogLine>> {
+  if (refs.length === 0) return new Map()
+  const lines = await rawStore.resolveRefs(refs)
+  return new Map(lines.map((line, i) => [refs[i].globalIndex, line]))
 }
 
 function formatErrorOccurrence(occurrence: ReplaySessionData['errorOccurrences'][number]): string {

@@ -1,4 +1,4 @@
-import type { AssistantContext, ParsedLogLine } from '../types'
+import type { AssistantContext, LogLineRef, ParsedLogLine, RawLineReader } from '../types'
 import type { LlmConfig } from './llmConfig'
 
 export function redactText(text: string, options: LlmConfig['redaction']): string {
@@ -6,8 +6,8 @@ export function redactText(text: string, options: LlmConfig['redaction']): strin
   let result = text
   if (options.redactPaths) {
     result = result
-      .replace(/\/(?:home|root|opt|var|tmp|mnt|media)\/[^\s'",，。；;]+/g, '[PATH]')
-      .replace(/[A-Za-z]:\\[^\s'",，。；;]+/g, '[PATH]')
+      .replace(/\/(?:home|root|opt|var|tmp|mnt|media)\/[^\s'"，。；;]+/g, '[PATH]')
+      .replace(/[A-Za-z]:\\[^\s'"，。；;]+/g, '[PATH]')
   }
   if (options.redactIp) {
     result = result.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP]')
@@ -29,19 +29,30 @@ export function redactLogLine(line: ParsedLogLine, options: LlmConfig['redaction
   }
 }
 
-export function redactAssistantContext(context: AssistantContext, options: LlmConfig['redaction']): AssistantContext {
+export async function redactAssistantContext(context: AssistantContext, options: LlmConfig['redaction'], rawStore?: RawLineReader | null): Promise<AssistantContext> {
   if (!options.enabled) return context
+  const evidenceRefMap = rawStore ? await resolveRefMap(rawStore, collectEvidenceRefs(context)) : new Map<number, ParsedLogLine>()
+  const redactRef = (ref: LogLineRef): LogLineRef => {
+    const line = evidenceRefMap.get(ref.globalIndex)
+    if (!line) return ref
+    const redacted = redactLogLine(line, options)
+    return {
+      ...ref,
+      file: redacted.file,
+      module: redacted.module
+    }
+  }
   return {
     ...context,
     overview: redactObject(context.overview, options) as AssistantContext['overview'],
     logExcerpts: context.logExcerpts.map((line) => redactLogLine(line, options)),
     rootCauses: context.rootCauses.map((cause) => ({
       ...cause,
-      evidenceLines: cause.evidenceLines.map((line) => redactLogLine(line, options))
+      evidenceLines: cause.evidenceLines.map(redactRef)
     })),
     knowledgeMatches: context.knowledgeMatches.map((match) => ({
       ...match,
-      evidenceLines: match.evidenceLines.map((line) => redactLogLine(line, options))
+      evidenceLines: match.evidenceLines.map(redactRef)
     })),
     similarChunks: context.similarChunks.map((result) => ({
       ...result,
@@ -62,6 +73,19 @@ export function redactAssistantContext(context: AssistantContext, options: LlmCo
       ].filter(Boolean)
     }
   }
+}
+
+function collectEvidenceRefs(context: AssistantContext): LogLineRef[] {
+  const refs: LogLineRef[] = []
+  for (const cause of context.rootCauses) refs.push(...cause.evidenceLines)
+  for (const match of context.knowledgeMatches) refs.push(...match.evidenceLines)
+  return refs
+}
+
+async function resolveRefMap(rawStore: RawLineReader, refs: LogLineRef[]): Promise<Map<number, ParsedLogLine>> {
+  if (refs.length === 0) return new Map()
+  const resolved = await rawStore.resolveRefs(refs)
+  return new Map(resolved.map((line, i) => [refs[i].globalIndex, line]))
 }
 
 function redactObject(value: unknown, options: LlmConfig['redaction']): unknown {

@@ -108,7 +108,7 @@ export async function exportDiagnosticPackage(data: ReplaySessionData, options: 
   const assistantFile = 'config/assistant-snapshot.json'
   if (includeReports) {
     await fs.writeFile(path.join(rootDir, reportMarkdown), await buildMarkdownReportAsync(data), 'utf8')
-    await fs.writeFile(path.join(rootDir, reportJson), `${JSON.stringify(buildJsonReport(data), null, 2)}\n`, 'utf8')
+    await fs.writeFile(path.join(rootDir, reportJson), `${JSON.stringify(await buildJsonReport(data), null, 2)}\n`, 'utf8')
   }
   if (includeAliases) await fs.writeFile(path.join(rootDir, mapAliasesFile), `${JSON.stringify(exportMapAliasesPayload(await readMapAliases()), null, 2)}\n`, 'utf8')
   if (includeFeedback) await fs.writeFile(path.join(rootDir, rootCauseFeedbackFile), `${JSON.stringify(await readRootCauseFeedback(), null, 2)}\n`, 'utf8')

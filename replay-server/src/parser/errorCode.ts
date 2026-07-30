@@ -21,11 +21,11 @@ export function parseErrorDefinition(line: ParsedLogLine): ErrorCodeDefinition |
         source: 'log',
         dictionaryConfidence: 1,
         raw,
-        firstLine: line
+        firstLine: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module }
       }, 'log_definition', '日志中包含完整 error_name,error_str 定义')
     }
   } catch {
-    return enrichDictionarySource({ code: m[1], source: 'log', dictionaryConfidence: 0.6, firstLine: line }, 'log_definition', '日志定义存在但 JSON 解析失败')
+    return enrichDictionarySource({ code: m[1], source: 'log', dictionaryConfidence: 0.6, firstLine: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module } }, 'log_definition', '日志定义存在但 JSON 解析失败')
   }
 }
 
@@ -48,7 +48,7 @@ export function parseErrorOccurrences(
       source: classifySource(line.message),
       kind: classifyKind(line.message),
       taskId,
-      line,
+      line: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module },
       definition: definitions.get(code)
     })
   }

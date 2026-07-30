@@ -28,6 +28,6 @@ export function parseVehicleState(line: ParsedLogLine): VehicleStateOccurrence |
     stateCode,
     timestamp: line.timestamp,
     timeMs: line.timeMs,
-    line
+    line: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module }
   }
 }

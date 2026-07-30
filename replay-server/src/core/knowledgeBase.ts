@@ -3,6 +3,7 @@ import path from 'path'
 import { readJsonStore, writeJsonStore } from '../db/jsonStore'
 import { sendWechatWorkNotification } from '../notify/wechatWork'
 import type {
+  IndexedLogLine,
   KnowledgeEvidencePattern,
   KnowledgeLibrary,
   KnowledgeMatch,
@@ -10,6 +11,7 @@ import type {
   KnowledgePatternSuggestion,
   KnowledgeRule,
   LogLevel,
+  LogLineRef,
   ParsedLogLine,
   PublicationStatus,
   RootCauseCandidate,
@@ -304,17 +306,29 @@ export async function matchKnowledgeRules(context: KnowledgeMatchContext, logDir
       return ids.length === 0 || ids.includes(vehicleCategoryId)
     })
   }
-  if (enabledRules.length === 0 || context.rawLines.length === 0) return []
+  const rawLines = await context.rawStore.readAll()
+  if (enabledRules.length === 0 || rawLines.length === 0) return []
+  const arrayContext: KnowledgeArrayContext = {
+    rawLines,
+    errorOccurrences: context.errorOccurrences,
+    vehicleStateOccurrences: context.vehicleStateOccurrences
+  }
 
-  const candidateRules = preFilterRules(enabledRules, context)
+  const candidateRules = preFilterRules(enabledRules, arrayContext)
   const matches = candidateRules
-    .map((rule) => matchKnowledgeRule(rule, context))
+    .map((rule) => matchKnowledgeRule(rule, arrayContext))
     .filter(Boolean) as KnowledgeMatch[]
   if (matches.length > 0) await recordKnowledgeHits(matches, logDir)
   return matches.sort((a, b) => severityScore(b.severity) - severityScore(a.severity) || b.confidence - a.confidence)
 }
 
-function preFilterRules(rules: KnowledgeRule[], context: KnowledgeMatchContext): KnowledgeRule[] {
+interface KnowledgeArrayContext {
+  rawLines: IndexedLogLine[]
+  errorOccurrences: KnowledgeMatchContext['errorOccurrences']
+  vehicleStateOccurrences: KnowledgeMatchContext['vehicleStateOccurrences']
+}
+
+function preFilterRules(rules: KnowledgeRule[], context: KnowledgeArrayContext): KnowledgeRule[] {
   return rules.filter((rule) => {
     const p = normalizeRule(rule).pattern
     const regexes = compileRequiredLineRegexes(p.requiredLineRegexes)
@@ -326,7 +340,7 @@ function preFilterRules(rules: KnowledgeRule[], context: KnowledgeMatchContext):
   })
 }
 
-export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeMatchContext | ParsedLogLine[]): KnowledgeMatch | null {
+export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeArrayContext | ParsedLogLine[]): KnowledgeMatch | null {
   const normalized = normalizeRule(rule)
   const context = normalizeMatchContext(input)
   const rawLines = context.rawLines
@@ -338,7 +352,7 @@ export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeMatchCon
     : candidateLines.filter((line) => lineMatchesTextCore(line, normalized.pattern))
   if (anchorLines.length === 0) return null
   const windows = buildCandidateWindows(candidateLines, anchorLines, normalized.pattern.windowSeconds || 0)
-  let best: { lines: ParsedLogLine[]; matchedPatterns: string[]; confidence: number } | null = null
+  let best: { lines: IndexedLogLine[]; matchedPatterns: string[]; confidence: number } | null = null
   for (const windowLines of windows) {
     const evidence = hasStructuredCore(normalized.pattern)
       ? structuredEvidence.filter((line) => windowLines.some((windowLine) => sameLine(windowLine, line)))
@@ -361,7 +375,7 @@ export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeMatchCon
     confidence: best.confidence,
     severity: normalized.severity,
     matchedPatterns: Array.from(new Set(best.matchedPatterns)),
-    evidenceLines: best.lines,
+    evidenceLines: best.lines.map(toRef),
     suggestion: normalized.solution,
     description: normalized.description,
     rootCause: normalized.rootCause,
@@ -369,6 +383,17 @@ export function matchKnowledgeRule(rule: KnowledgeRule, input: KnowledgeMatchCon
     tags: normalized.tags,
     scope: normalized.scope,
     ruleSnapshot: normalized
+  }
+}
+
+function toRef(line: IndexedLogLine): LogLineRef {
+  return {
+    globalIndex: line.globalIndex,
+    timeMs: line.timeMs,
+    timestamp: line.timestamp,
+    file: line.file,
+    line: line.line,
+    module: line.module
   }
 }
 
@@ -412,15 +437,15 @@ async function recordKnowledgeHits(matches: KnowledgeMatch[], logDir: string) {
   await writeKnowledgeHits(hitsData)
 }
 
-function requiredKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
+function requiredKeywordsMatched(lines: IndexedLogLine[], keywords: string[]) {
   return keywords.every((keyword) => lines.some((line) => matchesKeyword(line.message, keyword)))
 }
 
-function anyKeywordsMatched(lines: ParsedLogLine[], keywords: string[]) {
+function anyKeywordsMatched(lines: IndexedLogLine[], keywords: string[]) {
   return keywords.length === 0 || keywords.some((keyword) => lines.some((line) => matchesKeyword(line.message, keyword)))
 }
 
-function errorCodesMatched(lines: ParsedLogLine[], errorCodes: string[]) {
+function errorCodesMatched(lines: IndexedLogLine[], errorCodes: string[]) {
   return errorCodes.length === 0 || errorCodes.some((code) => lines.some((line) => matchesKeyword(line.message, code)))
 }
 
@@ -430,10 +455,10 @@ function hasExcludedKeyword(line: ParsedLogLine, keywords: string[]) {
 
 function collectMatchedPatterns(
   pattern: KnowledgeEvidencePattern,
-  lines: ParsedLogLine[],
-  evidence: ParsedLogLine[],
+  lines: IndexedLogLine[],
+  evidence: IndexedLogLine[],
   requiredRegexes: RegExp[],
-  context: KnowledgeMatchContext
+  context: KnowledgeArrayContext
 ): string[] {
   const matched = new Set<string>()
   for (let i = 0; i < requiredRegexes.length; i++) {
@@ -496,7 +521,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function calculateConfidence(pattern: KnowledgeEvidencePattern, lines: ParsedLogLine[], matchedPatterns: string[]) {
+function calculateConfidence(pattern: KnowledgeEvidencePattern, lines: IndexedLogLine[], matchedPatterns: string[]) {
   let confidence = pattern.confidenceBase ?? 0.6
   const appliedWeights = new Set<string>()
   for (const weight of pattern.confidenceWeights || []) {
@@ -520,7 +545,7 @@ function calculateConfidence(pattern: KnowledgeEvidencePattern, lines: ParsedLog
   return Math.max(0.05, Math.min(0.98, confidence))
 }
 
-function* iterateWindows(lines: ParsedLogLine[], windowSeconds: number): Generator<ParsedLogLine[]> {
+function* iterateWindows(lines: IndexedLogLine[], windowSeconds: number): Generator<IndexedLogLine[]> {
   if (!windowSeconds || windowSeconds <= 0 || lines.length <= 1) {
     yield lines
     return
@@ -553,32 +578,32 @@ function hasStructuredCore(pattern: KnowledgeEvidencePattern): boolean {
 
 function collectStructuredEvidence(
   pattern: KnowledgeEvidencePattern,
-  context: KnowledgeMatchContext,
+  context: KnowledgeArrayContext,
   regexes: RegExp[]
-): ParsedLogLine[] {
-  const groups: ParsedLogLine[][] = []
+): IndexedLogLine[] {
+  const groups: IndexedLogLine[][] = []
   if (regexes.length > 0) groups.push(context.rawLines.filter((line) => matchesAnyRegex(line.message, regexes)))
   if (pattern.errorCodes.length > 0) {
     groups.push(context.errorOccurrences
       .filter((item) => item.kind === 'real_fault' && pattern.errorCodes.includes(item.code))
-      .map((item) => item.line))
+      .map((item) => item.line as IndexedLogLine))
   }
   if (pattern.requiredVehicleStates.length > 0) {
     groups.push(context.vehicleStateOccurrences
       .filter((item) => pattern.requiredVehicleStates.includes(item.state))
-      .map((item) => item.line))
+      .map((item) => item.line as IndexedLogLine))
   }
   if (groups.some((group) => group.length === 0)) return []
   return uniqueLines(groups.flat()).sort((a, b) => a.timeMs - b.timeMs || a.line - b.line)
 }
 
-function normalizeMatchContext(input: KnowledgeMatchContext | ParsedLogLine[]): KnowledgeMatchContext {
+function normalizeMatchContext(input: KnowledgeArrayContext | ParsedLogLine[]): KnowledgeArrayContext {
   return Array.isArray(input)
-    ? { rawLines: input, errorOccurrences: [], vehicleStateOccurrences: [] }
+    ? { rawLines: input as IndexedLogLine[], errorOccurrences: [], vehicleStateOccurrences: [] }
     : input
 }
 
-function uniqueLines(lines: ParsedLogLine[]): ParsedLogLine[] {
+function uniqueLines(lines: IndexedLogLine[]): IndexedLogLine[] {
   const seen = new Set<string>()
   return lines.filter((line) => {
     const key = `${line.file}:${line.line}`
@@ -588,16 +613,16 @@ function uniqueLines(lines: ParsedLogLine[]): ParsedLogLine[] {
   })
 }
 
-function sameLine(a: ParsedLogLine, b: ParsedLogLine): boolean {
+function sameLine(a: IndexedLogLine, b: IndexedLogLine): boolean {
   return a.file === b.file && a.line === b.line
 }
 
-function lineMatchesTextCore(line: ParsedLogLine, pattern: KnowledgeEvidencePattern): boolean {
+function lineMatchesTextCore(line: IndexedLogLine, pattern: KnowledgeEvidencePattern): boolean {
   return [...pattern.requiredKeywords, ...pattern.anyKeywords, ...pattern.errorCodes]
     .some((value) => matchesKeyword(line.message, value))
 }
 
-function buildCandidateWindows(lines: ParsedLogLine[], anchors: ParsedLogLine[], windowSeconds: number): ParsedLogLine[][] {
+function buildCandidateWindows(lines: IndexedLogLine[], anchors: IndexedLogLine[], windowSeconds: number): IndexedLogLine[][] {
   if (lines.length === 0) return []
   if (anchors.length === 0) return patternIsLooseFallback(lines, windowSeconds)
   if (!windowSeconds || windowSeconds <= 0) return [anchors]
@@ -619,7 +644,7 @@ function buildCandidateWindows(lines: ParsedLogLine[], anchors: ParsedLogLine[],
   return ranges.map(([l, r]) => lines.slice(l, r))
 }
 
-function patternIsLooseFallback(lines: ParsedLogLine[], windowSeconds: number): ParsedLogLine[][] {
+function patternIsLooseFallback(lines: IndexedLogLine[], windowSeconds: number): IndexedLogLine[][] {
   if (!windowSeconds || windowSeconds <= 0) return [lines]
   return [lines.slice(0, MAX_EVIDENCE_LINES)]
 }

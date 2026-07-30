@@ -1,6 +1,7 @@
 import type {
   KnowledgeMatch,
   KnowledgeRule,
+  RawLineReader,
   ReplayCaseMeta,
   ReplaySessionData,
   VectorDocumentChunk,
@@ -38,6 +39,14 @@ export function buildKnowledgeRuleChunks(rules: KnowledgeRule[]): VectorDocument
   }))
 }
 
+async function resolveEvidenceMessages(evidenceLines: { globalIndex: number }[], rawStore?: RawLineReader | null): Promise<string[]> {
+  if (!rawStore || evidenceLines.length === 0) return []
+  const refs = evidenceLines.filter((ref) => ref.globalIndex >= 0)
+  if (refs.length === 0) return []
+  const resolved = await rawStore.resolveRefs(refs as any)
+  return resolved.map((line) => line?.message || '')
+}
+
 export function buildCaseMetaChunks(caseMeta: ReplayCaseMeta): VectorDocumentChunk[] {
   if (!caseMeta || Object.keys(caseMeta).length === 0) return []
   const title = caseMeta.confirmedRootCause || caseMeta.note || '人工诊断结论'
@@ -60,55 +69,61 @@ export function buildCaseMetaChunks(caseMeta: ReplayCaseMeta): VectorDocumentChu
   })]
 }
 
-export function buildCurrentSessionChunks(data: ReplaySessionData): VectorDocumentChunk[] {
+export async function buildCurrentSessionChunks(data: ReplaySessionData, rawStore?: RawLineReader | null): Promise<VectorDocumentChunk[]> {
   return [
-    ...buildKnowledgeMatchChunks(data.knowledgeMatches || []),
-    ...data.overview.rootCauses.slice(0, 8).map((cause) => makeChunk({
-      id: `root-cause:${cause.id}`,
-      sourceType: 'knowledge_match',
-      sourceId: cause.id,
-      title: cause.title,
-      tags: [cause.severity, cause.source || 'built_in'],
-      text: [
-        `根因候选: ${cause.title}`,
-        `建议: ${cause.suggestion}`,
-        `来源: ${cause.source || 'built_in'}`,
-        `正向证据: ${(cause.positiveEvidence || []).join('; ')}`,
-        ...cause.evidenceLines.slice(0, 8).map((line) => `证据: ${line.message}`)
-      ].filter(Boolean).join('\n'),
-      metadata: {
-        confidence: cause.confidence,
-        severity: cause.severity,
-        solution: cause.suggestion,
-        evidence: cause.evidenceLines.slice(0, 5).map((line) => line.message)
-      },
-      updatedAt: new Date().toISOString()
-    }))
+    ...(await buildKnowledgeMatchChunks(data.knowledgeMatches || [], rawStore)),
+    ...(await Promise.all(data.overview.rootCauses.slice(0, 8).map(async (cause) => {
+      const evidenceMessages = await resolveEvidenceMessages(cause.evidenceLines, rawStore)
+      return makeChunk({
+        id: `root-cause:${cause.id}`,
+        sourceType: 'knowledge_match',
+        sourceId: cause.id,
+        title: cause.title,
+        tags: [cause.severity, cause.source || 'built_in'],
+        text: [
+          `根因候选: ${cause.title}`,
+          `建议: ${cause.suggestion}`,
+          `来源: ${cause.source || 'built_in'}`,
+          `正向证据: ${(cause.positiveEvidence || []).join('; ')}`,
+          ...evidenceMessages.slice(0, 8).map((message) => `证据: ${message}`)
+        ].filter(Boolean).join('\n'),
+        metadata: {
+          confidence: cause.confidence,
+          severity: cause.severity,
+          solution: cause.suggestion,
+          evidence: evidenceMessages.slice(0, 5)
+        },
+        updatedAt: new Date().toISOString()
+      })
+    })))
   ]
 }
 
-export function buildKnowledgeMatchChunks(matches: KnowledgeMatch[]): VectorDocumentChunk[] {
-  return matches.map((match) => makeChunk({
-    id: `knowledge-match:${match.ruleId}`,
-    sourceType: 'knowledge_match',
-    sourceId: match.ruleId,
-    title: match.title,
-    tags: match.tags,
-    text: [
-      `知识命中: ${match.title}`,
-      `描述: ${match.description}`,
-      `根因: ${match.rootCause}`,
-      `处理办法: ${match.solution}`,
-      `命中条件: ${match.matchedPatterns.join(', ')}`,
-      ...match.evidenceLines.slice(0, 12).map((line) => `证据: ${line.message}`)
-    ].filter(Boolean).join('\n'),
-    metadata: {
-      confidence: match.confidence,
-      severity: match.severity,
-      solution: match.solution,
-      evidence: match.evidenceLines.slice(0, 5).map((line) => line.message)
-    },
-    updatedAt: new Date().toISOString()
+export async function buildKnowledgeMatchChunks(matches: KnowledgeMatch[], rawStore?: RawLineReader | null): Promise<VectorDocumentChunk[]> {
+  return Promise.all(matches.map(async (match) => {
+    const evidenceMessages = await resolveEvidenceMessages(match.evidenceLines, rawStore)
+    return makeChunk({
+      id: `knowledge-match:${match.ruleId}`,
+      sourceType: 'knowledge_match',
+      sourceId: match.ruleId,
+      title: match.title,
+      tags: match.tags,
+      text: [
+        `知识命中: ${match.title}`,
+        `描述: ${match.description}`,
+        `根因: ${match.rootCause}`,
+        `处理办法: ${match.solution}`,
+        `命中条件: ${match.matchedPatterns.join(', ')}`,
+        ...evidenceMessages.slice(0, 12).map((message) => `证据: ${message}`)
+      ].filter(Boolean).join('\n'),
+      metadata: {
+        confidence: match.confidence,
+        severity: match.severity,
+        solution: match.solution,
+        evidence: evidenceMessages.slice(0, 5)
+      },
+      updatedAt: new Date().toISOString()
+    })
   }))
 }
 

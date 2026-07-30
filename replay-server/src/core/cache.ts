@@ -5,7 +5,7 @@ import { CACHE_DIR } from '../paths'
 import { RAW_LINES_PREFIX } from './rawLogStore'
 import type { ReplaySessionData } from '../types'
 
-const CACHE_VERSION = 4
+const CACHE_VERSION = 5
 const CACHE_ROOT_DIR = CACHE_DIR
 const DEFAULT_MAX_AGE_DAYS = 14
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024

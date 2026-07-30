@@ -1,17 +1,20 @@
 import fs from 'fs/promises'
-import { createReadStream } from 'fs'
 import path from 'path'
-import { createInterface } from 'readline'
 import type {
   ErrorCodeDefinition,
   ErrorOccurrence,
   ErrorCodeSummary,
+  LogLineRef,
   MapMatchInfo,
   OverviewSummary,
   ParsedLogLine,
+  RawLineReader,
   ReplayControlState,
   ReplayFrame,
   ReplaySessionData,
+  RootCauseCandidate,
+  TaskSegment,
+  TimelineEvent,
   VehicleStateOccurrence
 } from '../types'
 import { buildCacheKey, cleanupReplayCache, readSessionCache, writeSessionCache } from './cache'
@@ -20,7 +23,6 @@ import { loadManualErrorDictionary, loadSourceErrorDictionary } from './errorDic
 import { parseErrorDefinition, parseErrorOccurrences } from '../parser/errorCode'
 import { parseFltStatus } from '../parser/fltStatus'
 import { parseInfoStatus } from '../parser/infoStatus'
-import { parseLogLine, sortLogLines } from '../parser/logLine'
 import { parseVehicleState } from '../parser/vehicleState'
 import { buildTaskSegments } from '../parser/task'
 import { foldNoise } from './noise'
@@ -131,6 +133,7 @@ export class ReplaySession {
     const files = await findLogFiles(input.logDir)
     const knowledgeFingerprint = await getKnowledgeLibraryFingerprint()
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile, knowledgeFingerprint })
+    const rawLinesPath = rawLinesFilePath(cacheKey)
     if (!input.forceReload) {
       await step('检查缓存', 8)
       const cached = await readSessionCache(cacheKey)
@@ -155,38 +158,11 @@ export class ReplaySession {
     }
     await step('读取日志文件', 10)
     const parseStart = Date.now()
-    const indexed = await readLogFilesWithIndex(files)
-    const rawLines = indexed.rawLines
+    const { rawStore, frames, definitions: fileDefinitions, occurrences: fileOccurrences, vehicleStateOccurrences, cacheHits, robotName, version, branch } = await readLogFilesWithIndex(files, rawLinesPath)
 
     await step('解析日志行', 25)
     const definitions = new Map<string, ErrorCodeDefinition>()
-    const frames: ReplayFrame[] = []
-    const vehicleStateOccurrences: VehicleStateOccurrence[] = []
-    let currentTaskId = ''
-    let robotName = ''
-    let version = ''
-    let branch = ''
-
-    for (const def of indexed.definitions) definitions.set(def.code, def)
-    for (const line of rawLines) {
-      const def = parseErrorDefinition(line)
-      if (def && shouldReplaceDefinition(definitions.get(def.code), def)) definitions.set(def.code, def)
-      const vehicleState = parseVehicleState(line)
-      if (vehicleState) vehicleStateOccurrences.push(vehicleState)
-      const flt = parseFltStatus(line)
-      const info = parseInfoStatus(line)
-      const frame = flt || info
-      if (frame) {
-        if (frame.currentTaskId) currentTaskId = frame.currentTaskId
-        if (frame.name) robotName = frame.name
-        frames.push(frame)
-      }
-      if (line.message.includes('compile data:')) {
-        version = line.message
-        const branchMatch = line.message.match(/\[branch\]:\s*(.*)$/)
-        branch = branchMatch ? branchMatch[1] : ''
-      }
-    }
+    for (const def of fileDefinitions) definitions.set(def.code, def)
 
     await step('加载错误码字典', 35)
     const sourceDefinitions = await loadSourceErrorDictionary()
@@ -200,47 +176,52 @@ export class ReplaySession {
 
     await step('构建事件和任务', 45)
     const mergedFrames = mergeFrames(frames)
-    const occurrences: ErrorOccurrence[] = [...indexed.occurrences]
-    for (const line of rawLines) {
+    const occurrences: ErrorOccurrence[] = [...fileOccurrences]
+    let currentTaskId = ''
+    for await (const line of rawStore.streamLines()) {
+      const frame = parseFltStatus(line) || parseInfoStatus(line)
+      if (frame?.currentTaskId) currentTaskId = frame.currentTaskId
       occurrences.push(...parseErrorOccurrences(line, definitions, currentTaskId))
     }
-    for (const frame of mergedFrames) {
-      if (frame.errors) {
-        occurrences.push(...parseErrorOccurrences(frame.rawLine, definitions, frame.currentTaskId))
+    if (mergedFrames.length > 0) {
+      const frameLines = await rawStore.resolveRefs(mergedFrames.map((f) => f.rawLine))
+      for (let i = 0; i < mergedFrames.length; i++) {
+        const frame = mergedFrames[i]
+        if (frame.errors) {
+          occurrences.push(...parseErrorOccurrences(frameLines[i], definitions, frame.currentTaskId))
+        }
       }
     }
-    let events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
-    let tasks = buildTaskSegments(mergedFrames, rawLines, events)
+    const events = await buildTimelineEvents(rawStore, mergedFrames, occurrences)
+    const tasks = await buildTaskSegments(mergedFrames, rawStore, events)
     assignOccurrenceTaskIds(occurrences, tasks)
-    events = withContext(buildTimelineEvents(rawLines, mergedFrames, occurrences), rawLines)
-    tasks = buildTaskSegments(mergedFrames, rawLines, events)
 
     await step('加载地图', 60)
     const mapStart = Date.now()
-    const map = await loadMap(input.mapDir, input.mapFile, rawLines, mergedFrames, robotName)
+    const map = await loadMap(input.mapDir, input.mapFile, rawStore, mergedFrames, robotName)
     const mapLoadMs = Date.now() - mapStart
 
     await step('知识库匹配', 70)
     const knowledgeMatches = await matchKnowledgeRules({
-      rawLines,
+      rawStore,
       errorOccurrences: occurrences,
       vehicleStateOccurrences
     }, input.logDir)
 
     await step('构建根因分析', 80)
-    const rootCauses = buildRootCauses({
+    const rootCauses = await buildRootCauses({
       events,
       frames: mergedFrames,
       occurrences,
       tasks,
-      rawLines,
+      rawStore,
       mapMatch: map.match
     }, knowledgeMatches)
     const errorSummaries = buildErrorSummaries(occurrences)
-    const overview = buildOverview({
+    const overview = await buildOverview({
       input,
       files,
-      rawLines,
+      rawStore,
       frames: mergedFrames,
       definitions,
       occurrences,
@@ -260,7 +241,7 @@ export class ReplaySession {
       mapLoadMs,
       totalMs: Date.now() - loadStart,
       cacheHit: false,
-      source: indexed.cacheHits > 0 ? `log_index:${indexed.cacheHits}/${files.length}` : 'full_parse',
+      source: cacheHits > 0 ? `log_index:${cacheHits}/${files.length}` : 'full_parse',
       stageTimings: timings
     }
     this.data = {
@@ -273,8 +254,9 @@ export class ReplaySession {
       vehicleStateOccurrences,
       errorSummaries,
       tasks,
-      foldedLogs: foldNoise(rawLines),
-      rawLines,
+      foldedLogs: await foldNoise(rawStore),
+      rawLines: [],
+      rawLinesPath: rawStore.filePath,
       bookmarks: await readBookmarks(),
       caseMeta: await readCaseMeta(),
       knowledgeMatches
@@ -282,17 +264,6 @@ export class ReplaySession {
     this.control.currentMs = mergedFrames[0]?.timeMs || 0
     this.control.currentFrameIndex = 0
     this.control.playing = false
-
-    // 把原始日志行持久化到磁盘，避免会话缓存和报告 JSON 序列化时 OOM
-    const rawLinesPath = rawLinesFilePath(cacheKey)
-    try {
-      const store = await RawLogStore.create(rawLines, rawLinesPath)
-      this.data.rawLines = []
-      this.data.rawLinesPath = store.filePath
-    } catch (e) {
-      console.error('[session] rawLines 持久化失败:', e)
-      overview.dataWarnings.push('原始日志行缓存写入失败，后续大日志查询可能受限。')
-    }
 
     const cacheWritten = await writeSessionCache(cacheKey, this.data)
     if (!cacheWritten) overview.dataWarnings.push('会话数据过大或缓存写入失败，本次分析结果未写入会话缓存。')
@@ -356,103 +327,128 @@ async function findLogFiles(logDir: string): Promise<string[]> {
     .sort()
 }
 
-async function readLogFiles(files: string[]): Promise<ParsedLogLine[]> {
-  const parsed: ParsedLogLine[] = []
-  for (const file of files) {
-    const text = await fs.readFile(file, 'utf8')
-    const rows = text.split(/\r?\n/)
-    for (let i = 0; i < rows.length; i++) {
-      const line = parseLogLine(rows[i], file, i + 1)
-      if (line) parsed.push(line)
-    }
-  }
-  return parsed.sort(sortLogLines)
-}
-
-async function readLogFilesWithIndex(files: string[]): Promise<{
-  rawLines: ParsedLogLine[]
+async function readLogFilesWithIndex(
+  files: string[],
+  rawLinesPath: string
+): Promise<{
+  rawStore: RawLogStore
   frames: ReplayFrame[]
   definitions: ErrorCodeDefinition[]
   occurrences: ErrorOccurrence[]
+  vehicleStateOccurrences: VehicleStateOccurrence[]
   cacheHits: number
+  robotName: string
+  version: string
+  branch: string
 }> {
-  const rawLines: ParsedLogLine[] = []
   const frames: ReplayFrame[] = []
   const definitions: ErrorCodeDefinition[] = []
+  const definitionMap = new Map<string, ErrorCodeDefinition>()
   const occurrences: ErrorOccurrence[] = []
+  const vehicleStateOccurrences: VehicleStateOccurrence[] = []
   let cacheHits = 0
+  let robotName = ''
+  let version = ''
+  let branch = ''
+
+  const pendingSet = new Set<string>()
+  const cachedPerFile = new Map<string, Awaited<ReturnType<typeof readLogIndex>>>()
   for (const file of files) {
     const cached = await readLogIndex(file)
     if (cached) {
       cacheHits += 1
-      appendAll(frames, cached.frames)
-      appendAll(definitions, cached.definitions)
-      appendAll(occurrences, cached.occurrences)
-      // 日志索引不再缓存 rawLines，改为流式重新解析原文
-      for await (const line of streamLogLines(file)) {
-        rawLines.push(line)
-      }
-      continue
+      cachedPerFile.set(file, cached)
+      frames.push(...cached.frames)
+      definitions.push(...cached.definitions)
+      occurrences.push(...cached.occurrences)
+      robotName = robotName || cached.robotName || ''
+      version = version || cached.firmwareVersion || ''
+      branch = branch || cached.branch || ''
+    } else {
+      pendingSet.add(file)
     }
-    const fileLines: ParsedLogLine[] = []
-    const fileFrames: ReplayFrame[] = []
-    const fileDefinitions: ErrorCodeDefinition[] = []
-    const definitionMap = new Map<string, ErrorCodeDefinition>()
-    for await (const line of streamLogLines(file)) {
-      fileLines.push(line)
-      const def = parseErrorDefinition(line)
-      if (def) {
-        definitionMap.set(def.code, def)
-        fileDefinitions.push(def)
-      }
-      const frame = parseFltStatus(line) || parseInfoStatus(line)
-      if (frame) fileFrames.push(frame)
+  }
+
+  const onLine = (line: ParsedLogLine, registerRef: (ref: LogLineRef) => void) => {
+    if (!pendingSet.has(line.file)) return
+    const def = parseErrorDefinition(line)
+    if (def && shouldReplaceDefinition(definitionMap.get(def.code), def)) {
+      definitionMap.set(def.code, def)
+      definitions.push(def)
+      if (def.firstLine) registerRef(def.firstLine)
     }
-    appendAll(rawLines, fileLines)
-    appendAll(frames, fileFrames)
-    appendAll(definitions, fileDefinitions)
+    const vehicleState = parseVehicleState(line)
+    if (vehicleState) {
+      registerRef(vehicleState.line)
+      vehicleStateOccurrences.push(vehicleState)
+    }
+    const frame = parseFltStatus(line) || parseInfoStatus(line)
+    if (frame) {
+      registerRef(frame.rawLine)
+      if (frame.currentTaskId) frame.currentTaskId = frame.currentTaskId
+      if (frame.name) robotName = frame.name
+      frames.push(frame)
+    }
+    if (line.message.includes('compile data:')) {
+      version = line.message
+      const branchMatch = line.message.match(/\[branch\]:\s*(.*)$/)
+      branch = branchMatch ? branchMatch[1] : ''
+    }
+  }
+
+  const { store: rawStore, refMap } = await RawLogStore.mergeFromFiles(files, rawLinesPath, onLine)
+
+  const backfillRef = (ref?: LogLineRef) => {
+    if (!ref) return
+    const key = `${ref.file}:${ref.line}`
+    const idx = refMap.get(key)
+    if (idx !== undefined) {
+      ref.globalIndex = idx
+      ref.timeMs = ref.timeMs || 0
+    }
+  }
+  for (const frame of frames) backfillRef(frame.rawLine)
+  for (const def of definitions) backfillRef(def.firstLine)
+  for (const occ of occurrences) backfillRef(occ.line)
+  for (const vso of vehicleStateOccurrences) backfillRef(vso.line)
+
+  for (const file of files) {
+    if (!pendingSet.has(file)) continue
+    const fileFrames = frames.filter((f) => f.rawLine.file === file)
+    const fileDefinitions = definitions.filter((d) => d.firstLine?.file === file)
     await writeLogIndex({
       fingerprint: await fileFingerprint(file),
       file,
       frames: fileFrames,
       definitions: fileDefinitions,
-      occurrences: []
+      occurrences: [],
+      robotName,
+      firmwareVersion: version,
+      branch
     }).catch(() => undefined)
   }
+
   return {
-    rawLines: rawLines.sort(sortLogLines),
+    rawStore,
     frames,
     definitions,
     occurrences,
-    cacheHits
+    vehicleStateOccurrences,
+    cacheHits,
+    robotName,
+    version,
+    branch
   }
-}
-
-async function* streamLogLines(file: string): AsyncGenerator<ParsedLogLine> {
-  const rl = createInterface({
-    input: createReadStream(file),
-    crlfDelay: Infinity
-  })
-  let lineNumber = 0
-  for await (const row of rl) {
-    lineNumber++
-    const line = parseLogLine(row, file, lineNumber)
-    if (line) yield line
-  }
-}
-
-function appendAll<T>(target: T[], items: T[]) {
-  for (const item of items) target.push(item)
 }
 
 async function loadMap(
   mapDir: string | undefined,
   mapFile: string | undefined,
-  rawLines: ParsedLogLine[],
+  rawStore: RawLineReader,
   frames: ReplayFrame[],
   robotName: string
 ): Promise<{ name: string; data: unknown; match: MapMatchInfo }> {
-  const detectedMapName = detectMapName(rawLines, frames)
+  const detectedMapName = await detectMapName(rawStore, frames)
   const candidates = await findMapCandidates(mapDir)
   const aliases = await readMapAliases()
   const selected = selectMap({ mapFile, detectedMapName, candidates, aliases, robotName })
@@ -488,14 +484,14 @@ async function loadMap(
   }
 }
 
-function detectMapName(rawLines: ParsedLogLine[], frames: ReplayFrame[]): string {
+async function detectMapName(rawStore: RawLineReader, frames: ReplayFrame[]): Promise<string> {
   const patterns = [
     /MapUmcl:\s*load map\s+\S+\/([A-Za-z0-9_.-]+\.json)/i,
     /UpdateParamsConfig:\s*map\b.*"name"\s*:\s*"([A-Za-z0-9_.-]+\.json)"/i,
     /map[_ -]?name["':=\s]+([A-Za-z0-9_.-]+\.json)/i,
     /load(?:ed)? map[^A-Za-z0-9_.-]+([A-Za-z0-9_.-]+\.json)/i
   ]
-  for (const line of rawLines) {
+  for await (const line of rawStore.streamLines()) {
     if (!/map|地图/i.test(line.message)) continue
     for (const pattern of patterns) {
       const match = line.message.match(pattern)
@@ -616,23 +612,37 @@ function normalizeMapName(name: string): string {
   return path.basename(name || '').replace(/\.json$/i, '').toLowerCase()
 }
 
-function buildOverview(arg: {
+async function buildOverview(arg: {
   input: { logDir: string }
   files: string[]
-  rawLines: ParsedLogLine[]
+  rawStore: RawLineReader
   frames: ReplayFrame[]
   definitions: Map<string, ErrorCodeDefinition>
   occurrences: ErrorOccurrence[]
-  events: ReturnType<typeof buildTimelineEvents>
-  tasks: ReturnType<typeof buildTaskSegments>
+  events: TimelineEvent[]
+  tasks: TaskSegment[]
   map: { name: string; data: unknown; match: MapMatchInfo }
   robotName: string
   version: string
   branch: string
-  rootCauses: ReturnType<typeof buildRootCauses>
-}): OverviewSummary {
-  const start = arg.rawLines[0]
-  const end = arg.rawLines[arg.rawLines.length - 1]
+  rootCauses: RootCauseCandidate[]
+}): Promise<OverviewSummary> {
+  let firstLine: ParsedLogLine | undefined
+  let lastLine: ParsedLogLine | undefined
+  let errorLogCount = 0
+  let warningLogCount = 0
+  let hasLines = false
+  for await (const line of arg.rawStore.streamLines()) {
+    if (!hasLines) {
+      firstLine = line
+      hasLines = true
+    }
+    lastLine = line
+    if (line.level === 'E') errorLogCount++
+    if (line.level === 'W') warningLogCount++
+  }
+  const start = firstLine
+  const end = lastLine
   const errors = arg.events.filter((it) => it.level === 'error')
   const warnings = arg.events.filter((it) => it.level === 'warning')
   const dataWarnings = [...arg.map.match.warnings]
@@ -651,11 +661,11 @@ function buildOverview(arg: {
     arg.frames.length > 0,
     arg.definitions.size > 0,
     arg.map.match.confidence >= 0.8,
-    arg.rawLines.length > 0
+    hasLines
   ])
   const logQualityScore = scoreBooleans([
-    arg.rawLines.length > 0,
-    arg.rawLines.some((it) => it.level === 'E' || it.level === 'W'),
+    hasLines,
+    errorLogCount > 0 || warningLogCount > 0,
     arg.frames.length > 0,
     arg.tasks.length > 0,
     arg.occurrences.length > 0
@@ -666,7 +676,7 @@ function buildOverview(arg: {
     logFiles: arg.files,
     mapPath: arg.map.name,
     files: arg.files.length,
-    lines: arg.rawLines.length,
+    lines: await arg.rawStore.getCount(),
     startTime: start?.timestamp || '',
     endTime: end?.timestamp || '',
     startMs: start?.timeMs || 0,
@@ -676,8 +686,8 @@ function buildOverview(arg: {
     hasFrames: arg.frames.length > 0,
     hasTasks: arg.tasks.length > 0,
     hasErrorDefinitions: arg.definitions.size > 0,
-    errorLogCount: arg.rawLines.filter((it) => it.level === 'E').length,
-    warningLogCount: arg.rawLines.filter((it) => it.level === 'W').length,
+    errorLogCount,
+    warningLogCount,
     robotName: arg.robotName || arg.frames.find((it) => it.name)?.name || '',
     version: arg.version,
     branch: arg.branch,
@@ -708,22 +718,6 @@ function buildOverview(arg: {
 function scoreBooleans(items: boolean[]): number {
   if (items.length === 0) return 0
   return Math.round((items.filter(Boolean).length / items.length) * 100)
-}
-
-function withContext<T extends { line?: ParsedLogLine; contextBefore?: ParsedLogLine[]; contextAfter?: ParsedLogLine[] }>(
-  events: T[],
-  lines: ParsedLogLine[]
-): T[] {
-  const byKey = new Map<string, number>()
-  lines.forEach((line, index) => byKey.set(`${line.file}:${line.line}`, index))
-  for (const event of events) {
-    if (!event.line) continue
-    const idx = byKey.get(`${event.line.file}:${event.line.line}`)
-    if (idx === undefined) continue
-    event.contextBefore = lines.slice(Math.max(0, idx - 20), idx)
-    event.contextAfter = lines.slice(idx + 1, Math.min(lines.length, idx + 21))
-  }
-  return events
 }
 
 function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[] {
@@ -775,7 +769,7 @@ function buildErrorSummaries(occurrences: ErrorOccurrence[]): ErrorCodeSummary[]
   })
 }
 
-function assignOccurrenceTaskIds(occurrences: ErrorOccurrence[], tasks: ReturnType<typeof buildTaskSegments>) {
+function assignOccurrenceTaskIds(occurrences: ErrorOccurrence[], tasks: TaskSegment[]) {
   if (tasks.length === 0) return
   for (const occurrence of occurrences) {
     if (occurrence.taskId && occurrence.taskId !== 'Null' && occurrence.taskId !== 'null') continue

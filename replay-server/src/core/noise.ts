@@ -1,4 +1,4 @@
-import type { FoldedLogGroup, ParsedLogLine } from '../types'
+import type { FoldedLogGroup, IndexedLogLine, LogLineRef, ParsedLogLine, RawLineReader } from '../types'
 
 export const NOISE_RULES = [
   { id: 'sent_speed', label: '底盘速度发送', contains: 'sent: toSendV:' },
@@ -13,12 +13,13 @@ export const NOISE_RULES = [
   { id: 'json_read', label: 'JSON 读取提醒', contains: 'ReadFileToJson' }
 ]
 
-export function foldNoise(lines: ParsedLogLine[]): FoldedLogGroup[] {
+export async function foldNoise(rawStore: RawLineReader): Promise<FoldedLogGroup[]> {
   const groups = new Map<string, FoldedLogGroup>()
-  for (const line of lines) {
+  for await (const line of rawStore.streamLines()) {
     const rule = noiseRuleForLine(line)
     if (!rule) continue
     const group = groups.get(rule.id)
+    const ref = toRef(line)
     if (!group) {
       groups.set(rule.id, {
         id: rule.id,
@@ -26,13 +27,13 @@ export function foldNoise(lines: ParsedLogLine[]): FoldedLogGroup[] {
         count: 1,
         firstTime: line.timestamp,
         lastTime: line.timestamp,
-        firstLine: line,
-        lastLine: line
+        firstLine: ref,
+        lastLine: ref
       })
     } else {
       group.count += 1
       group.lastTime = line.timestamp
-      group.lastLine = line
+      group.lastLine = ref
     }
   }
   return Array.from(groups.values())
@@ -48,4 +49,15 @@ export function noiseRuleId(line: ParsedLogLine): string {
 
 export function noiseRuleForLine(line: ParsedLogLine): (typeof NOISE_RULES)[number] | null {
   return NOISE_RULES.find((it) => line.message.includes(it.contains)) || null
+}
+
+function toRef(line: IndexedLogLine): LogLineRef {
+  return {
+    globalIndex: line.globalIndex,
+    timeMs: line.timeMs,
+    timestamp: line.timestamp,
+    file: line.file,
+    line: line.line,
+    module: line.module
+  }
 }

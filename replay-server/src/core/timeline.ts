@@ -1,6 +1,6 @@
 import type {
   ErrorOccurrence,
-  ParsedLogLine,
+  RawLineReader,
   ReplayFrame,
   TimelineEvent
 } from '../types'
@@ -30,15 +30,18 @@ export function mergeFrames(frames: ReplayFrame[]): ReplayFrame[] {
   return merged
 }
 
-export function buildTimelineEvents(
-  lines: ParsedLogLine[],
+export async function buildTimelineEvents(
+  rawStore: RawLineReader,
   frames: ReplayFrame[],
   occurrences: ErrorOccurrence[]
-): TimelineEvent[] {
-  const events = buildRuleEvents(lines)
+): Promise<TimelineEvent[]> {
+  const events = await buildRuleEvents(rawStore)
+  const occurrenceLines = occurrences.length > 0 ? await rawStore.resolveRefs(occurrences.map((o) => o.line)) : []
   let seq = 0
-  for (const occurrence of occurrences) {
+  for (let i = 0; i < occurrences.length; i++) {
+    const occurrence = occurrences[i]
     if (occurrence.kind === 'definition') continue
+    const line = occurrenceLines[i]
     const isConfigNotice = occurrence.kind === 'config_notice'
     const isRealFault = occurrence.kind === 'real_fault'
     events.push({
@@ -52,7 +55,8 @@ export function buildTimelineEvents(
       detail:
         occurrence.definition?.description ||
         occurrence.definition?.screenText ||
-        occurrence.line.message,
+        line?.message ||
+        '',
       module: occurrence.line.module,
       code: occurrence.code,
       taskId: occurrence.taskId,

@@ -37,6 +37,6 @@ export function parseInfoStatus(line: ParsedLogLine): ReplayFrame | null {
     vx: vel ? Number(vel[1]) : undefined,
     vy: vel ? Number(vel[2]) : undefined,
     w: vel ? Number(vel[3]) : odom ? Number(odom[2]) : undefined,
-    rawLine: line
+    rawLine: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module }
   }
 }

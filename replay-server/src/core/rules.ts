@@ -1,9 +1,9 @@
-import type { ParsedLogLine, TimelineEvent } from '../types'
+import type { IndexedLogLine, RawLineReader, TimelineEvent } from '../types'
 
-export function buildRuleEvents(lines: ParsedLogLine[]): TimelineEvent[] {
+export async function buildRuleEvents(rawStore: RawLineReader): Promise<TimelineEvent[]> {
   const events: TimelineEvent[] = []
   let seq = 0
-  for (const line of lines) {
+  for await (const line of rawStore.streamLines()) {
     if (line.level === 'E') {
       events.push(toEvent(line, `log-error-${seq++}`, 'log_error', classifyCategory(line.message), 'error', `[E] ${line.module}`, line.message))
       continue
@@ -47,7 +47,7 @@ function serviceStartTitle(message: string): string {
 }
 
 function toEvent(
-  line: ParsedLogLine,
+  line: IndexedLogLine,
   id: string,
   type: string,
   category: string,
@@ -65,7 +65,14 @@ function toEvent(
     title,
     detail,
     module: line.module,
-    line
+    line: {
+      globalIndex: line.globalIndex,
+      timeMs: line.timeMs,
+      timestamp: line.timestamp,
+      file: line.file,
+      line: line.line,
+      module: line.module
+    }
   }
 }
 

@@ -2,11 +2,13 @@ import type { KnowledgeMatch, RootCauseCandidate } from '../types'
 import { knowledgeMatchToRootCauseCandidate } from './knowledgeBase'
 import { ROOT_CAUSE_RULES, type RootCauseContext } from './rootCauseRules'
 
-export function buildRootCauses(ctx: RootCauseContext, knowledgeMatches: KnowledgeMatch[] = []): RootCauseCandidate[] {
-  const candidates = ROOT_CAUSE_RULES.map((rule) => {
-    const candidate = rule.build(ctx)
-    return candidate ? applyConfidence({ ...candidate, source: candidate.source || 'built_in' }, rule.weight) : null
-  }).filter(Boolean) as RootCauseCandidate[]
+export async function buildRootCauses(ctx: RootCauseContext, knowledgeMatches: KnowledgeMatch[] = []): Promise<RootCauseCandidate[]> {
+  const candidates = (await Promise.all(
+    ROOT_CAUSE_RULES.map(async (rule) => {
+      const candidate = await rule.build(ctx)
+      return candidate ? applyConfidence({ ...candidate, source: candidate.source || 'built_in' }, rule.weight) : null
+    })
+  )).filter(Boolean) as RootCauseCandidate[]
 
   const knowledgeCandidates = knowledgeMatches.map(knowledgeMatchToRootCauseCandidate)
   return [...candidates, ...knowledgeCandidates]

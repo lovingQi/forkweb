@@ -43,7 +43,7 @@ import {
 import { buildJsonReport, buildMarkdownReportAsync } from './core/report'
 import { askReplayAssistant, buildAssistantContext, recommendSimilarCases } from './core/ragAssistant'
 import { RawLogStore, formatRawLine } from './core/rawLogStore'
-import type { ParsedLogLine } from './types'
+import type { IndexedLogLine, LogLineRef, ParsedLogLine, TimelineEvent } from './types'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
 import { createSessionJob, getSessionJob } from './core/sessionJobs'
@@ -118,7 +118,7 @@ app.get('/api/replay/overview', (_req, res) => {
   res.json(session.data.overview)
 })
 
-app.get('/api/replay/events', (req, res) => {
+app.get('/api/replay/events', async (req, res) => {
   const startMs = Number(req.query.startMs || 0)
   const endMs = Number(req.query.endMs || 0)
   const mode = ['real_fault', 'config_notice', 'noise'].includes(String(req.query.mode))
@@ -137,7 +137,7 @@ app.get('/api/replay/events', (req, res) => {
     dedupe: req.query.dedupe === 'true'
   })
   const page = limit ? events.slice(offset, offset + limit) : events
-  res.json({ events: page, total: events.length, offset, limit: limit || events.length })
+  res.json({ events: await resolveTimelineEvents(page), total: events.length, offset, limit: limit || events.length })
 })
 
 app.get('/api/replay/event-markers', (req, res) => {
@@ -178,7 +178,7 @@ app.get('/api/replay/frames', (_req, res) => {
   })
 })
 
-app.get('/api/replay/error-codes', (req, res) => {
+app.get('/api/replay/error-codes', async (req, res) => {
   const kind = req.query.kind ? String(req.query.kind) : ''
   const level = req.query.level ? Number(req.query.level) : NaN
   const moduleName = req.query.module ? String(req.query.module) : ''
@@ -208,11 +208,11 @@ app.get('/api/replay/error-codes', (req, res) => {
     }))
   res.json({
     definitions,
-    occurrences,
+    occurrences: await resolveErrorOccurrences(occurrences),
     occurrenceTotal: occurrencesAll.length,
     occurrenceOffset,
     occurrenceLimit: occurrenceLimit || occurrencesAll.length,
-    summaries
+    summaries: await resolveErrorSummaries(summaries)
   })
 })
 
@@ -380,7 +380,7 @@ app.post('/api/replay/assistant/context-preview', async (req, res) => {
       maxLogLines: Number(req.body.maxLogLines || 80),
       maxKnowledge: Number(req.body.maxKnowledge || 8)
     })
-    res.json({ succeed: true, context })
+    res.json({ succeed: true, context: await resolveAssistantContext(context) })
   } catch (e) {
     res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })
   }
@@ -400,7 +400,7 @@ app.post('/api/replay/assistant/ask', async (req, res) => {
   }
 })
 
-app.get('/api/replay/tasks', (req, res) => {
+app.get('/api/replay/tasks', async (req, res) => {
   const taskId = req.query.taskId ? String(req.query.taskId) : ''
   const includeContext = req.query.includeContext === 'true'
   const tasks = session.data.tasks
@@ -410,7 +410,7 @@ app.get('/api/replay/tasks', (req, res) => {
       beforeFailureLines: undefined,
       afterFailureLines: undefined
     })
-  res.json({ tasks })
+  res.json({ tasks: await resolveTasks(tasks) })
 })
 
 app.get('/api/replay/map-aliases', async (_req, res) => {
@@ -470,11 +470,110 @@ function getRawLineStore(): RawLogStore | null {
   return null
 }
 
-async function getAllRawLines(): Promise<ParsedLogLine[]> {
-  if (session.data.rawLines.length > 0) return session.data.rawLines
+async function getAllRawLines(): Promise<IndexedLogLine[]> {
+  if (session.data.rawLines.length > 0) return session.data.rawLines as IndexedLogLine[]
   const store = getRawLineStore()
   if (store) return store.readAll()
   return []
+}
+
+async function resolveRefMap(refs: LogLineRef[]): Promise<Map<number, ParsedLogLine>> {
+  const store = getRawLineStore()
+  if (!store || refs.length === 0) return new Map()
+  const lines = await store.resolveRefs(refs)
+  return new Map(lines.map((line, i) => [refs[i].globalIndex, line]))
+}
+
+function refToPlain(ref: LogLineRef, map: Map<number, ParsedLogLine>): ParsedLogLine {
+  return map.get(ref.globalIndex) || {
+    file: ref.file,
+    line: ref.line,
+    timestamp: ref.timestamp,
+    timeMs: ref.timeMs,
+    module: 'unknown',
+    sourceLine: null,
+    level: 'I',
+    message: `[ref:${ref.globalIndex}]`
+  }
+}
+
+async function resolveTimelineEvents(events: TimelineEvent[]): Promise<TimelineEvent[]> {
+  const refs: LogLineRef[] = []
+  for (const event of events) {
+    if (event.line) refs.push(event.line)
+    if (event.contextBefore) refs.push(...event.contextBefore)
+    if (event.contextAfter) refs.push(...event.contextAfter)
+  }
+  const map = await resolveRefMap(refs)
+  for (const event of events) {
+    if (event.line) (event as any).line = refToPlain(event.line, map)
+    if (event.contextBefore) (event as any).contextBefore = event.contextBefore.map((ref) => refToPlain(ref, map))
+    if (event.contextAfter) (event as any).contextAfter = event.contextAfter.map((ref) => refToPlain(ref, map))
+  }
+  return events
+}
+
+async function resolveErrorOccurrences<T extends { line: LogLineRef }>(items: T[]): Promise<T[]> {
+  const map = await resolveRefMap(items.map((it) => it.line))
+  for (const item of items) {
+    (item as any).line = refToPlain(item.line, map)
+  }
+  return items
+}
+
+async function resolveErrorSummaries(summaries: any[]): Promise<any[]> {
+  for (const summary of summaries) {
+    summary.occurrences = await resolveErrorOccurrences(summary.occurrences || [])
+  }
+  return summaries
+}
+
+async function resolveTasks(tasks: any[]): Promise<any[]> {
+  const refs: LogLineRef[] = []
+  for (const task of tasks) {
+    if (task.startEvidence) refs.push(task.startEvidence)
+    if (task.endEvidence) refs.push(task.endEvidence)
+    if (task.failureLine) refs.push(task.failureLine)
+    if (task.beforeFailureLines) refs.push(...task.beforeFailureLines)
+    if (task.afterFailureLines) refs.push(...task.afterFailureLines)
+    for (const event of task.relatedEvents || []) {
+      if (event.line) refs.push(event.line)
+      if (event.contextBefore) refs.push(...event.contextBefore)
+      if (event.contextAfter) refs.push(...event.contextAfter)
+    }
+  }
+  const map = await resolveRefMap(refs)
+  for (const task of tasks) {
+    if (task.startEvidence) task.startEvidence = refToPlain(task.startEvidence, map)
+    if (task.endEvidence) task.endEvidence = refToPlain(task.endEvidence, map)
+    if (task.failureLine) task.failureLine = refToPlain(task.failureLine, map)
+    if (task.beforeFailureLines) task.beforeFailureLines = task.beforeFailureLines.map((ref: LogLineRef) => refToPlain(ref, map))
+    if (task.afterFailureLines) task.afterFailureLines = task.afterFailureLines.map((ref: LogLineRef) => refToPlain(ref, map))
+    for (const event of task.relatedEvents || []) {
+      if (event.line) event.line = refToPlain(event.line, map)
+      if (event.contextBefore) event.contextBefore = event.contextBefore.map((ref: LogLineRef) => refToPlain(ref, map))
+      if (event.contextAfter) event.contextAfter = event.contextAfter.map((ref: LogLineRef) => refToPlain(ref, map))
+    }
+  }
+  return tasks
+}
+
+async function resolveAssistantContext(context: any): Promise<any> {
+  const refs: LogLineRef[] = []
+  for (const cause of context.rootCauses || []) {
+    refs.push(...(cause.evidenceLines || []))
+  }
+  for (const match of context.knowledgeMatches || []) {
+    refs.push(...(match.evidenceLines || []))
+  }
+  const map = await resolveRefMap(refs)
+  for (const cause of context.rootCauses || []) {
+    if (cause.evidenceLines) cause.evidenceLines = cause.evidenceLines.map((ref: LogLineRef) => refToPlain(ref, map))
+  }
+  for (const match of context.knowledgeMatches || []) {
+    if (match.evidenceLines) match.evidenceLines = match.evidenceLines.map((ref: LogLineRef) => refToPlain(ref, map))
+  }
+  return context
 }
 
 function withRawField(line: ParsedLogLine): ParsedLogLine & { raw: string } {

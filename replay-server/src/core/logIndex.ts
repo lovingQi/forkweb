@@ -4,7 +4,7 @@ import path from 'path'
 import { CACHE_DIR } from '../paths'
 import type { ErrorCodeDefinition, ErrorOccurrence, ReplayFrame } from '../types'
 
-export const LOG_INDEX_VERSION = 1
+export const LOG_INDEX_VERSION = 2
 const INDEX_DIR = path.join(CACHE_DIR, 'indexes')
 
 export interface LogIndexPayload {
@@ -14,6 +14,9 @@ export interface LogIndexPayload {
   frames: ReplayFrame[]
   definitions: ErrorCodeDefinition[]
   occurrences: ErrorOccurrence[]
+  robotName?: string
+  firmwareVersion?: string
+  branch?: string
 }
 
 export async function fileFingerprint(file: string): Promise<string> {

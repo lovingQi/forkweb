@@ -1,10 +1,10 @@
-import type { ParsedLogLine, ReplayFrame, TaskSegment, TimelineEvent } from '../types'
+import type { IndexedLogLine, LogLineRef, RawLineReader, ReplayFrame, TaskSegment, TimelineEvent } from '../types'
 
-export function buildTaskSegments(
+export async function buildTaskSegments(
   frames: ReplayFrame[],
-  rawLines: ParsedLogLine[] = [],
+  rawStore: RawLineReader,
   events: TimelineEvent[] = []
-): TaskSegment[] {
+): Promise<TaskSegment[]> {
   const tasks: TaskSegment[] = []
   let current: TaskSegment | null = null
   for (let index = 0; index < frames.length; index++) {
@@ -49,7 +49,7 @@ export function buildTaskSegments(
       }
     }
   }
-  enrichTasks(tasks, rawLines, events)
+  await enrichTasks(tasks, rawStore, events)
   return tasks
 }
 
@@ -58,7 +58,18 @@ function normalizeTaskId(taskId?: string): string {
   return taskId
 }
 
-function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: TimelineEvent[]) {
+function toRef(line: IndexedLogLine): LogLineRef {
+  return {
+    globalIndex: line.globalIndex,
+    timeMs: line.timeMs,
+    timestamp: line.timestamp,
+    file: line.file,
+    line: line.line,
+    module: line.module
+  }
+}
+
+async function enrichTasks(tasks: TaskSegment[], rawStore: RawLineReader, events: TimelineEvent[]) {
   for (const task of tasks) {
     task.relatedEvents = events.filter((event) => {
       if (event.taskId && event.taskId === task.id) return true
@@ -67,10 +78,7 @@ function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: Ti
     for (const event of task.relatedEvents) {
       if (event.code && !task.errors.includes(event.code)) task.errors.push(event.code)
     }
-    const relatedLines = rawLines.filter((line) => {
-      if (line.timeMs < task.startMs || line.timeMs > task.endMs) return false
-      return /current_routes|current_task_error_code|unfinished_path|new_unfinished_path|last_finished_task|FltTask/i.test(line.message)
-    })
+    const relatedLines = await rawStore.readRange(task.startMs, task.endMs)
     task.failureReasonCandidates = []
     if (relatedLines.some((line) => /last_finished_task_is_success["':=\s]+false/i.test(line.message))) {
       task.lastFinishedTaskSuccess = false
@@ -93,11 +101,12 @@ function enrichTasks(tasks: TaskSegment[], rawLines: ParsedLogLine[], events: Ti
     }
     const failureLine = relatedLines.find((line) => /ERROR\d{4}|false|unfinished_path/i.test(line.message))
     if (failureLine) {
-      const idx = rawLines.indexOf(failureLine)
-      task.failureLine = failureLine
-      task.beforeFailureLines = rawLines.slice(Math.max(0, idx - 20), idx)
-      task.afterFailureLines = rawLines.slice(idx + 1, Math.min(rawLines.length, idx + 21))
-      task.failureContextCount = task.beforeFailureLines.length + 1 + task.afterFailureLines.length
+      const context = await rawStore.readAroundTime(failureLine.timeMs, 41)
+      const idx = context.findIndex((l) => l.file === failureLine.file && l.line === failureLine.line)
+      task.failureLine = toRef(failureLine)
+      task.beforeFailureLines = context.slice(Math.max(0, idx - 20), idx).map(toRef)
+      task.afterFailureLines = context.slice(idx + 1, idx + 21).map(toRef)
+      task.failureContextCount = (task.beforeFailureLines?.length || 0) + 1 + (task.afterFailureLines?.length || 0)
     }
   }
 }
