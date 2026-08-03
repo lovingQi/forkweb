@@ -24,7 +24,7 @@ WORKDIR /app
 
 # 安装原生模块编译工具（better-sqlite3 可能需要源码编译）以及 zip/unzip（诊断包生成需要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ zip unzip \
+    python3 make g++ zip unzip curl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
