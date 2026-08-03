@@ -48,7 +48,7 @@ import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
 import { createSessionJob, getSessionJob } from './core/sessionJobs'
 import { filterTimelineEvents } from './core/timeline'
-import { getAssistantStatus, getPublicLlmConfig } from './core/llmConfig'
+import { getAssistantStatus, getPublicLlmConfig, readLlmConfig } from './core/llmConfig'
 import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
 import { OpenAiCompatibleClient } from './core/openAiCompatibleClient'
 import { rebuildVectorStore } from './core/vectorStore'
@@ -335,9 +335,10 @@ app.delete('/api/replay/assistant/config', async (_req, res) => {
 app.post('/api/replay/assistant/config/test', async (req, res) => {
   try {
     const body = req.body || {}
+    const saved = await readLlmConfig()
     const client = new OpenAiCompatibleClient({
       provider: body.provider === 'openai_compatible' ? 'openai_compatible' : 'deepseek',
-      apiKey: String(body.apiKey || ''),
+      apiKey: String(body.apiKey || '').trim() || saved.apiKey || '',
       model: String(body.model || (body.provider === 'openai_compatible' ? 'gpt-4o-mini' : 'deepseek-chat')),
       baseUrl: String(body.baseUrl || (body.provider === 'openai_compatible' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com')).replace(/\/+$/, ''),
       timeoutMs: Number(body.timeoutMs || 30000),

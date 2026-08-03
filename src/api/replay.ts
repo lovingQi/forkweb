@@ -248,8 +248,13 @@ export async function clearReplayAssistantConfig() {
 }
 
 export async function testReplayAssistantConfig(payload: Record<string, any>) {
-  const { data } = await replayHttp.post('/replay/assistant/config/test', payload)
-  return data
+  try {
+    const { data } = await replayHttp.post('/replay/assistant/config/test', payload)
+    return data
+  } catch (e: any) {
+    const error = e?.response?.data?.error || e?.message || String(e)
+    throw new Error(error)
+  }
 }
 
 export async function reindexReplayAssistant() {
