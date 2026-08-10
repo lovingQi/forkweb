@@ -356,7 +356,10 @@ app.post('/api/replay/assistant/config/test', async (req, res) => {
     const result = await client.chatJson([
       { role: 'system', content: '只返回 JSON。' },
       { role: 'user', content: '返回 {"ok":true,"message":"pong"}' }
-    ], { maxTokens: 80, timeoutMs: Number(body.timeoutMs || 30000) })
+    ], {
+      maxTokens: Math.max(256, Number(body.maxTokens || 300)),
+      timeoutMs: Number(body.timeoutMs || 30000)
+    })
     res.json({ succeed: true, result })
   } catch (e) {
     res.status(400).json({ succeed: false, error: e instanceof Error ? e.message : String(e) })

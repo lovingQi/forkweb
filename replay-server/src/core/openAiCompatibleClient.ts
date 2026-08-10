@@ -14,19 +14,24 @@ export class OpenAiCompatibleClient implements LlmProvider {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs || this.config.timeoutMs)
     try {
+      const model = options.model || this.config.model
+      const body: Record<string, unknown> = {
+        model,
+        messages,
+        temperature: options.temperature ?? this.config.temperature,
+        max_tokens: options.maxTokens || this.config.maxTokens,
+        response_format: { type: 'json_object' }
+      }
+      if (isDeepSeekV4Model(model)) {
+        body.thinking = { type: 'disabled' }
+      }
       const response = await fetch(resolveChatCompletionsUrl(this.config.baseUrl), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: options.model || this.config.model,
-          messages,
-          temperature: options.temperature ?? this.config.temperature,
-          max_tokens: options.maxTokens || this.config.maxTokens,
-          response_format: { type: 'json_object' }
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal
       })
       if (!response.ok) {
@@ -56,6 +61,10 @@ export function resolveChatCompletionsUrl(baseUrl: string): string {
   if (normalized.endsWith('/chat/completions')) return normalized
   if (normalized.endsWith('/v1')) return `${normalized}/chat/completions`
   return `${normalized}/chat/completions`
+}
+
+function isDeepSeekV4Model(model: string): boolean {
+  return /^deepseek-v4/i.test(String(model || ''))
 }
 
 function providerLabel(provider: string) {
