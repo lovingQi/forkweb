@@ -3,8 +3,26 @@
 # 依次执行：数据库备份 -> git pull -> docker-compose build -> docker-compose up -d
 set -euo pipefail
 
-# 检测 Docker Compose 命令（V2 优先）
-if docker compose version >/dev/null 2>&1; then
+# 切到脚本所在目录（即项目根目录）
+cd "$(cd "$(dirname "$0")" && pwd)/.."
+
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+DATA_DIR="${DATA_DIR:-./data}"
+HOST_PORT="${HOST_PORT:-8091}"
+DB_FILE="${DATA_DIR}/cache/forkweb.db"
+BACKUP_DIR="${DATA_DIR}/backups"
+
+# 检测 Docker Compose 命令
+# 朋友服务器：FORCE_COMPOSE_V1=1 强制使用 docker-compose（v1）
+if [ "${FORCE_COMPOSE_V1:-}" = "1" ] || [ "${COMPOSE_CMD:-}" = "docker-compose" ]; then
+  if ! docker-compose version >/dev/null 2>&1; then
+    echo "[错误] 已要求使用 docker-compose（v1），但未找到该命令"
+    exit 1
+  fi
+  COMPOSE_CMD="docker-compose"
+elif [ -n "${COMPOSE_CMD:-}" ]; then
+  :
+elif docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
 elif docker-compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker-compose"
@@ -13,12 +31,7 @@ else
   exit 1
 fi
 
-# 切到脚本所在目录（即项目根目录）
-cd "$(cd "$(dirname "$0")" && pwd)/.."
-
-DATA_DIR="${DATA_DIR:-./data}"
-DB_FILE="${DATA_DIR}/cache/forkweb.db"
-BACKUP_DIR="${DATA_DIR}/backups"
+COMPOSE_ARGS=(-f "$COMPOSE_FILE")
 
 mkdir -p "$DATA_DIR" "$BACKUP_DIR"
 
@@ -41,13 +54,14 @@ else
 fi
 
 echo "==> [3/4] 构建镜像"
-$COMPOSE_CMD build
+$COMPOSE_CMD "${COMPOSE_ARGS[@]}" build
 
 echo "==> [4/4] 启动服务"
-$COMPOSE_CMD up -d
+$COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d
 
 echo
 echo "完成。"
-echo "  服务地址: http://localhost:8091"
-echo "  查看日志: $COMPOSE_CMD logs -f"
+echo "  Compose 文件: $COMPOSE_FILE"
+echo "  服务地址: http://localhost:${HOST_PORT}"
+echo "  查看日志: $COMPOSE_CMD ${COMPOSE_ARGS[*]} logs -f"
 echo "  数据库备份目录: $BACKUP_DIR"

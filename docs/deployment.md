@@ -65,6 +65,82 @@ curl http://localhost:8091/api/health
 
 **请勿删除 `./data` 目录**，否则将丢失所有工单与知识库数据。
 
+## 朋友服务器部署
+
+朋友服务器约定：使用 **docker-compose v1**、宿主机端口 **18091**、数据目录必须在 **`/mydata/forkweb`**。本系统使用 SQLite，**不需要 MySQL**。
+
+专用 compose 文件：`docker-compose.friend.yml`（完整独立，可单独使用）。
+
+### 首次部署
+
+```bash
+sudo mkdir -p /mydata/forkweb
+sudo chown "$USER:$USER" /mydata/forkweb
+
+git clone https://github.com/lovingQi/forkweb.git
+cd forkweb
+
+docker-compose -f docker-compose.friend.yml up -d --build
+
+curl http://localhost:18091/api/health
+```
+
+访问地址：`http://<服务器IP>:18091`
+
+### 一键更新（朋友机）
+
+```bash
+FORCE_COMPOSE_V1=1 \
+DATA_DIR=/mydata/forkweb \
+COMPOSE_FILE=docker-compose.friend.yml \
+HOST_PORT=18091 \
+./scripts/update.sh
+```
+
+### 从旧服务器迁移数据
+
+1. **旧机停服务**（保证 SQLite / WAL 一致）：
+
+```bash
+docker-compose stop
+# 或：docker stop forkweb
+```
+
+2. **旧机打包整个 data 目录**（路径按旧机实际挂载调整，常见为项目下 `./data`）：
+
+```bash
+tar czf forkweb-data.tar.gz -C /path/to/parent data
+```
+
+打包内容需包含：
+
+- `cache/forkweb.db`（若有 `forkweb.db-wal` / `forkweb.db-shm` 一并带上）
+- `cache/` 下上传与缓存文件
+- `config/` 知识库与本地模型配置
+
+3. **拷到新机并解压到约定目录**，解压后应存在：
+
+```text
+/mydata/forkweb/cache/forkweb.db
+/mydata/forkweb/config/
+```
+
+示例：
+
+```bash
+# 若包内顶层目录名为 data：
+tar xzf forkweb-data.tar.gz -C /tmp
+rsync -a /tmp/data/ /mydata/forkweb/
+```
+
+4. **新机启动**：
+
+```bash
+docker-compose -f docker-compose.friend.yml up -d --build
+```
+
+5. 用旧账号登录，确认工单与知识库是否完整。
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -94,6 +170,9 @@ curl http://localhost:8091/api/health
 ```bash
 # 仅重建并启动（不拉代码）
 DATA_DIR=./data ./scripts/update.sh
+
+# 指定 compose 文件 / 端口 / 强制 v1（见「朋友服务器部署」）
+FORCE_COMPOSE_V1=1 DATA_DIR=/mydata/forkweb COMPOSE_FILE=docker-compose.friend.yml HOST_PORT=18091 ./scripts/update.sh
 ```
 
 ## 回退策略

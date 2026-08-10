@@ -1,11 +1,13 @@
 version: "3"
+# 朋友服务器专用：端口 18091，数据卷 /mydata/forkweb
+# 启动：docker-compose -f docker-compose.friend.yml up -d --build
 services:
   forkweb:
     build: .
     image: forkweb:latest
     container_name: forkweb
     ports:
-      - "8091:8080"
+      - "18091:8080"
     environment:
       - NODE_ENV=production
       - REPLAY_PORT=8080
@@ -23,8 +25,8 @@ services:
       # 可选：企业微信 Webhook 用于健康检查告警
       # - WECHAT_WORK_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
     volumes:
-      # 持久化数据库、日志、上传文件、知识库等
-      - ./data:/app/data
+      # 朋友服务器约定：挂载目录必须在 /mydata/<容器名>/ 下
+      - /mydata/forkweb:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
