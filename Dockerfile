@@ -5,6 +5,11 @@
 FROM node:20-slim AS build
 WORKDIR /app
 
+# better-sqlite3：预编译包下载失败时需本地编译
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # 先复制包清单并安装全部依赖（含 devDependencies 用于构建）
 COPY package.json package-lock.json* ./
 RUN npm install
