@@ -19,6 +19,10 @@ export function getTicketMapDir(ticketId: number): string {
   return path.join(getTicketDir(ticketId), 'maps');
 }
 
+export function getTicketCommentImageDir(ticketId: number): string {
+  return path.join(getTicketDir(ticketId), 'comment-images');
+}
+
 export function getTicketWorkDir(ticketId: number): string {
   return path.join(getTicketDir(ticketId), 'work');
 }

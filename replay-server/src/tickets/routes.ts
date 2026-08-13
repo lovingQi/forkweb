@@ -23,11 +23,13 @@ import {
   createTicketWithUploads,
   deleteTicket,
   escalateToRd,
+  getCommentImage,
   getTicketDetail,
   listUserTickets,
   recordStepStatus,
   resolveSelfService,
   resolveTicket,
+  saveCommentImages,
   startFieldTroubleshooting,
   startTicketAnalysis,
   streamTicketFilesZip,
@@ -46,6 +48,21 @@ const MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024;
 const upload = multer({
   dest: path.join(CACHE_DIR, 'uploads'),
   limits: { fileSize: MAX_SINGLE_FILE_BYTES }
+});
+
+const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_COMMENT_IMAGES = 9;
+const COMMENT_IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp'
+};
+
+const commentImageUpload = multer({
+  dest: path.join(CACHE_DIR, 'uploads'),
+  limits: { fileSize: MAX_COMMENT_IMAGE_BYTES }
 });
 
 async function removeUploadedTempFiles(req: AuthRequest): Promise<void> {
@@ -68,6 +85,26 @@ function uploadTicketFiles(req: AuthRequest, res: Response, next: NextFunction):
       res.status(400).json({
         succeed: false,
         error: error instanceof Error ? error.message : '文件上传失败'
+      });
+    });
+  });
+}
+
+function uploadCommentImageFiles(req: AuthRequest, res: Response, next: NextFunction): void {
+  commentImageUpload.array('files', MAX_COMMENT_IMAGES)(req, res, (error: unknown) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    void removeUploadedTempFiles(req).finally(() => {
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({ succeed: false, error: '单张图片不能超过 10MB' });
+        return;
+      }
+      res.status(400).json({
+        succeed: false,
+        error: error instanceof Error ? error.message : '图片上传失败'
       });
     });
   });
@@ -378,7 +415,8 @@ router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const ticketId = Number(req.params.id);
     const content = String(req.body.content || '');
-    const event = await addTicketComment(ticketId, req.user!, content);
+    const images = Array.isArray(req.body.images) ? req.body.images : [];
+    const event = await addTicketComment(ticketId, req.user!, content, images);
     res.json({
       succeed: true,
       event: {
@@ -390,6 +428,51 @@ router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
     });
   } catch (e) {
     res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// 上传评论图片
+router.post(
+  '/:id/comment-images',
+  authMiddleware,
+  uploadCommentImageFiles,
+  async (req: AuthRequest, res) => {
+    try {
+      const ticketId = Number(req.params.id);
+      const uploadedFiles = (req.files as Express.Multer.File[] | undefined) || [];
+      if (uploadedFiles.length === 0) {
+        res.status(400).json({ succeed: false, error: '请至少上传一张图片' });
+        return;
+      }
+
+      const images = await saveCommentImages(
+        ticketId,
+        req.user!,
+        uploadedFiles.map((f) => ({ path: f.path, originalName: f.originalname, size: f.size }))
+      );
+      res.json({ succeed: true, images });
+    } catch (e) {
+      res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      await removeUploadedTempFiles(req);
+    }
+  }
+);
+
+// 读取评论图片
+router.get('/:id/comment-images/:imageId', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const { filePath, ext } = await getCommentImage(ticketId, req.user!, String(req.params.imageId));
+    res.setHeader('Content-Type', COMMENT_IMAGE_MIME[ext] || 'application/octet-stream');
+    res.sendFile(filePath);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes('不存在')) {
+      res.status(404).json({ succeed: false, error: message });
+      return;
+    }
+    res.status(500).json({ succeed: false, error: message });
   }
 });
 

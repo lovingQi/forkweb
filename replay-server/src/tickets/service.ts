@@ -7,7 +7,7 @@ import { getDb } from '../db/index';
 import { createTicketEvent, deleteEventsByTicketId, listTicketEvents } from '../db/events';
 import { createAnalysisVersion, deleteAnalysisVersionsByTicketId, getLatestAnalysisVersion, listAnalysisVersions } from '../db/analysisVersions';
 import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
-import { ensureTicketDirs, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
+import { ensureTicketDirs, getTicketCommentImageDir, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { sendWechatWorkNotification } from '../notify/wechatWork';
@@ -555,22 +555,104 @@ export async function updateTicketBasicInfo(
   return updated;
 }
 
+export interface CommentImageInput {
+  imageId: string;
+  name: string;
+  size: number;
+}
+
+const COMMENT_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+const COMMENT_IMAGE_ID_PATTERN = /^[0-9a-f-]{36}$/i;
+const MAX_COMMENT_IMAGES = 9;
+
+interface UploadedImageFile {
+  path: string;
+  originalName: string;
+  size: number;
+}
+
+async function findCommentImageFile(ticketId: number, imageId: string): Promise<string | null> {
+  const dir = getTicketCommentImageDir(ticketId);
+  try {
+    const entries = await fs.readdir(dir);
+    const match = entries.find((entry) => entry.startsWith(`${imageId}.`));
+    return match ? path.join(dir, match) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCommentImages(
+  ticketId: number,
+  actor: AuthUser,
+  files: UploadedImageFile[]
+): Promise<CommentImageInput[]> {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+
+  const dir = getTicketCommentImageDir(ticketId);
+  await fs.mkdir(dir, { recursive: true });
+
+  const images: CommentImageInput[] = [];
+  for (const file of files) {
+    const ext = path.extname(file.originalName).toLowerCase();
+    if (!COMMENT_IMAGE_EXTENSIONS.includes(ext)) {
+      throw new Error(`仅支持 png/jpg/jpeg/gif/webp 格式的图片（${file.originalName}）`);
+    }
+    const imageId = uuidv4();
+    await fs.rename(file.path, path.join(dir, `${imageId}${ext}`));
+    images.push({ imageId, name: file.originalName, size: file.size });
+  }
+  return images;
+}
+
+export async function getCommentImage(
+  ticketId: number,
+  actor: AuthUser,
+  imageId: string
+): Promise<{ filePath: string; ext: string }> {
+  if (!COMMENT_IMAGE_ID_PATTERN.test(imageId)) throw new Error('图片不存在');
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error('工单不存在');
+  assertTicketAccess(ticket, actor);
+
+  const filePath = await findCommentImageFile(ticketId, imageId);
+  if (!filePath) throw new Error('图片不存在');
+  return { filePath, ext: path.extname(filePath).toLowerCase() };
+}
+
 export async function addTicketComment(
   ticketId: number,
   actor: AuthUser,
-  content: string
+  content: string,
+  images: CommentImageInput[] = []
 ): Promise<Awaited<ReturnType<typeof createTicketEvent>>> {
   const ticket = await getTicketById(ticketId);
   if (!ticket) throw new Error('工单不存在');
   assertTicketAccess(ticket, actor);
   const text = content.trim();
-  if (!text) throw new Error('评论内容不能为空');
+  if (!text && images.length === 0) throw new Error('评论内容不能为空');
+  if (images.length > MAX_COMMENT_IMAGES) throw new Error(`每条评论最多 ${MAX_COMMENT_IMAGES} 张图片`);
+
+  const sanitizedImages: CommentImageInput[] = [];
+  for (const image of images) {
+    const imageId = String(image?.imageId || '');
+    if (!COMMENT_IMAGE_ID_PATTERN.test(imageId)) throw new Error('评论包含无效的图片');
+    const filePath = await findCommentImageFile(ticketId, imageId);
+    if (!filePath) throw new Error('评论包含已失效的图片，请重新上传');
+    sanitizedImages.push({
+      imageId,
+      name: String(image?.name || '').slice(0, 255),
+      size: Number(image?.size) || 0
+    });
+  }
 
   return createTicketEvent({
     ticketId,
     actorId: actor.id,
     action: 'comment',
-    payload: { content: text }
+    payload: { content: text, ...(sanitizedImages.length ? { images: sanitizedImages } : {}) }
   });
 }
 

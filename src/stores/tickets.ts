@@ -25,6 +25,7 @@ import {
   updateTicketBasicInfo as apiUpdateTicketBasicInfo,
   verifyTicket as apiVerify,
   type AnalysisVersion,
+  type CommentImageInfo,
   type IssueType,
   type Ticket,
   type TicketEvent,
@@ -248,8 +249,8 @@ export const useTicketStore = defineStore('tickets', () => {
     return ticket
   }
 
-  async function addTicketComment(id: number, content: string) {
-    await apiAddTicketComment(id, content)
+  async function addTicketComment(id: number, content: string, images?: CommentImageInfo[]) {
+    await apiAddTicketComment(id, content, images)
     await loadTicket(id)
   }
 

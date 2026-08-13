@@ -95,6 +95,12 @@ export interface TempFileInfo {
   size: number
 }
 
+export interface CommentImageInfo {
+  imageId: string
+  name: string
+  size: number
+}
+
 export async function uploadTicketFiles(
   files: File[],
   onProgress?: (percent: number) => void
@@ -376,9 +382,28 @@ export async function updateTicketBasicInfo(id: number, input: UpdateTicketBasic
   return data.ticket
 }
 
-export async function addTicketComment(id: number, content: string): Promise<void> {
-  const { data } = await ticketHttp.post(`/tickets/${id}/comments`, { content })
+export async function addTicketComment(id: number, content: string, images?: CommentImageInfo[]): Promise<void> {
+  const { data } = await ticketHttp.post(`/tickets/${id}/comments`, { content, images })
   if (!data.succeed) throw new Error(data.error || '发表评论失败')
+}
+
+export async function uploadCommentImages(ticketId: number, files: File[]): Promise<CommentImageInfo[]> {
+  const data = new FormData()
+  for (const file of files) {
+    data.append('files', file)
+  }
+  const { data: res } = await ticketHttp.post(`/tickets/${ticketId}/comment-images`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  if (!res.succeed) throw new Error(res.error || '图片上传失败')
+  return res.images as CommentImageInfo[]
+}
+
+export async function getCommentImageUrl(ticketId: number, imageId: string): Promise<string> {
+  const { data } = await ticketHttp.get(`/tickets/${ticketId}/comment-images/${imageId}`, {
+    responseType: 'blob'
+  })
+  return URL.createObjectURL(data as Blob)
 }
 
 export async function appendFiles(id: number, files: File[], reanalyze?: boolean): Promise<Ticket> {

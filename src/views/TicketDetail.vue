@@ -201,6 +201,11 @@
             <div class="event-comment">
               <span class="event-actor">{{ event.actorName || '未知用户' }}</span>：{{ event.payload?.content }}
             </div>
+            <TicketCommentImages
+              v-if="event.payload?.images?.length"
+              :ticket-id="ticketId"
+              :images="event.payload.images"
+            />
           </template>
           <template v-else>
             <div>{{ event.action }} <span class="event-actor">（{{ event.actorName || '未知用户' }}）</span></div>
@@ -217,7 +222,26 @@
           placeholder="输入评论内容"
           maxlength="2000"
           show-word-limit
+          @paste="onCommentPaste"
         />
+        <el-upload
+          v-model:file-list="commentImageFiles"
+          class="comment-image-upload"
+          action="#"
+          drag
+          multiple
+          :limit="9"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          :auto-upload="true"
+          :http-request="uploadCommentImageRequest"
+          :before-upload="beforeCommentImageUpload"
+          :on-remove="onCommentImageRemove"
+          :on-exceed="onCommentImageExceed"
+        >
+          <div class="comment-upload-tip">
+            点击选择或拖拽图片到此处，支持 png/jpg/gif/webp，单张不超过 10MB，最多 9 张，可直接粘贴截图
+          </div>
+        </el-upload>
         <div class="comment-actions">
           <el-button type="primary" :loading="loadingAction === 'comment'" @click="onAddComment">发表评论</el-button>
         </div>
@@ -411,13 +435,14 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTicketStore } from '@/stores/tickets'
-import { downloadTicketFiles, getTicketReport, type AnalysisVersion, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
+import { downloadTicketFiles, getTicketReport, uploadCommentImages, type AnalysisVersion, type CommentImageInfo, type IssueType, type Ticket, type TicketStatus } from '@/api/tickets'
 import { listSites, type Site } from '@/api/sites'
-import type { UploadUserFile } from 'element-plus'
+import type { UploadRequestOptions, UploadUserFile } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import AnalysisVersionDiff from '@/components/AnalysisVersionDiff.vue'
 import TicketTroubleshootingGuide from '@/components/TicketTroubleshootingGuide.vue'
 import TicketEvidencePanel from '@/components/TicketEvidencePanel.vue'
+import TicketCommentImages from '@/components/TicketCommentImages.vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -445,6 +470,12 @@ const deleteDialogVisible = ref(false)
 const basicInfoDialogVisible = ref(false)
 const commentContent = ref('')
 const commentError = ref('')
+const commentImageFiles = ref<UploadUserFile[]>([])
+const commentImageMap = new Map<number, CommentImageInfo>()
+const COMMENT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const COMMENT_IMAGE_LIMIT = 9
+const COMMENT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+let commentImageUidSeed = 1
 const appendDialogVisible = ref(false)
 const appendFileList = ref<UploadUserFile[]>([])
 const appendReanalyze = ref(false)
@@ -855,17 +886,97 @@ async function onUpdateBasicInfo() {
   }
 }
 
+function validateCommentImage(file: File): boolean {
+  if (!COMMENT_IMAGE_TYPES.includes(file.type)) {
+    ElMessage.error(`仅支持 png/jpg/gif/webp 格式的图片（${file.name}）`)
+    return false
+  }
+  if (file.size > COMMENT_IMAGE_MAX_BYTES) {
+    ElMessage.error(`单张图片不能超过 10MB（${file.name}）`)
+    return false
+  }
+  return true
+}
+
+function beforeCommentImageUpload(file: File) {
+  return validateCommentImage(file)
+}
+
+async function doUploadCommentImage(file: File): Promise<CommentImageInfo> {
+  const [image] = await uploadCommentImages(ticketId.value, [file])
+  return image
+}
+
+async function uploadCommentImageRequest(options: UploadRequestOptions) {
+  try {
+    const image = await doUploadCommentImage(options.file as File)
+    commentImageMap.set(options.file.uid, image)
+    options.onSuccess(image)
+  } catch (e) {
+    options.onError(e as any)
+    ElMessage.error(e instanceof Error ? e.message : '图片上传失败')
+  }
+}
+
+function onCommentImageRemove(file: UploadUserFile) {
+  if (file.uid !== undefined) commentImageMap.delete(file.uid)
+}
+
+function onCommentImageExceed() {
+  ElMessage.warning(`最多上传 ${COMMENT_IMAGE_LIMIT} 张图片`)
+}
+
+async function onCommentPaste(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith('image/'))
+  if (files.length === 0) return
+  event.preventDefault()
+
+  const remaining = COMMENT_IMAGE_LIMIT - commentImageFiles.value.length
+  if (remaining <= 0) {
+    ElMessage.warning(`最多上传 ${COMMENT_IMAGE_LIMIT} 张图片`)
+    return
+  }
+  if (files.length > remaining) {
+    ElMessage.warning(`最多上传 ${COMMENT_IMAGE_LIMIT} 张图片，超出部分已忽略`)
+  }
+
+  for (const file of files.slice(0, remaining)) {
+    if (!validateCommentImage(file)) continue
+    const uid = Date.now() * 1000 + commentImageUidSeed++
+    const ext = file.type.split('/')[1] || 'png'
+    commentImageFiles.value.push({ name: file.name || `粘贴截图.${ext}`, uid, status: 'uploading' } as UploadUserFile)
+    try {
+      const image = await doUploadCommentImage(file)
+      commentImageMap.set(uid, image)
+      const item = commentImageFiles.value.find((f) => f.uid === uid)
+      if (item) item.status = 'success'
+    } catch (e) {
+      commentImageFiles.value = commentImageFiles.value.filter((f) => f.uid !== uid)
+      ElMessage.error(e instanceof Error ? e.message : '图片上传失败')
+    }
+  }
+}
+
 async function onAddComment() {
   const text = commentContent.value.trim()
-  if (!text) {
+  if (!text && commentImageFiles.value.length === 0) {
     commentError.value = '评论内容不能为空'
+    return
+  }
+  if (commentImageFiles.value.some((f) => f.status === 'uploading' || f.status === 'ready')) {
+    ElMessage.warning('图片上传中，请稍后再提交')
     return
   }
   commentError.value = ''
   loadingAction.value = 'comment'
   try {
-    await ticketStore.addTicketComment(ticketId.value, text)
+    const images = commentImageFiles.value
+      .map((f) => commentImageMap.get(f.uid as number))
+      .filter(Boolean) as CommentImageInfo[]
+    await ticketStore.addTicketComment(ticketId.value, text, images)
     commentContent.value = ''
+    commentImageFiles.value = []
+    commentImageMap.clear()
   } finally {
     loadingAction.value = null
   }
@@ -1160,6 +1271,17 @@ function guideFeedbackLabel(value?: string) {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+.comment-image-upload {
+  margin-top: 12px;
+  width: 100%;
+}
+.comment-image-upload :deep(.el-upload-dragger) {
+  padding: 12px;
+}
+.comment-upload-tip {
+  font-size: 12px;
+  color: #64748b;
 }
 .event-comment {
   color: #374151;

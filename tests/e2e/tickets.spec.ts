@@ -534,6 +534,30 @@ test.describe.serial('工单主流程', () => {
     await expect(page.locator('.event-comment').getByText('E2E 评论内容')).toBeVisible()
   })
 
+  test('发表带图片的评论并展示缩略图', async () => {
+    await loginAs('after_sales')
+    await page.goto(ticketDetailUrl)
+
+    // 1x1 像素 PNG
+    const pngBuffer = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64'
+    )
+
+    const commentInput = page.locator('.comment-section textarea')
+    await commentInput.fill('E2E 带图评论')
+    const fileInput = page.locator('.comment-section input[type="file"]')
+    await fileInput.setInputFiles({ name: 'comment.png', mimeType: 'image/png', buffer: pngBuffer })
+
+    // 等待图片自动上传完成（上传列表出现成功态）
+    await expect(page.locator('.comment-section .el-upload-list__item.is-success')).toBeVisible({ timeout: 30_000 })
+
+    await page.locator('.comment-section').getByRole('button', { name: '发表评论' }).click()
+
+    await expect(page.locator('.event-comment').getByText('E2E 带图评论')).toBeVisible()
+    await expect(page.locator('.el-timeline-item .comment-image-thumb').first()).toBeVisible()
+  })
+
   test('补充上传日志并记录事件', async () => {
     await loginAs('after_sales')
     await page.goto(ticketDetailUrl)
