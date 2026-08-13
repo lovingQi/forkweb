@@ -58,16 +58,18 @@ curl http://localhost:8091/api/health
 
 容器内数据统一挂载到 `./data`：
 
-| 宿主机路径 | 容器路径 | 说明 |
-|------------|----------|------|
-| `./data/cache` | `/app/data/cache` | SQLite 数据库、日志上传文件、缓存 |
-| `./data/config` | `/app/data/config` | 知识库、配置 JSON |
+
+| 宿主机路径           | 容器路径               | 说明                   |
+| --------------- | ------------------ | -------------------- |
+| `./data/cache`  | `/app/data/cache`  | SQLite 数据库、日志上传文件、缓存 |
+| `./data/config` | `/app/data/config` | 知识库、配置 JSON          |
+
 
 **请勿删除 `./data` 目录**，否则将丢失所有工单与知识库数据。
 
 ## 朋友服务器部署
 
-朋友服务器约定：使用 **docker-compose v1**、宿主机端口 **18091**、数据目录必须在 **`/mydata/forkweb`**。本系统使用 SQLite，**不需要 MySQL**。
+朋友服务器约定：使用 **docker-compose v1**、宿主机端口 **18091**、数据目录必须在 `**/mydata/forkweb`**。本系统使用 SQLite，**不需要 MySQL**。
 
 专用 compose 文件：`docker-compose.friend.yml`（完整独立，可单独使用）。
 
@@ -106,7 +108,7 @@ docker-compose stop
 # 或：docker stop forkweb
 ```
 
-2. **旧机打包整个 data 目录**（路径按旧机实际挂载调整，常见为项目下 `./data`）：
+1. **旧机打包整个 data 目录**（路径按旧机实际挂载调整，常见为项目下 `./data`）：
 
 ```bash
 tar czf forkweb-data.tar.gz -C /path/to/parent data
@@ -118,7 +120,7 @@ tar czf forkweb-data.tar.gz -C /path/to/parent data
 - `cache/` 下上传与缓存文件
 - `config/` 知识库与本地模型配置
 
-3. **拷到新机并解压到约定目录**，解压后应存在：
+1. **拷到新机并解压到约定目录**，解压后应存在：
 
 ```text
 /mydata/forkweb/cache/forkweb.db
@@ -133,24 +135,26 @@ tar xzf forkweb-data.tar.gz -C /tmp
 rsync -a /tmp/data/ /mydata/forkweb/
 ```
 
-4. **新机启动**：
+1. **新机启动**：
 
 ```bash
 docker-compose -f docker-compose.friend.yml up -d --build
 ```
 
-5. 用旧账号登录，确认工单与知识库是否完整。
+1. 用旧账号登录，确认工单与知识库是否完整。
 
 ## 环境变量
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `REPLAY_PORT` | `8091` | 服务监听端口 |
-| `REPLAY_HOST` | `0.0.0.0` | 服务监听地址 |
-| `FORKWEB_CACHE_DIR` | `/app/data/cache` | 缓存与数据库目录 |
-| `FORKWEB_CONFIG_DIR` | `/app/data/config` | 配置目录 |
-| `WECHAT_WORK_WEBHOOK_URL` | 空 | 企业微信 Webhook，用于健康告警 |
-| `JWT_SECRET` | `forkweb-dev-secret-change-in-production` | JWT 签名密钥，生产环境务必修改 |
+
+| 变量                        | 默认值                                       | 说明                  |
+| ------------------------- | ----------------------------------------- | ------------------- |
+| `REPLAY_PORT`             | `8091`                                    | 服务监听端口              |
+| `REPLAY_HOST`             | `0.0.0.0`                                 | 服务监听地址              |
+| `FORKWEB_CACHE_DIR`       | `/app/data/cache`                         | 缓存与数据库目录            |
+| `FORKWEB_CONFIG_DIR`      | `/app/data/config`                        | 配置目录                |
+| `WECHAT_WORK_WEBHOOK_URL` | 空                                         | 企业微信 Webhook，用于健康告警 |
+| `JWT_SECRET`              | `forkweb-dev-secret-change-in-production` | JWT 签名密钥，生产环境务必修改   |
+
 
 ## 一键更新
 
@@ -275,15 +279,15 @@ curl -v http://localhost:8091/api/health
 
 正式对外提供服务前，请逐项确认：
 
-- [ ] 修改默认管理员密码：通过 `FORKWEB_ADMIN_PASSWORD` 环境变量设置强密码，或首次登录后立即修改。
-- [ ] 设置 `JWT_SECRET` 环境变量为随机强字符串。
-- [ ] 预填充知识库：运行 `npx tsx replay-server/scripts/seed-knowledge.ts` 导入常见问题的已验证规则。
-- [ ] 确认 `./data` 目录已挂载并有定期备份机制。
-- [ ] 确认 `WECHAT_WORK_WEBHOOK_URL` 已配置（健康告警用）。
-- [ ] 启动 `scripts/health-check.sh` 进行持续健康探测。
-- [ ] 使用 Nginx 配置 HTTPS（如使用公网访问）。
-- [ ] 向现场人员提供 `docs/user-guide.md` 操作指南。
-- [ ] 在小范围（1-2 名售后）灰度试用至少一周，收集反馈后再全面推开。
+- 修改默认管理员密码：通过 `FORKWEB_ADMIN_PASSWORD` 环境变量设置强密码，或首次登录后立即修改。
+- 设置 `JWT_SECRET` 环境变量为随机强字符串。
+- 预填充知识库：运行 `npx tsx replay-server/scripts/seed-knowledge.ts` 导入常见问题的已验证规则。
+- 确认 `./data` 目录已挂载并有定期备份机制。
+- 确认 `WECHAT_WORK_WEBHOOK_URL` 已配置（健康告警用）。
+- 启动 `scripts/health-check.sh` 进行持续健康探测。
+- 使用 Nginx 配置 HTTPS（如使用公网访问）。
+- 向现场人员提供 `docs/user-guide.md` 操作指南。
+- 在小范围（1-2 名售后）灰度试用至少一周，收集反馈后再全面推开。
 
 ## 知识库预填充
 
@@ -305,4 +309,18 @@ docker compose exec forkweb npx tsx replay-server/scripts/seed-knowledge.ts
 2. 收集「排查向导是否有效」「步骤是否清晰」「升级研发是否顺畅」三类反馈。
 3. 根据反馈优化知识库规则、排查步骤和前端交互。
 4. 修复问题后，逐步扩大使用范围。
+
+
+
+# 1. 查看实际容器名（应能看到 9f977fa6ab08_forkweb 之类）
+
+docker ps -a --filter name=forkweb
+
+# 2. 删除这个被改名的旧容器
+
+docker rm -f $(docker ps -aq --filter name=forkweb)
+
+# 3. 重新启动
+
+docker-compose -f docker-compose.friend.yml up -d --build
 
