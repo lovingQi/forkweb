@@ -251,10 +251,10 @@ export class RawLogStore {
     return this.readSlice(Math.max(0, nearestIndex - half), nearestIndex + half + 1)
   }
 
-  async resolveRefs(refs: LogLineRef[]): Promise<ParsedLogLine[]> {
+  async resolveRefs(refs: LogLineRef[]): Promise<IndexedLogLine[]> {
     if (refs.length === 0) return []
     const positions = new Map<number, number[]>()
-    const result: (ParsedLogLine | undefined)[] = new Array(refs.length)
+    const result: (IndexedLogLine | undefined)[] = new Array(refs.length)
     refs.forEach((ref, i) => {
       if (ref.globalIndex < 0) {
         result[i] = fallbackRef(ref)
@@ -270,7 +270,8 @@ export class RawLogStore {
     for await (const line of this.streamLines()) {
       if (nextIdx >= sortedIndices.length) break
       if (line.globalIndex === sortedIndices[nextIdx]) {
-        const plain: ParsedLogLine = {
+        const plain: IndexedLogLine = {
+          globalIndex: line.globalIndex,
           file: line.file,
           line: line.line,
           timestamp: line.timestamp,
@@ -316,8 +317,9 @@ async function* streamLogLines(file: string): AsyncGenerator<ParsedLogLine> {
   }
 }
 
-function fallbackRef(ref: LogLineRef): ParsedLogLine {
+function fallbackRef(ref: LogLineRef): IndexedLogLine {
   return {
+    globalIndex: ref.globalIndex,
     file: ref.file,
     line: ref.line,
     timestamp: ref.timestamp,

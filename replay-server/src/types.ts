@@ -58,7 +58,7 @@ export interface RawLineReader {
   readRange(startMs: number, endMs: number): Promise<IndexedLogLine[]>
   readSlice(start: number, end: number): Promise<IndexedLogLine[]>
   readAroundTime(timeMs: number, count: number): Promise<IndexedLogLine[]>
-  resolveRefs(refs: LogLineRef[]): Promise<ParsedLogLine[]>
+  resolveRefs(refs: LogLineRef[]): Promise<IndexedLogLine[]>
 }
 
 export interface ReplayFrame {
