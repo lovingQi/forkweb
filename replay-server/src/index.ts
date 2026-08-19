@@ -852,6 +852,7 @@ app.get('/api/health', async (_req, res) => {
       succeed: true,
       status: 'ok',
       timestamp: new Date().toISOString(),
+      codeVersion: 'fix-globalindex-v2-d18e75d',
       diskUsage: { cache, config }
     })
   } catch (e) {
