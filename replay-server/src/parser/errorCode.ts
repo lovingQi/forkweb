@@ -48,7 +48,7 @@ export function parseErrorOccurrences(
       source: classifySource(line.message),
       kind: classifyKind(line.message),
       taskId,
-      line: { globalIndex: -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module },
+      line: { globalIndex: (line as any).globalIndex ?? -1, timeMs: line.timeMs, timestamp: line.timestamp, file: line.file, line: line.line, module: line.module },
       definition: definitions.get(code)
     })
   }

@@ -254,13 +254,18 @@ export class RawLogStore {
   async resolveRefs(refs: LogLineRef[]): Promise<ParsedLogLine[]> {
     if (refs.length === 0) return []
     const positions = new Map<number, number[]>()
+    const result: (ParsedLogLine | undefined)[] = new Array(refs.length)
     refs.forEach((ref, i) => {
+      if (ref.globalIndex < 0) {
+        result[i] = fallbackRef(ref)
+        return
+      }
       const arr = positions.get(ref.globalIndex) || []
       arr.push(i)
       positions.set(ref.globalIndex, arr)
     })
+    if (positions.size === 0) return refs.map((ref, i) => result[i] || fallbackRef(ref))
     const sortedIndices = Array.from(positions.keys()).sort((a, b) => a - b)
-    const result: (ParsedLogLine | undefined)[] = new Array(refs.length)
     let nextIdx = 0
     for await (const line of this.streamLines()) {
       if (nextIdx >= sortedIndices.length) break
