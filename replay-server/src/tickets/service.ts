@@ -27,6 +27,8 @@ import { askReplayAssistant } from '../core/ragAssistant';
 import { readLlmConfig } from '../core/llmConfig';
 import { OpenAiCompatibleClient } from '../core/openAiCompatibleClient';
 import { LlmProviderError } from '../core/llmProvider';
+import { buildTicketConclusionChunk } from '../core/knowledgeEmbedding';
+import { appendVectorStoreChunk } from '../core/vectorStore';
 import type { KnowledgeRule } from '../types';
 import { ZipArchive, type Archiver } from 'archiver';
 
@@ -374,6 +376,14 @@ async function finalizeTicketAnalysis(
       });
       updatePayload.ai_conclusion = JSON.stringify(aiAnswer);
       updatePayload.ai_offline = aiAnswer.offline ? 1 : 0;
+      void appendVectorStoreChunk(buildTicketConclusionChunk({
+        ticketNo: ticket.ticket_no,
+        title: ticket.title,
+        description: ticket.description || '',
+        aiConclusion: aiAnswer,
+        robotName: session.data.overview.robotName,
+        site: ticket.site_id ? (await getSiteById(ticket.site_id))?.name : undefined
+      })).catch((e) => console.error('[ticket] 向量库回流失败:', e));
     } catch (e) {
       console.error('[ticket] AI 分析失败:', e);
       updatePayload.ai_conclusion = JSON.stringify({

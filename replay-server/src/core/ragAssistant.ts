@@ -8,6 +8,8 @@ import type {
   VectorSearchResult
 } from '../types'
 import { buildCurrentSessionChunks, rankChunks } from './knowledgeEmbedding'
+
+const MIN_SIMILARITY_SCORE = 0.05
 import { formatRawLine, RawLogStore } from './rawLogStore'
 import { readLlmConfig } from './llmConfig'
 import { LlmProviderError, type LlmMessage } from './llmProvider'
@@ -20,7 +22,15 @@ export async function recommendSimilarCases(data: ReplaySessionData, question = 
   const persistent = await searchVectorStore(query, { limit: 8, rebuildIfEmpty: true })
   const rawStore = data.rawLinesPath ? RawLogStore.load(data.rawLinesPath) : null
   const current = rankChunks(query, await buildCurrentSessionChunks(data, rawStore), 5)
-  return [...persistent, ...current]
+  const merged = [...persistent, ...current]
+  const deduped = new Map<string, VectorSearchResult>()
+  for (const item of merged) {
+    const key = item.chunk.source.id
+    const existing = deduped.get(key)
+    if (!existing || item.score > existing.score) deduped.set(key, item)
+  }
+  return Array.from(deduped.values())
+    .filter((item) => item.score >= MIN_SIMILARITY_SCORE)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8)
 }

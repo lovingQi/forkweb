@@ -1,4 +1,5 @@
 import type {
+  AssistantAnswer,
   KnowledgeMatch,
   KnowledgeRule,
   RawLineReader,
@@ -9,6 +10,19 @@ import type {
 } from '../types'
 
 const EMBEDDING_SIZE = 128
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'from', 'with', 'this', 'that', 'null', 'true', 'false',
+  'start', 'end', 'current', 'task', 'info', 'data', 'value', 'type', 'name',
+  'status', 'result', 'not', 'are', 'was', 'has', 'have', 'been', 'will',
+  '的', '了', '是', '在', '我', '有', '和', '就', '不', '人',
+  '都', '一', '个', '上', '也', '这', '中', '他', '会', '到',
+  '说', '为', '时', '要', '可以', '已经', '进行', '当前', '出现',
+  '正在', '通过', '其中', '以及', '由于', '对于', '没有', '如果'
+])
+
+let globalIdfTable: Map<string, number> = new Map()
+let totalDocCount = 0
 
 export function buildKnowledgeRuleChunks(rules: KnowledgeRule[]): VectorDocumentChunk[] {
   return rules.map((rule) => makeChunk({
@@ -127,15 +141,69 @@ export async function buildKnowledgeMatchChunks(matches: KnowledgeMatch[], rawSt
   }))
 }
 
-export function embedText(text: string): number[] {
+export function buildTicketConclusionChunk(input: {
+  ticketNo: string
+  title: string
+  description: string
+  aiConclusion: AssistantAnswer
+  robotName?: string
+  site?: string
+}): VectorDocumentChunk {
+  const { ticketNo, title, description, aiConclusion, robotName, site } = input
+  return makeChunk({
+    id: `ticket-conclusion:${ticketNo}`,
+    sourceType: 'ticket_conclusion',
+    sourceId: ticketNo,
+    title: `${ticketNo}: ${title}`,
+    tags: ['ticket_conclusion'],
+    text: [
+      `工单: ${ticketNo}`,
+      `标题: ${title}`,
+      `描述: ${description}`,
+      robotName ? `车辆: ${robotName}` : '',
+      site ? `现场: ${site}` : '',
+      `AI结论: ${aiConclusion.answer}`,
+      ...aiConclusion.rootCauseCandidates.slice(0, 5).map((c) => `根因候选: ${c}`),
+      ...aiConclusion.suggestions.slice(0, 5).map((s) => `建议: ${s}`)
+    ].filter(Boolean).join('\n'),
+    metadata: {
+      ticketNo,
+      solution: aiConclusion.suggestions.join('; '),
+      evidence: aiConclusion.evidence.slice(0, 5).map((e) => e.excerpt)
+    },
+    updatedAt: new Date().toISOString()
+  })
+}
+
+export function embedText(text: string, useIdf = true): number[] {
   const vector = new Array(EMBEDDING_SIZE).fill(0)
   const tokens = tokenize(text)
   for (const token of tokens) {
     const index = Math.abs(hash(token)) % EMBEDDING_SIZE
-    vector[index] += 1
+    let weight = 1
+    if (useIdf && globalIdfTable.size > 0) {
+      const df = globalIdfTable.get(token) || 0
+      weight = 1 / Math.log2(2 + df)
+    }
+    vector[index] += weight
   }
   const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1
   return vector.map((value) => Number((value / norm).toFixed(6)))
+}
+
+export function reEmbedChunkText(text: string): number[] {
+  return embedText(text, true)
+}
+
+export function buildIdfTable(chunks: VectorDocumentChunk[]): void {
+  globalIdfTable = new Map()
+  totalDocCount = chunks.length
+  for (const chunk of chunks) {
+    const uniqueTokens = new Set(tokenize(chunk.text))
+    for (const token of uniqueTokens) {
+      globalIdfTable.set(token, (globalIdfTable.get(token) || 0) + 1)
+    }
+  }
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -200,9 +268,13 @@ function tokenize(text: string): string[] {
   const words = lower.match(/[a-z0-9_]{2,}|error\d{3,6}|[\u4e00-\u9fa5]{2,}/g) || []
   const grams: string[] = []
   for (const word of words) {
+    if (STOP_WORDS.has(word)) continue
     grams.push(word)
     if (/[\u4e00-\u9fa5]/.test(word)) {
-      for (let i = 0; i < word.length - 1; i++) grams.push(word.slice(i, i + 2))
+      for (let i = 0; i < word.length - 1; i++) {
+        const bigram = word.slice(i, i + 2)
+        if (!STOP_WORDS.has(bigram)) grams.push(bigram)
+      }
     }
   }
   return grams

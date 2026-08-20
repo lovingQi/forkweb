@@ -340,7 +340,7 @@ export interface KnowledgePatternSuggestion {
   confidenceWeights: KnowledgeConfidenceWeight[]
 }
 
-export type VectorDocumentSourceType = 'knowledge_rule' | 'case_meta' | 'knowledge_match' | 'log_excerpt'
+export type VectorDocumentSourceType = 'knowledge_rule' | 'case_meta' | 'knowledge_match' | 'log_excerpt' | 'ticket_conclusion'
 
 export interface VectorDocumentSource {
   type: VectorDocumentSourceType
