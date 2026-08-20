@@ -17,6 +17,7 @@ export async function getDb(): Promise<Database.Database> {
   db.exec(SCHEMA_SQL);
   await runMigrations(db);
   db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
   return db;
 }
 

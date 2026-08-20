@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 import { config } from '@/config'
 
 const ticketHttp = axios.create({
@@ -13,6 +14,30 @@ ticketHttp.interceptors.request.use((req) => {
   }
   return req
 })
+
+ticketHttp.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status
+      if (status === 401) {
+        localStorage.removeItem('forkweb_token')
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+      if (status === 403) {
+        ElMessage.error('权限不足')
+      } else if (status && status >= 500) {
+        ElMessage.error('服务异常，请稍后重试')
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        ElMessage.error('请求超时，请稍后重试')
+      } else if (!error.response) {
+        ElMessage.error('网络连接失败')
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export type TicketStatus =
   | 'pending_analysis'

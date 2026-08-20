@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import type { NextFunction, Response } from 'express';
 import { CACHE_DIR } from '../paths';
+import { logger } from '../logger';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
 import { getTicketById, getTicketByNo } from '../db/tickets';
@@ -832,7 +833,7 @@ router.get('/:id/files', authMiddleware, async (req: AuthRequest, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
 
     archive.on('error', (err: ArchiverError) => {
-      console.error('[ticket] 打包下载失败:', err);
+      logger.error({ err }, '[ticket] 打包下载失败');
       if (!res.headersSent) {
         res.status(500).json({ succeed: false, error: '文件打包失败' });
       } else if (!res.writableEnded) {
@@ -840,7 +841,7 @@ router.get('/:id/files', authMiddleware, async (req: AuthRequest, res) => {
       }
     });
     archive.on('warning', (err: ArchiverError) => {
-      console.warn('[ticket] 打包下载警告:', err);
+      logger.warn({ err }, '[ticket] 打包下载警告');
     });
 
     archive.pipe(res);

@@ -141,13 +141,49 @@
           </el-card>
         </el-col>
       </el-row>
+
+      <!-- 管理员：系统磁盘用量 -->
+      <el-card v-if="isAdmin" shadow="never" class="stats-section" v-loading="diskLoading">
+        <template #header>
+          <div class="section-title">系统存储用量</div>
+        </template>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <div class="disk-item">
+              <div class="disk-label">数据缓存 ({{ diskUsage.cache.path || '-' }})</div>
+              <el-progress
+                :percentage="diskUsage.cache.totalBytes ? Math.round((diskUsage.cache.usedBytes / diskUsage.cache.totalBytes) * 100) : 0"
+                :color="diskProgressColor(diskUsage.cache)"
+                :stroke-width="18"
+                :text-inside="true"
+              />
+              <div class="disk-detail">{{ formatBytes(diskUsage.cache.usedBytes) }} / {{ formatBytes(diskUsage.cache.totalBytes) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="12">
+            <div class="disk-item">
+              <div class="disk-label">配置目录 ({{ diskUsage.config.path || '-' }})</div>
+              <el-progress
+                :percentage="diskUsage.config.totalBytes ? Math.round((diskUsage.config.usedBytes / diskUsage.config.totalBytes) * 100) : 0"
+                :color="diskProgressColor(diskUsage.config)"
+                :stroke-width="18"
+                :text-inside="true"
+              />
+              <div class="disk-detail">{{ formatBytes(diskUsage.config.usedBytes) }} / {{ formatBytes(diskUsage.config.totalBytes) }}</div>
+            </div>
+          </el-col>
+        </el-row>
+      </el-card>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
+import { config } from '@/config'
+import { useAuthStore } from '@/stores/auth'
 import {
   fetchStatsKnowledge,
   fetchStatsTickets,
@@ -157,6 +193,9 @@ import {
   type TicketStats,
   type UserStats
 } from '@/api/stats'
+
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.isAdmin)
 
 const loading = ref(false)
 const error = ref('')
@@ -222,8 +261,55 @@ async function loadAll() {
   }
 }
 
+interface DiskInfo {
+  path: string
+  usedBytes: number
+  totalBytes: number
+}
+
+const diskLoading = ref(false)
+const diskUsage = reactive<{ cache: DiskInfo; config: DiskInfo }>({
+  cache: { path: '', usedBytes: 0, totalBytes: 0 },
+  config: { path: '', usedBytes: 0, totalBytes: 0 }
+})
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
+}
+
+function diskProgressColor(info: DiskInfo): string {
+  if (!info.totalBytes) return '#909399'
+  const pct = info.usedBytes / info.totalBytes
+  if (pct >= 0.9) return '#f56c6c'
+  if (pct >= 0.7) return '#e6a23c'
+  return '#67c23a'
+}
+
+async function loadDiskUsage() {
+  if (!isAdmin.value) return
+  diskLoading.value = true
+  try {
+    const token = localStorage.getItem('forkweb_token')
+    const { data } = await axios.get(`${config.replayApiBase}/health`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (data.diskUsage) {
+      Object.assign(diskUsage.cache, data.diskUsage.cache || {})
+      Object.assign(diskUsage.config, data.diskUsage.config || {})
+    }
+  } catch {
+    // health endpoint failure is non-critical
+  } finally {
+    diskLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadAll()
+  loadDiskUsage()
 })
 </script>
 
@@ -303,5 +389,19 @@ onMounted(() => {
   font-size: 13px;
   color: #475569;
   font-weight: 500;
+}
+.disk-item {
+  margin-bottom: 16px;
+}
+.disk-label {
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.disk-detail {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 6px;
 }
 </style>

@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { Worker } from 'worker_threads';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthUser } from '../auth/middleware';
 import { getDb } from '../db/index';
@@ -31,6 +32,8 @@ import { buildTicketConclusionChunk } from '../core/knowledgeEmbedding';
 import { appendVectorStoreChunk } from '../core/vectorStore';
 import type { KnowledgeRule } from '../types';
 import { ZipArchive, type Archiver } from 'archiver';
+import type { AnalysisWorkerInput, AnalysisWorkerResult } from '../core/analysisWorker';
+import { logger } from '../logger';
 
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -230,20 +233,63 @@ async function revertFailedAnalysis(
   });
 }
 
+function getWorkerPath(): string {
+  const tsPath = path.resolve(__dirname, '../core/analysisWorker.ts');
+  const jsPath = path.resolve(__dirname, '../core/analysisWorker.js');
+  return fsSync.existsSync(jsPath) ? jsPath : tsPath;
+}
+
 function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId: symbol): void {
   setImmediate(async () => {
     const ticket = await getTicketById(ticketId);
     if (!ticket || !isActiveAnalysisRun(ticketId, runId)) return;
 
-    const session = new ReplaySession();
+    const workerInput: AnalysisWorkerInput = {
+      logDir: ticket.log_dir,
+      mapDir: ticket.map_dir || undefined,
+      mapFile: ticket.map_file || undefined,
+      forceReload: true
+    };
+
+    const workerPath = getWorkerPath();
+    const isTs = workerPath.endsWith('.ts');
+
     try {
-      await session.load({
-        logDir: ticket.log_dir,
-        mapDir: ticket.map_dir || undefined,
-        mapFile: ticket.map_file || undefined,
-        forceReload: true
+      const workerResult = await new Promise<any>((resolve, reject) => {
+        const worker = new Worker(workerPath, {
+          workerData: workerInput,
+          ...(isTs ? { execArgv: ['--import', 'tsx'] } : {})
+        });
+
+        worker.on('message', (msg: AnalysisWorkerResult) => {
+          if (msg.type === 'done') {
+            resolve(msg.data);
+          } else if (msg.type === 'error') {
+            reject(new Error(msg.error || 'Worker analysis failed'));
+          }
+        });
+
+        worker.on('error', reject);
+        worker.on('exit', (code) => {
+          if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
+        });
       });
+
       if (!isActiveAnalysisRun(ticketId, runId)) return;
+
+      const session = new ReplaySession();
+      session.data = {
+        ...session.data,
+        overview: workerResult.overview,
+        knowledgeMatches: workerResult.knowledgeMatches || [],
+        errorSummaries: workerResult.errorSummaries || [],
+        errorOccurrences: workerResult.errorOccurrences || [],
+        events: workerResult.events || [],
+        tasks: workerResult.tasks || [],
+        frames: workerResult.frames || [],
+        foldedLogs: workerResult.foldedLogs || [],
+        rawLinesPath: workerResult.rawLinesPath
+      };
 
       if (ticket.vehicle_model_id) {
         const model = await getModelById(ticket.vehicle_model_id);
@@ -265,7 +311,7 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId:
       await finalizeTicketAnalysis(ticketId, session, actor, () => isActiveAnalysisRun(ticketId, runId));
       finishAnalysisRun(ticketId, runId);
     } catch (e) {
-      console.error('[ticket] 自动分析失败:', e);
+      logger.error({ err: e, ticketId }, '[ticket] 自动分析失败');
       if (!finishAnalysisRun(ticketId, runId)) return;
       await revertFailedAnalysis(ticketId, actor, 'analysis_failed', e instanceof Error ? e.message : String(e));
     }
@@ -296,12 +342,6 @@ async function finalizeTicketAnalysis(
   const jsonPath = path.join(ticketDir, 'report.json');
   await fs.writeFile(jsonPath, JSON.stringify(jsonReport, null, 2), 'utf8');
 
-  if (!isRunActive()) return;
-  const pkg = await exportDiagnosticPackage(session.data, { includeReports: true });
-  if (!isRunActive()) return;
-  const pkgDest = path.join(ticketDir, 'package.zip');
-  await fs.copyFile(pkg.file, pkgDest);
-
   const conclusion = summarizeRootCauses(session.data.overview.rootCauses);
   const inferredIssueType = classifyFromAnalysis({
     rootCauses: session.data.overview.rootCauses,
@@ -317,7 +357,7 @@ async function finalizeTicketAnalysis(
     inputLogDir: ticket.log_dir,
     inputMapDir: ticket.map_dir || undefined,
     inputMapFile: ticket.map_file || undefined,
-    inputPackageSource: pkgDest,
+    inputPackageSource: undefined,
     occurredStartAt: ticket.occurred_start_at || undefined,
     occurredEndAt: ticket.occurred_end_at || undefined,
     issueType: inferredIssueType,
@@ -325,7 +365,7 @@ async function finalizeTicketAnalysis(
     troubleshootingPathsSnapshot: { paths },
     evidenceSummary: buildEvidenceSummary(session.data),
     reportPath: mdPath,
-    packagePath: pkgDest
+    packagePath: undefined
   });
 
   // 保存排查路径与步骤
@@ -361,7 +401,6 @@ async function finalizeTicketAnalysis(
     status: 'pending_field_troubleshooting',
     conclusion,
     report_path: mdPath,
-    package_path: pkgDest,
     latest_analysis_version_id: analysisVersion.id,
     issue_type: inferredIssueType
   };
@@ -383,9 +422,9 @@ async function finalizeTicketAnalysis(
         aiConclusion: aiAnswer,
         robotName: session.data.overview.robotName,
         site: ticket.site_id ? (await getSiteById(ticket.site_id))?.name : undefined
-      })).catch((e) => console.error('[ticket] 向量库回流失败:', e));
+      })).catch((e) => logger.error({ err: e, ticketId }, '[ticket] 向量库回流失败'));
     } catch (e) {
-      console.error('[ticket] AI 分析失败:', e);
+      logger.error({ err: e, ticketId }, '[ticket] AI 分析失败');
       updatePayload.ai_conclusion = JSON.stringify({
         answer: `AI 分析调用失败：${e instanceof Error ? e.message : String(e)}`,
         provider: 'offline',
@@ -403,7 +442,7 @@ async function finalizeTicketAnalysis(
     ticketId,
     actorId: actor.id,
     action: 'analysis_completed',
-    payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled, analysisVersionId: analysisVersion.id }
+    payload: { reportPath: mdPath, conclusion, aiEnabled: !!ticket.ai_enabled, analysisVersionId: analysisVersion.id }
   });
 
   void sendWechatWorkNotification({
@@ -939,7 +978,7 @@ export async function escalateToRd(
       packagePath: ticket.package_path
     });
   } catch (e) {
-    console.error('[ticket] 邮件通知失败:', e);
+    logger.error({ err: e, ticketId }, '[ticket] 邮件通知失败');
     await createTicketEvent({
       ticketId,
       actorId: actor.id,
