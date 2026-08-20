@@ -3,7 +3,7 @@ import { config } from '@/config'
 
 const replayHttp = axios.create({
   baseURL: config.replayApiBase,
-  timeout: 30000
+  timeout: 300000
 })
 
 replayHttp.interceptors.request.use((req) => {
