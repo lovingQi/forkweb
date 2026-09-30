@@ -15,7 +15,8 @@ export async function getDb(): Promise<Database.Database> {
   if (db) return db;
   await fs.mkdir(DB_DIR, { recursive: true });
   if (!isMainThread) {
-    db = new Database(DB_FILE, { readonly: true, fileMustExist: true });
+    db = new Database(DB_FILE, { fileMustExist: true });
+    db.pragma('query_only = ON');
     return db;
   }
   db = new Database(DB_FILE);
