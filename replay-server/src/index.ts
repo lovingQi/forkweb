@@ -14,7 +14,7 @@ import { WebSocketServer } from 'ws'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-import { clearReplayCache, getCacheSummary } from './core/cache'
+import { cleanupStaleTempFiles, clearReplayCache, getCacheSummary } from './core/cache'
 import { exportDiagnosticPackage, importDiagnosticPackage, type DiagnosticPackageManifest } from './core/diagnosticPackage'
 import { isNoiseLine, noiseRuleId } from './core/noise'
 import { addBookmark, deleteBookmark, readBookmarks } from './core/bookmarks'
@@ -46,7 +46,7 @@ import { RawLogStore, formatRawLine } from './core/rawLogStore'
 import type { IndexedLogLine, LogLineRef, ParsedLogLine, TimelineEvent } from './types'
 import { addRootCauseFeedback } from './core/rootCauseFeedback'
 import { ReplaySession } from './core/session'
-import { createSessionJob, getSessionJob } from './core/sessionJobs'
+import { createSessionJob, getSessionJob, loadSessionInWorker } from './core/sessionJobs'
 import { filterTimelineEvents } from './core/timeline'
 import { getAssistantStatus, getPublicLlmConfig, readLlmConfig } from './core/llmConfig'
 import { clearLlmLocalConfig, writeLlmLocalConfig } from './core/llmConfigStore'
@@ -96,7 +96,8 @@ app.post('/api/replay/session/jobs', (req, res) => {
     logDir: String(req.body.logDir || ''),
     mapDir: req.body.mapDir ? String(req.body.mapDir) : undefined,
     mapFile: req.body.mapFile ? String(req.body.mapFile) : undefined,
-    forceReload: !!req.body.forceReload
+    forceReload: !!req.body.forceReload,
+    cacheOnly: !!req.body.cacheOnly
   })
   res.json({ succeed: true, job })
 })
@@ -733,7 +734,7 @@ app.post('/api/replay/package/import', async (req, res) => {
   try {
     await fs.writeFile(tempFile, Buffer.from(content, 'base64'))
     const imported = await importDiagnosticPackage(tempFile)
-    const data = await session.load({
+    const data = await loadSessionInWorker(session, {
       logDir: imported.logDir,
       mapDir: imported.mapDir,
       mapFile: imported.mapFile,
@@ -775,7 +776,7 @@ app.post('/api/replay/package/import-path', async (req, res) => {
       return
     }
     const imported = await importDiagnosticPackage(zipPath)
-    const data = await session.load({
+    const data = await loadSessionInWorker(session, {
       logDir: imported.logDir,
       mapDir: imported.mapDir,
       mapFile: imported.mapFile,
@@ -935,6 +936,8 @@ scheduleDailyStorageCleanup()
 
 server.listen(port, host, async () => {
   await ensureAdminUser()
+  const removedTempFiles = await cleanupStaleTempFiles()
+  if (removedTempFiles > 0) console.log(`[cache] removed stale temp files: ${removedTempFiles}`)
   console.log(`replay server listening on http://${host}:${port}`)
 })
 

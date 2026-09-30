@@ -163,14 +163,15 @@ export const useReplayStore = defineStore('replay', {
   }),
 
   actions: {
-    async loadSession(forceReload = false) {
+    async loadSession(forceReload = false, cacheOnly = false) {
       this.loading = true
       try {
         const created = await createReplaySessionJob({
           logDir: this.logDir,
           mapDir: this.mapDir || undefined,
           mapFile: this.mapFile || undefined,
-          forceReload
+          forceReload,
+          cacheOnly
         })
         this.sessionJob = created.job
         await this.pollSessionJob(created.job.id)
@@ -206,7 +207,9 @@ export const useReplayStore = defineStore('replay', {
         this.sessionJob = res.job
         if (res.job?.status === 'error') {
           this.loading = false
-          throw new Error(res.job.error || '解析失败')
+          const error = new Error(res.job.error || '解析失败') as Error & { code?: string }
+          error.code = res.job.errorCode
+          throw error
         }
         await new Promise((resolve) => setTimeout(resolve, 500))
       }

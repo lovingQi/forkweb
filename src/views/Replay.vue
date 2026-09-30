@@ -966,7 +966,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import CanvasView from '@/components/CanvasView.vue'
 import ReplayCharts from '@/components/replay/ReplayCharts.vue'
 import ReplayAssistant from '@/components/replay/ReplayAssistant.vue'
@@ -1173,17 +1173,23 @@ const caseMetaText = computed(() => {
   return parts.join('；')
 })
 
-async function load(forceReload = false) {
+async function load(forceReload = false, cacheOnly = false): Promise<'ok' | 'cache_miss' | 'error'> {
   try {
     robot.disconnectWs()
-    await replay.loadSession(forceReload)
+    await replay.loadSession(forceReload, cacheOnly)
     robot.map = await getReplayMap()
     robot.connectWs('replay')
     syncProgressValue()
     startProgressTimer()
     ElMessage.success('日志诊断已加载')
+    return 'ok'
   } catch (e: any) {
+    if (cacheOnly && e?.code === 'cache_miss') {
+      if (replay.loaded) robot.connectWs('replay')
+      return 'cache_miss'
+    }
     ElMessage.error(e && e.message ? e.message : String(e))
+    return 'error'
   }
 }
 
@@ -1210,6 +1216,17 @@ async function importFromTicket() {
     replay.mapDir = ticket.mapDir || ''
     replay.mapFile = ticket.mapFile || ''
     ElMessage.success(`已导入工单 ${ticket.ticketNo} 的日志/地图路径`)
+    const result = await load(false, true)
+    if (result !== 'cache_miss') return
+    try {
+      await ElMessageBox.confirm(
+        '该工单还没有可用的分析缓存，重新解析大约需要几分钟，是否继续？',
+        '没有分析缓存',
+        { confirmButtonText: '重新解析', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
     await load(true)
   } catch (e: any) {
     ElMessage.error(e && e.message ? e.message : String(e))

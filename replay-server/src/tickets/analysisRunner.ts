@@ -1,12 +1,10 @@
-import path from 'path'
-import { fileURLToPath } from 'url'
 import { Worker } from 'worker_threads'
-import { runAnalysisJob, type AnalysisJobInput, type AnalysisJobResult } from './analysisJob'
+import { getAnalysisMaxOldMb, launchWorker } from '../core/workerLauncher'
+import type { AnalysisJobInput, AnalysisJobResult } from './analysisJob'
 
 export function startAnalysisWorker(input: AnalysisJobInput): { worker: Worker | null; result: Promise<AnalysisJobResult> } {
-  const ext = path.extname(fileURLToPath(import.meta.url))
-  const maxMb = Number(process.env.FORKWEB_ANALYSIS_MAX_OLD_MB || 384)
-  const worker = new Worker(new URL(`./analysisWorker${ext}`, import.meta.url), {
+  const maxMb = getAnalysisMaxOldMb()
+  const worker = launchWorker(import.meta.url, './analysisWorker', {
     workerData: input,
     resourceLimits: { maxOldGenerationSizeMb: maxMb }
   })
@@ -24,13 +22,6 @@ export function startAnalysisWorker(input: AnalysisJobInput): { worker: Worker |
       })
     })
     worker.once('error', (error: NodeJS.ErrnoException) => {
-      if (ext === '.ts' && error.code === 'ERR_UNKNOWN_FILE_EXTENSION') {
-        console.warn('[analysis] 工作线程无法加载 TypeScript，改为在主线程执行')
-        finish(() => {
-          resolve(runAnalysisJob(input))
-        })
-        return
-      }
       if (error.code === 'ERR_WORKER_OUT_OF_MEMORY') {
         finish(() => reject(new Error(`分析内存超出上限（${maxMb} MB）`)))
         return

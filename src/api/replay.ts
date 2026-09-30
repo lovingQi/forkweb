@@ -19,6 +19,7 @@ export interface ReplaySessionInput {
   mapDir?: string
   mapFile?: string
   forceReload?: boolean
+  cacheOnly?: boolean
 }
 
 export async function createReplaySession(input: ReplaySessionInput) {

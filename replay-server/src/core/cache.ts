@@ -122,6 +122,19 @@ export async function clearReplayCache(bucketKey?: string): Promise<void> {
   await fs.rm(CACHE_ROOT_DIR, { recursive: true, force: true })
 }
 
+const STALE_TEMP_FILE = /^(raw-lines-[0-9a-f]+\.(jsonl|idx)|session-[0-9a-f]+\.json)\.\d+\.tmp(\.\d+\.part)?$/
+
+export async function cleanupStaleTempFiles(): Promise<number> {
+  const entries = await fs.readdir(CACHE_ROOT_DIR, { withFileTypes: true }).catch(() => [])
+  let removed = 0
+  for (const entry of entries) {
+    if (!entry.isFile() || !STALE_TEMP_FILE.test(entry.name)) continue
+    await fs.rm(path.join(CACHE_ROOT_DIR, entry.name), { force: true }).catch(() => undefined)
+    removed += 1
+  }
+  return removed
+}
+
 export async function cleanupReplayCache(maxAgeDays = Number(process.env.REPLAY_CACHE_MAX_AGE_DAYS || DEFAULT_MAX_AGE_DAYS)): Promise<void> {
   const maxAgeMs = Math.max(1, maxAgeDays) * 24 * 60 * 60 * 1000
   const now = Date.now()

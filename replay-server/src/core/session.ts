@@ -35,6 +35,15 @@ import { readBookmarks } from './bookmarks'
 import { readCaseMeta } from './caseMeta'
 import { getKnowledgeLibraryFingerprint, matchKnowledgeRules } from './knowledgeBase'
 
+export class SessionCacheMissError extends Error {
+  readonly code = 'cache_miss'
+
+  constructor() {
+    super('没有可用的分析缓存')
+    this.name = 'SessionCacheMissError'
+  }
+}
+
 const EMPTY_OVERVIEW: OverviewSummary = {
   loaded: false,
   logDir: '',
@@ -111,7 +120,7 @@ export class ReplaySession {
   }
 
   async load(
-    input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean; recordKnowledgeHits?: boolean },
+    input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean; recordKnowledgeHits?: boolean; cacheOnly?: boolean },
     onProgress?: (stage: string, progress: number) => void
   ): Promise<ReplaySessionData> {
     const loadStart = Date.now()
@@ -134,16 +143,13 @@ export class ReplaySession {
     const knowledgeFingerprint = await getKnowledgeLibraryFingerprint()
     const cacheKey = await buildCacheKey({ files, mapDir: input.mapDir, mapFile: input.mapFile, knowledgeFingerprint })
     const rawLinesPath = rawLinesFilePath(cacheKey)
-    if (!input.forceReload) {
+    if (!input.forceReload || input.cacheOnly) {
       await step('检查缓存', 8)
       const cached = await readSessionCache(cacheKey)
       if (cached) {
         timings['读取缓存'] = Date.now() - stepStart
         onProgress?.('缓存命中', 100)
-        this.data = cached
-        this.control.currentMs = cached.frames[0]?.timeMs || 0
-        this.control.currentFrameIndex = 0
-        this.control.playing = false
+        this.applyLoadedData(cached)
         this.data.overview.parseStats = {
           loadMs: 0,
           parseMs: 0,
@@ -155,6 +161,7 @@ export class ReplaySession {
         }
         return this.data
       }
+      if (input.cacheOnly) throw new SessionCacheMissError()
     }
     await step('读取日志文件', 10)
     const parseStart = Date.now()
@@ -244,7 +251,7 @@ export class ReplaySession {
       source: cacheHits > 0 ? `log_index:${cacheHits}/${files.length}` : 'full_parse',
       stageTimings: timings
     }
-    this.data = {
+    this.applyLoadedData({
       overview,
       map,
       frames: mergedFrames,
@@ -260,10 +267,7 @@ export class ReplaySession {
       bookmarks: await readBookmarks(),
       caseMeta: await readCaseMeta(),
       knowledgeMatches
-    }
-    this.control.currentMs = mergedFrames[0]?.timeMs || 0
-    this.control.currentFrameIndex = 0
-    this.control.playing = false
+    })
 
     const cacheWritten = await writeSessionCache(cacheKey, this.data)
     if (!cacheWritten) overview.dataWarnings.push('会话数据过大或缓存写入失败，本次分析结果未写入会话缓存。')
@@ -272,6 +276,13 @@ export class ReplaySession {
     overview.parseStats.stageTimings = timings
     onProgress?.('完成', 100)
     return this.data
+  }
+
+  applyLoadedData(data: ReplaySessionData): void {
+    this.data = data
+    this.control.currentMs = data.frames[0]?.timeMs || 0
+    this.control.currentFrameIndex = 0
+    this.control.playing = false
   }
 
   getCurrentFrame(): ReplayFrame | null {
