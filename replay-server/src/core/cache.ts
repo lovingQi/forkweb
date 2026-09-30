@@ -104,7 +104,7 @@ export async function clearReplayCache(bucketKey?: string): Promise<void> {
   if (bucketKey) {
     const bucket = cacheBuckets().find((it) => it.key === bucketKey)
     if (!bucket) return
-    const files = (await listFiles(bucket.dir)).filter((file) => bucketContainsFile(bucket.key, file))
+    const files = (await listFiles(bucket.dir)).filter((file) => bucketContainsFile(bucket.key, file) && isDisposableCacheFile(file))
     for (const file of files) {
       await fs.rm(file, { force: true }).catch(() => undefined)
       if (bucket.key === 'sessions') {
@@ -119,7 +119,9 @@ export async function clearReplayCache(bucketKey?: string): Promise<void> {
     }
     return
   }
-  await fs.rm(CACHE_ROOT_DIR, { recursive: true, force: true })
+  for (const file of await listFiles(CACHE_ROOT_DIR)) {
+    if (isDisposableCacheFile(file)) await fs.rm(file, { force: true }).catch(() => undefined)
+  }
 }
 
 const STALE_TEMP_FILE = /^(raw-lines-[0-9a-f]+\.(jsonl|idx)|session-[0-9a-f]+\.json)\.\d+\.tmp(\.\d+\.part)?$/
@@ -135,10 +137,36 @@ export async function cleanupStaleTempFiles(): Promise<number> {
   return removed
 }
 
+const PROTECTED_ROOT_FILES = new Set([
+  'forkweb.db',
+  'forkweb.db-wal',
+  'forkweb.db-shm',
+  'forkweb.db-journal',
+  'root-cause-feedback.json'
+])
+
+function isProtectedDataFile(file: string): boolean {
+  const relative = path.relative(CACHE_ROOT_DIR, file)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return true
+  const top = relative.split(path.sep)[0]
+  if (top === 'tickets' || top === 'uploads') return true
+  return PROTECTED_ROOT_FILES.has(top)
+}
+
+function isDisposableCacheFile(file: string): boolean {
+  if (isProtectedDataFile(file)) return false
+  const relative = path.relative(CACHE_ROOT_DIR, file)
+  if (relative.startsWith(`indexes${path.sep}`) || relative.startsWith(`packages${path.sep}`) || relative.startsWith(`imports${path.sep}`)) return true
+  return /^session-[0-9a-f]+\.json$/.test(relative)
+    || /^raw-lines-[0-9a-f]+\.(jsonl|idx)$/.test(relative)
+    || STALE_TEMP_FILE.test(relative)
+}
+
 export async function cleanupReplayCache(maxAgeDays = Number(process.env.REPLAY_CACHE_MAX_AGE_DAYS || DEFAULT_MAX_AGE_DAYS)): Promise<void> {
   const maxAgeMs = Math.max(1, maxAgeDays) * 24 * 60 * 60 * 1000
   const now = Date.now()
   for (const file of await listFiles(CACHE_ROOT_DIR)) {
+    if (!isDisposableCacheFile(file)) continue
     const stat = await fs.stat(file).catch(() => null)
     if (stat && now - stat.mtimeMs > maxAgeMs) await fs.rm(file, { force: true }).catch(() => undefined)
   }
@@ -200,7 +228,7 @@ function bucketContainsFile(key: string, file: string): boolean {
 }
 
 async function cleanupBySize(maxBytes: number): Promise<void> {
-  const files = await listFiles(CACHE_ROOT_DIR)
+  const files = (await listFiles(CACHE_ROOT_DIR)).filter((file) => isDisposableCacheFile(file))
   const stats = await Promise.all(files.map(async (file) => ({ file, stat: await fs.stat(file).catch(() => null) })))
   let total = stats.reduce((sum, item) => sum + (item.stat?.size || 0), 0)
   if (total <= maxBytes) return
