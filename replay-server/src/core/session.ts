@@ -111,7 +111,7 @@ export class ReplaySession {
   }
 
   async load(
-    input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean },
+    input: { logDir: string; mapDir?: string; mapFile?: string; forceReload?: boolean; recordKnowledgeHits?: boolean },
     onProgress?: (stage: string, progress: number) => void
   ): Promise<ReplaySessionData> {
     const loadStart = Date.now()
@@ -206,7 +206,7 @@ export class ReplaySession {
       rawStore,
       errorOccurrences: occurrences,
       vehicleStateOccurrences
-    }, input.logDir)
+    }, input.logDir, undefined, { recordHits: input.recordKnowledgeHits !== false })
 
     await step('构建根因分析', 80)
     const rootCauses = await buildRootCauses({

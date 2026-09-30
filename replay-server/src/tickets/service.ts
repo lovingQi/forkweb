@@ -11,12 +11,12 @@ import { ensureTicketDirs, getTicketCommentImageDir, getTicketDir, getTicketLogD
 import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
 import { sendRdNotificationEmail } from '../mail/sender';
 import { sendWechatWorkNotification } from '../notify/wechatWork';
-import { buildMarkdownReportAsync, buildJsonReport } from '../core/report';
-import { exportDiagnosticPackage } from '../core/diagnosticPackage';
 import { classifyFromAnalysis } from '../core/issueClassifier';
 import { generateTroubleshootingPaths } from '../core/troubleshootingGuide';
-import { ReplaySession } from '../core/session';
-import { createKnowledgeRule, recordKnowledgeRuleFeedback } from '../core/knowledgeBase';
+import { createKnowledgeRule, recordKnowledgeHits, recordKnowledgeRuleFeedback } from '../core/knowledgeBase';
+import { startAnalysisWorker } from './analysisRunner';
+import type { AnalysisJobResult } from './analysisJob';
+import type { Worker } from 'worker_threads';
 import { createTroubleshootingPath, deletePathsByTicketId, getTroubleshootingPathById, listTroubleshootingPaths } from '../db/troubleshootingPaths';
 import { createTroubleshootingStep, deleteStepsByTicketId, getTroubleshootingStepById } from '../db/troubleshootingSteps';
 import { createStepEvent, deleteStepEventsByTicketId, listStepEvents } from '../db/stepEvents';
@@ -32,12 +32,13 @@ import { appendVectorStoreChunk } from '../core/vectorStore';
 import type { KnowledgeRule } from '../types';
 import { ZipArchive, type Archiver } from 'archiver';
 
-const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000;
+const ANALYSIS_TIMEOUT_MS = Number(process.env.FORKWEB_ANALYSIS_TIMEOUT_MS || 10 * 60 * 1000);
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 interface AnalysisRun {
   id: symbol;
   timeout: NodeJS.Timeout;
+  worker: Worker | null;
 }
 
 const activeAnalysisRuns = new Map<number, AnalysisRun>();
@@ -188,10 +189,11 @@ export async function startTicketAnalysis(ticketId: number, actor: AuthUser): Pr
   const timeout = setTimeout(() => {
     const activeRun = activeAnalysisRuns.get(ticketId);
     if (!activeRun || activeRun.id !== runId) return;
+    void activeRun.worker?.terminate();
     activeAnalysisRuns.delete(ticketId);
     void revertFailedAnalysis(ticketId, actor, 'analysis_timeout', '自动分析超时（超过 10 分钟）');
   }, ANALYSIS_TIMEOUT_MS);
-  activeAnalysisRuns.set(ticketId, { id: runId, timeout });
+  activeAnalysisRuns.set(ticketId, { id: runId, timeout, worker: null });
   runTicketAnalysisInBackground(ticketId, actor, runId);
 
   return (await getTicketById(ticketId))!;
@@ -235,34 +237,29 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId:
     const ticket = await getTicketById(ticketId);
     if (!ticket || !isActiveAnalysisRun(ticketId, runId)) return;
 
-    const session = new ReplaySession();
+    let vehicleCategoryId: number | undefined;
+    if (ticket.vehicle_model_id) {
+      const model = await getModelById(ticket.vehicle_model_id);
+      if (model) vehicleCategoryId = model.category_id;
+    }
+    const { worker, result } = startAnalysisWorker({
+      logDir: ticket.log_dir,
+      mapDir: ticket.map_dir || undefined,
+      mapFile: ticket.map_file || undefined,
+      vehicleCategoryId,
+      ticketDir: getTicketDir(ticketId)
+    });
+    const active = activeAnalysisRuns.get(ticketId);
+    if (!active || active.id !== runId) {
+      await worker?.terminate();
+      return;
+    }
+    active.worker = worker;
     try {
-      await session.load({
-        logDir: ticket.log_dir,
-        mapDir: ticket.map_dir || undefined,
-        mapFile: ticket.map_file || undefined,
-        forceReload: true
-      });
+      const job = await result;
       if (!isActiveAnalysisRun(ticketId, runId)) return;
-
-      if (ticket.vehicle_model_id) {
-        const model = await getModelById(ticket.vehicle_model_id);
-        if (model) {
-          const catId = model.category_id;
-          session.data.knowledgeMatches = (session.data.knowledgeMatches || []).filter((m) => {
-            const ids = m.ruleSnapshot?.vehicleCategoryIds || [];
-            return ids.length === 0 || ids.includes(catId);
-          });
-          const keptRuleIds = new Set(session.data.knowledgeMatches.map((m) => m.ruleId));
-          session.data.overview.rootCauses = (session.data.overview.rootCauses || []).filter((rc) => {
-            if (rc.source !== 'knowledge_base') return true;
-            if (!rc.knowledgeRuleId) return false;
-            return keptRuleIds.has(rc.knowledgeRuleId);
-          });
-        }
-      }
-
-      await finalizeTicketAnalysis(ticketId, session, actor, () => isActiveAnalysisRun(ticketId, runId));
+      if (job.hitMatches.length > 0) await recordKnowledgeHits(job.hitMatches, ticket.log_dir);
+      await finalizeTicketAnalysis(ticketId, job, actor, () => isActiveAnalysisRun(ticketId, runId));
       finishAnalysisRun(ticketId, runId);
     } catch (e) {
       console.error('[ticket] 自动分析失败:', e);
@@ -274,7 +271,7 @@ function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId:
 
 async function finalizeTicketAnalysis(
   ticketId: number,
-  session: ReplaySession,
+  job: AnalysisJobResult,
   actor: AuthUser,
   isRunActive: () => boolean
 ): Promise<void> {
@@ -282,34 +279,15 @@ async function finalizeTicketAnalysis(
   const ticket = await getTicketById(ticketId);
   if (!ticket || !isRunActive()) return;
 
-  const ticketDir = getTicketDir(ticketId);
-  await fs.mkdir(ticketDir, { recursive: true });
-
-  if (!isRunActive()) return;
-  const mdReport = await buildMarkdownReportAsync(session.data);
-  if (!isRunActive()) return;
-  const mdPath = path.join(ticketDir, 'report.md');
-  await fs.writeFile(mdPath, mdReport, 'utf8');
-
-  if (!isRunActive()) return;
-  const jsonReport = buildJsonReport(session.data);
-  const jsonPath = path.join(ticketDir, 'report.json');
-  await fs.writeFile(jsonPath, JSON.stringify(jsonReport, null, 2), 'utf8');
-
-  if (!isRunActive()) return;
-  const pkg = await exportDiagnosticPackage(session.data, { includeReports: true });
-  if (!isRunActive()) return;
-  const pkgDest = path.join(ticketDir, 'package.zip');
-  await fs.copyFile(pkg.file, pkgDest);
-
-  const conclusion = summarizeRootCauses(session.data.overview.rootCauses);
+  const { data, mdPath, pkgDest } = job;
+  const conclusion = summarizeRootCauses(data.overview.rootCauses);
   const inferredIssueType = classifyFromAnalysis({
-    rootCauses: session.data.overview.rootCauses,
-    knowledgeMatches: session.data.knowledgeMatches,
-    errorSummaries: session.data.errorSummaries
+    rootCauses: data.overview.rootCauses,
+    knowledgeMatches: data.knowledgeMatches,
+    errorSummaries: data.errorSummaries
   });
 
-  const paths = generateTroubleshootingPaths(session.data, ticket);
+  const paths = generateTroubleshootingPaths(data, ticket);
 
   if (!isRunActive()) return;
   const analysisVersion = await createAnalysisVersion({
@@ -321,9 +299,9 @@ async function finalizeTicketAnalysis(
     occurredStartAt: ticket.occurred_start_at || undefined,
     occurredEndAt: ticket.occurred_end_at || undefined,
     issueType: inferredIssueType,
-    topIssues: buildTopIssues(session.data),
+    topIssues: buildTopIssues(data),
     troubleshootingPathsSnapshot: { paths },
-    evidenceSummary: buildEvidenceSummary(session.data),
+    evidenceSummary: buildEvidenceSummary(data),
     reportPath: mdPath,
     packagePath: pkgDest
   });
@@ -368,7 +346,7 @@ async function finalizeTicketAnalysis(
 
   if (ticket.ai_enabled) {
     try {
-      const aiAnswer = await askReplayAssistant(session.data, {
+      const aiAnswer = await askReplayAssistant(data, {
         question: `${ticket.title}：${ticket.description}`,
         includeLogs: true,
         maxLogLines: 120,
@@ -381,7 +359,7 @@ async function finalizeTicketAnalysis(
         title: ticket.title,
         description: ticket.description || '',
         aiConclusion: aiAnswer,
-        robotName: session.data.overview.robotName,
+        robotName: data.overview.robotName,
         site: ticket.site_id ? (await getSiteById(ticket.site_id))?.name : undefined
       })).catch((e) => console.error('[ticket] 向量库回流失败:', e));
     } catch (e) {
@@ -466,6 +444,7 @@ export async function deleteTicket(ticketId: number, actor: AuthUser): Promise<v
   const activeRun = activeAnalysisRuns.get(ticketId);
   if (activeRun) {
     clearTimeout(activeRun.timeout);
+    void activeRun.worker?.terminate();
     activeAnalysisRuns.delete(ticketId);
   }
 

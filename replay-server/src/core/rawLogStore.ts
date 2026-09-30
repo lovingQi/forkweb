@@ -14,6 +14,133 @@ export function rawLinesFilePath(cacheKey: string): string {
   return path.join(CACHE_DIR, `${RAW_LINES_PREFIX}${cacheKey}.jsonl`)
 }
 
+export function rawLinesIndexPath(jsonlPath: string): string {
+  return jsonlPath.replace(/\.jsonl$/, '.idx')
+}
+
+const RAW_INDEX_MAGIC = 'FWIX'
+const RAW_INDEX_VERSION = 1
+const RAW_INDEX_HEADER_BYTES = 16
+const RAW_INDEX_CACHE_LIMIT = 2
+const READ_CHUNK_BYTES = 4 * 1024 * 1024
+const RESOLVE_GAP_BYTES = 64 * 1024
+
+interface RawLineIndex {
+  mtimeMs: number
+  count: number
+  times: Float64Array
+  offsets: Float64Array
+}
+
+const rawLineIndexCache = new Map<string, RawLineIndex>()
+
+function rememberRawLineIndex(filePath: string, index: RawLineIndex): void {
+  if (rawLineIndexCache.has(filePath)) rawLineIndexCache.delete(filePath)
+  rawLineIndexCache.set(filePath, index)
+  while (rawLineIndexCache.size > RAW_INDEX_CACHE_LIMIT) {
+    const oldest = rawLineIndexCache.keys().next().value
+    if (oldest === undefined) break
+    rawLineIndexCache.delete(oldest)
+  }
+}
+
+function encodeRawLineIndex(times: Float64Array, offsets: Float64Array): Buffer {
+  const count = times.length
+  const buffer = Buffer.alloc(RAW_INDEX_HEADER_BYTES + (count + offsets.length) * 8)
+  buffer.write(RAW_INDEX_MAGIC, 0, 'ascii')
+  buffer.writeUInt32LE(RAW_INDEX_VERSION, 4)
+  buffer.writeUInt32LE(count, 8)
+  buffer.writeUInt32LE(0, 12)
+  let pos = RAW_INDEX_HEADER_BYTES
+  for (let i = 0; i < count; i++) {
+    buffer.writeDoubleLE(times[i], pos)
+    pos += 8
+  }
+  for (let i = 0; i < offsets.length; i++) {
+    buffer.writeDoubleLE(offsets[i], pos)
+    pos += 8
+  }
+  return buffer
+}
+
+async function writeRawLineIndex(idxPath: string, times: Float64Array, offsets: Float64Array): Promise<void> {
+  const temporary = `${idxPath}.${process.pid}.tmp`
+  try {
+    await fs.writeFile(temporary, encodeRawLineIndex(times, offsets))
+    await fs.rename(temporary, idxPath)
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+function decodeRawLineIndex(buffer: Buffer, fileSize: number): { count: number; times: Float64Array; offsets: Float64Array } | null {
+  if (buffer.length < RAW_INDEX_HEADER_BYTES) return null
+  if (buffer.toString('ascii', 0, 4) !== RAW_INDEX_MAGIC) return null
+  if (buffer.readUInt32LE(4) !== RAW_INDEX_VERSION) return null
+  const count = buffer.readUInt32LE(8)
+  const expected = RAW_INDEX_HEADER_BYTES + (count + count + 1) * 8
+  if (buffer.length < expected) return null
+  const times = new Float64Array(count)
+  const offsets = new Float64Array(count + 1)
+  let pos = RAW_INDEX_HEADER_BYTES
+  for (let i = 0; i < count; i++) {
+    times[i] = buffer.readDoubleLE(pos)
+    pos += 8
+  }
+  for (let i = 0; i < count + 1; i++) {
+    offsets[i] = buffer.readDoubleLE(pos)
+    pos += 8
+  }
+  if (offsets[count] !== fileSize) return null
+  return { count, times, offsets }
+}
+
+async function readRawLineIndex(idxPath: string, fileSize: number): Promise<{ count: number; times: Float64Array; offsets: Float64Array } | null> {
+  try {
+    const buffer = await fs.readFile(idxPath)
+    return decodeRawLineIndex(buffer, fileSize)
+  } catch {
+    return null
+  }
+}
+
+async function rebuildRawLineIndex(jsonlPath: string, fileSize: number): Promise<{ count: number; times: Float64Array; offsets: Float64Array }> {
+  const handle = await fs.open(jsonlPath, 'r')
+  const times: number[] = []
+  const offsets: number[] = []
+  let pos = 0
+  let carry = Buffer.alloc(0)
+  try {
+    while (pos < fileSize) {
+      const toRead = Math.min(READ_CHUNK_BYTES, fileSize - pos)
+      const buf = Buffer.alloc(toRead)
+      await handle.read(buf, 0, toRead, pos)
+      pos += toRead
+      const data = carry.length ? Buffer.concat([carry, buf]) : buf
+      const base = pos - data.length
+      let start = 0
+      for (let i = 0; i < data.length; i++) {
+        if (data[i] !== 10) continue
+        const lineBuf = data.subarray(start, i)
+        if (lineBuf.length && lineBuf.toString('utf8').trim()) {
+          const parsed = JSON.parse(lineBuf.toString('utf8')) as ParsedLogLine
+          offsets.push(base + start)
+          times.push(parsed.timeMs)
+        }
+        start = i + 1
+      }
+      carry = Buffer.from(data.subarray(start))
+    }
+  } finally {
+    await handle.close()
+  }
+  offsets.push(fileSize)
+  const index = { count: times.length, times: Float64Array.from(times), offsets: Float64Array.from(offsets) }
+  await writeRawLineIndex(rawLinesIndexPath(jsonlPath), index.times, index.offsets)
+  return index
+}
+
 export function formatRawLine(line: ParsedLogLine): string {
   const sourceLine = line.sourceLine ?? '?'
   return `${line.timestamp} ${line.module}: ${sourceLine} [${line.level}] : ${line.message}`
@@ -31,6 +158,10 @@ function toLogLineRef(line: IndexedLogLine): LogLineRef {
 }
 
 export class RawLogStore {
+  private indexTimes: Float64Array | null = null
+  private indexOffsets: Float64Array | null = null
+  private indexedCount = 0
+
   constructor(
     public readonly filePath: string,
     public readonly count: number
@@ -110,6 +241,10 @@ export class RawLogStore {
       // 2. k 路归并写入全局 JSONL
       const out = createWriteStream(temporary)
       let globalIndex = 0
+      let byteOffset = 0
+      const totalLines = perFile.reduce((sum, file) => sum + file.entries.length, 0)
+      const indexTimes = new Float64Array(totalLines)
+      const indexOffsets = new Float64Array(totalLines + 1)
       const refMap = new Map<string, number>()
       type HeapNode = { timeMs: number; line: number; fileIndex: number; entryIndex: number }
       const heap: HeapNode[] = []
@@ -138,7 +273,12 @@ export class RawLogStore {
           }
         }
         refMap.set(key, globalIndex)
-        out.write(`${JSON.stringify({ ...line, globalIndex: globalIndex++ })}\n`)
+        const payload = Buffer.from(`${JSON.stringify({ ...line, globalIndex })}\n`)
+        indexOffsets[globalIndex] = byteOffset
+        indexTimes[globalIndex] = line.timeMs
+        byteOffset += payload.length
+        globalIndex++
+        out.write(payload)
         if (node.entryIndex + 1 < pf.entries.length) {
           const next = pf.entries[node.entryIndex + 1]
           heapPush(heap, { timeMs: next.timeMs, line: next.line, fileIndex: node.fileIndex, entryIndex: node.entryIndex + 1 })
@@ -150,7 +290,9 @@ export class RawLogStore {
         out.on('error', reject)
       })
 
+      indexOffsets[globalIndex] = byteOffset
       await fs.rename(temporary, outPath)
+      await writeRawLineIndex(rawLinesIndexPath(outPath), indexTimes.subarray(0, globalIndex), indexOffsets.subarray(0, globalIndex + 1))
 
       // 3. 关闭 fd 并清理临时文件
       for (const pf of perFile) {
@@ -171,11 +313,8 @@ export class RawLogStore {
 
   async getCount(): Promise<number> {
     if (this.count > 0) return this.count
-    let count = 0
-    for await (const _ of this.streamLines()) {
-      count++
-    }
-    return count
+    await this.ensureIndex()
+    return this.indexedCount
   }
 
   async *streamLines(): AsyncGenerator<IndexedLogLine> {
@@ -195,6 +334,27 @@ export class RawLogStore {
     }
   }
 
+  async *streamMatchingLines(rowTest: (row: string) => boolean): AsyncGenerator<IndexedLogLine> {
+    if (!(await fileExists(this.filePath))) return
+    const rl = createInterface({
+      input: createReadStream(this.filePath),
+      crlfDelay: Infinity
+    })
+    let globalIndex = 0
+    for await (const row of rl) {
+      if (!row.trim()) continue
+      if (!rowTest(row)) {
+        globalIndex++
+        continue
+      }
+      try {
+        yield { ...JSON.parse(row), globalIndex: globalIndex++ } as IndexedLogLine
+      } catch {
+        // 跳过损坏行
+      }
+    }
+  }
+
   async readAll(): Promise<IndexedLogLine[]> {
     const lines: IndexedLogLine[] = []
     for await (const line of this.streamLines()) {
@@ -204,22 +364,25 @@ export class RawLogStore {
   }
 
   async readSlice(start: number, end: number): Promise<IndexedLogLine[]> {
-    const lines: IndexedLogLine[] = []
-    let index = 0
-    for await (const line of this.streamLines()) {
-      if (index >= end) break
-      if (index >= start) lines.push(line)
-      index++
-    }
-    return lines
+    await this.ensureIndex()
+    const lo = Math.max(0, start)
+    const hi = Math.min(this.indexedCount, end)
+    if (lo >= hi || !this.indexOffsets) return []
+    return readIndexedSlice(this.filePath, this.indexOffsets, lo, hi)
   }
 
   async readRange(startMs: number, endMs: number): Promise<IndexedLogLine[]> {
-    const lines: IndexedLogLine[] = []
-    for await (const line of this.streamLines()) {
-      if (line.timeMs >= startMs && line.timeMs <= endMs) lines.push(line)
-    }
-    return lines
+    const [lo, hi] = await this.findIndexRangeByTime(startMs, endMs)
+    return this.readSlice(lo, hi)
+  }
+
+  async findIndexRangeByTime(startMs: number, endMs: number): Promise<[number, number]> {
+    await this.ensureIndex()
+    const times = this.indexTimes
+    if (!times || this.indexedCount === 0) return [0, 0]
+    const lo = lowerBound(times, this.indexedCount, startMs)
+    const hi = upperBound(times, this.indexedCount, endMs)
+    return [lo, hi]
   }
 
   async readFiltered(predicate: (line: IndexedLogLine) => boolean): Promise<IndexedLogLine[]> {
@@ -231,18 +394,17 @@ export class RawLogStore {
   }
 
   async findNearestIndex(timeMs: number): Promise<number> {
-    let nearestIndex = 0
-    let index = 0
-    let minDelta = Infinity
-    for await (const line of this.streamLines()) {
-      const delta = Math.abs(line.timeMs - timeMs)
-      if (delta < minDelta) {
-        minDelta = delta
-        nearestIndex = index
-      }
-      index++
+    await this.ensureIndex()
+    const times = this.indexTimes
+    if (!times || this.indexedCount === 0) return 0
+    const lo = lowerBound(times, this.indexedCount, timeMs)
+    let best = Math.min(lo, this.indexedCount - 1)
+    if (lo > 0) {
+      const previousDelta = Math.abs(times[lo - 1] - timeMs)
+      const nextDelta = lo < this.indexedCount ? Math.abs(times[lo] - timeMs) : Infinity
+      best = previousDelta <= nextDelta ? lo - 1 : lo
     }
-    return nearestIndex
+    return lowerBound(times, this.indexedCount, times[best])
   }
 
   async readAroundTime(timeMs: number, count: number): Promise<IndexedLogLine[]> {
@@ -265,26 +427,38 @@ export class RawLogStore {
       positions.set(ref.globalIndex, arr)
     })
     if (positions.size === 0) return refs.map((ref, i) => result[i] || fallbackRef(ref))
-    const sortedIndices = Array.from(positions.keys()).sort((a, b) => a - b)
-    let nextIdx = 0
-    for await (const line of this.streamLines()) {
-      if (nextIdx >= sortedIndices.length) break
-      if (line.globalIndex === sortedIndices[nextIdx]) {
-        const plain: IndexedLogLine = {
-          globalIndex: line.globalIndex,
-          file: line.file,
-          line: line.line,
-          timestamp: line.timestamp,
-          timeMs: line.timeMs,
-          module: line.module,
-          sourceLine: line.sourceLine,
-          level: line.level,
-          message: line.message
+    await this.ensureIndex()
+    const offsets = this.indexOffsets
+    const sortedIndices = Array.from(positions.keys())
+      .filter((index) => index >= 0 && index < this.indexedCount)
+      .sort((a, b) => a - b)
+    for (const index of Array.from(positions.keys())) {
+      if (index < 0 || index >= this.indexedCount) {
+        for (const pos of positions.get(index) || []) result[pos] = fallbackRef(refs[pos])
+      }
+    }
+    if (sortedIndices.length > 0 && offsets) {
+      const groups: Array<[number, number]> = []
+      let groupStart = sortedIndices[0]
+      let groupEnd = sortedIndices[0] + 1
+      for (let i = 1; i < sortedIndices.length; i++) {
+        const next = sortedIndices[i]
+        if (offsets[next] - offsets[groupEnd] <= RESOLVE_GAP_BYTES) {
+          groupEnd = next + 1
+        } else {
+          groups.push([groupStart, groupEnd])
+          groupStart = next
+          groupEnd = next + 1
         }
-        for (const pos of positions.get(line.globalIndex)!) {
-          result[pos] = plain
+      }
+      groups.push([groupStart, groupEnd])
+      for (const [start, end] of groups) {
+        const lines = await this.readSlice(start, end)
+        for (const line of lines) {
+          const positionsForLine = positions.get(line.globalIndex)
+          if (!positionsForLine) continue
+          for (const pos of positionsForLine) result[pos] = line
         }
-        nextIdx++
       }
     }
     return refs.map((ref, i) => result[i] || fallbackRef(ref))
@@ -292,7 +466,86 @@ export class RawLogStore {
 
   async dispose(): Promise<void> {
     await fs.rm(this.filePath, { force: true }).catch(() => undefined)
+    await fs.rm(rawLinesIndexPath(this.filePath), { force: true }).catch(() => undefined)
   }
+
+  private async ensureIndex(): Promise<void> {
+    if (this.indexTimes && this.indexOffsets) return
+    const stat = await fs.stat(this.filePath)
+    const cached = rawLineIndexCache.get(this.filePath)
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      this.indexTimes = cached.times
+      this.indexOffsets = cached.offsets
+      this.indexedCount = cached.count
+      return
+    }
+    const loaded = await readRawLineIndex(rawLinesIndexPath(this.filePath), stat.size)
+    const index = loaded ?? await rebuildRawLineIndex(this.filePath, stat.size)
+    const stored = { mtimeMs: stat.mtimeMs, count: index.count, times: index.times, offsets: index.offsets }
+    rememberRawLineIndex(this.filePath, stored)
+    this.indexTimes = stored.times
+    this.indexOffsets = stored.offsets
+    this.indexedCount = stored.count
+  }
+}
+
+function lowerBound(times: Float64Array, count: number, value: number): number {
+  let lo = 0
+  let hi = count
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (times[mid] < value) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+function upperBound(times: Float64Array, count: number, value: number): number {
+  let lo = 0
+  let hi = count
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (times[mid] <= value) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+async function readIndexedSlice(filePath: string, offsets: Float64Array, lo: number, hi: number): Promise<IndexedLogLine[]> {
+  const startOff = offsets[lo]
+  const endOff = offsets[hi]
+  const handle = await fs.open(filePath, 'r')
+  const lines: IndexedLogLine[] = []
+  let pos = startOff
+  let carry = Buffer.alloc(0)
+  let index = lo
+  try {
+    while (pos < endOff) {
+      const toRead = Math.min(READ_CHUNK_BYTES, endOff - pos)
+      const buf = Buffer.alloc(toRead)
+      await handle.read(buf, 0, toRead, pos)
+      pos += toRead
+      const data = carry.length ? Buffer.concat([carry, buf]) : buf
+      let start = 0
+      for (let i = 0; i < data.length; i++) {
+        if (data[i] !== 10) continue
+        const lineBuf = data.subarray(start, i)
+        if (lineBuf.length && lineBuf.toString('utf8').trim()) {
+          const parsed = JSON.parse(lineBuf.toString('utf8')) as IndexedLogLine
+          lines.push({ ...parsed, globalIndex: index++ })
+        }
+        start = i + 1
+      }
+      carry = Buffer.from(data.subarray(start))
+    }
+    if (carry.length && carry.toString('utf8').trim()) {
+      const parsed = JSON.parse(carry.toString('utf8')) as IndexedLogLine
+      lines.push({ ...parsed, globalIndex: index++ })
+    }
+  } finally {
+    await handle.close()
+  }
+  return lines
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

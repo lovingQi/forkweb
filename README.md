@@ -46,6 +46,8 @@ docker compose up -d --build
 - `FORKWEB_CACHE_DIR` / `FORKWEB_CONFIG_DIR`：数据库、日志、知识库目录。
 - `JWT_SECRET`：生产环境务必修改为强随机字符串。
 - `WECHAT_WORK_WEBHOOK_URL`：健康检查告警用企业微信 Webhook。
+- `FORKWEB_ANALYSIS_MAX_OLD_MB`：分析工作线程的老生代内存上限，默认 384。
+- `FORKWEB_ANALYSIS_TIMEOUT_MS`：自动分析超时时间（毫秒），默认 600000。
 
 详细部署、Nginx 入口、HTTPS、回退策略见 `docs/deployment.md`。
 

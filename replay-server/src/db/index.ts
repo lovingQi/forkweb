@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs/promises';
 import path from 'path';
+import { isMainThread } from 'worker_threads';
 import { CACHE_DIR } from '../paths';
 import { SCHEMA_SQL } from './schema';
 import { runMigrations } from './migrate';
@@ -13,6 +14,10 @@ let db: Database.Database | null = null;
 export async function getDb(): Promise<Database.Database> {
   if (db) return db;
   await fs.mkdir(DB_DIR, { recursive: true });
+  if (!isMainThread) {
+    db = new Database(DB_FILE, { readonly: true, fileMustExist: true });
+    return db;
+  }
   db = new Database(DB_FILE);
   db.exec(SCHEMA_SQL);
   await runMigrations(db);

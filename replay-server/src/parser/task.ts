@@ -49,9 +49,11 @@ export async function buildTaskSegments(
       }
     }
   }
-  await enrichTasks(tasks, rawStore, events)
+  await enrichTasks(tasks, frames, rawStore, events)
   return tasks
 }
+
+const TASK_LINE_PATTERN = /current_routes|current_task_error_code|unfinished_path|new_unfinished_path|last_finished_task|FltTask/i
 
 function normalizeTaskId(taskId?: string): string {
   if (!taskId || taskId === 'Null' || taskId === 'null') return ''
@@ -69,8 +71,45 @@ function toRef(line: IndexedLogLine): LogLineRef {
   }
 }
 
-async function enrichTasks(tasks: TaskSegment[], rawStore: RawLineReader, events: TimelineEvent[]) {
+async function enrichTasks(tasks: TaskSegment[], frames: ReplayFrame[], rawStore: RawLineReader, events: TimelineEvent[]) {
+  const buckets: IndexedLogLine[][] = tasks.map(() => [])
+  const ordered = tasks
+    .map((task, index) => ({ task, index }))
+    .sort((a, b) => a.task.startMs - b.task.startMs || a.index - b.index)
+  let pointer = 0
+  for await (const line of rawStore.streamMatchingLines((row) => TASK_LINE_PATTERN.test(row))) {
+    if (!TASK_LINE_PATTERN.test(line.message)) continue
+    while (pointer < ordered.length && ordered[pointer].task.endMs < line.timeMs) pointer++
+    for (let i = pointer; i < ordered.length; i++) {
+      const task = ordered[i].task
+      if (task.startMs > line.timeMs) break
+      if (line.timeMs <= task.endMs) buckets[ordered[i].index].push(line)
+    }
+  }
+
+  const segmentsById = new Map<string, TaskSegment[]>()
   for (const task of tasks) {
+    const segments = segmentsById.get(task.id) || []
+    segments.push(task)
+    segmentsById.set(task.id, segments)
+  }
+  const failureSignalByTask = new Map<TaskSegment, LogLineRef>()
+  for (const frame of frames) {
+    if (frame.lastFinishedTaskSuccess !== false || !frame.rawLine) continue
+    const finishedTaskId = normalizeTaskId(frame.lastFinishedTaskId)
+    if (!finishedTaskId) continue
+    const segments = segmentsById.get(finishedTaskId)
+    if (!segments) continue
+    let chosen: TaskSegment | null = null
+    for (const segment of segments) {
+      if (segment.endMs <= frame.timeMs && (!chosen || segment.endMs >= chosen.endMs)) chosen = segment
+    }
+    if (chosen && !failureSignalByTask.has(chosen)) failureSignalByTask.set(chosen, frame.rawLine)
+  }
+
+  for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+    const task = tasks[taskIndex]
+    const relatedLines = buckets[taskIndex]
     task.relatedEvents = events.filter((event) => {
       if (event.taskId && event.taskId === task.id) return true
       return event.timeMs >= task.startMs && event.timeMs <= task.endMs && ['error_code', 'task'].includes(event.category || '')
@@ -78,36 +117,49 @@ async function enrichTasks(tasks: TaskSegment[], rawStore: RawLineReader, events
     for (const event of task.relatedEvents) {
       if (event.code && !task.errors.includes(event.code)) task.errors.push(event.code)
     }
-    const relatedLines = await rawStore.readRange(task.startMs, task.endMs)
+    const routeLine = relatedLines.find((line) => /current_routes/i.test(line.message))
+    if (routeLine) task.routeSummary = summarizeRoute(routeLine.message)
+    for (const line of relatedLines) {
+      for (const code of line.message.matchAll(/ERROR\d{4}/g)) {
+        if (!task.errors.includes(code[0])) task.errors.push(code[0])
+      }
+    }
+
     task.failureReasonCandidates = []
-    if (relatedLines.some((line) => /last_finished_task_is_success["':=\s]+false/i.test(line.message))) {
+    const failureSignal = failureSignalByTask.get(task)
+    if (failureSignal) {
       task.lastFinishedTaskSuccess = false
       task.failureReasonCandidates.push('last_finished_task_is_success=false')
     }
     if (relatedLines.some((line) => /current_task_error_code.*ERROR\d{4}/i.test(line.message))) {
       task.failureReasonCandidates.push('current_task_error_code')
     }
-    if (relatedLines.some((line) => /unfinished_path|new_unfinished_path/i.test(line.message))) {
-      task.failureReasonCandidates.push('unfinished_path')
-    }
-    const routeLine = relatedLines.find((line) => /current_routes/i.test(line.message))
-    if (routeLine) {
-      task.routeSummary = summarizeRoute(routeLine.message)
-    }
-    for (const line of relatedLines) {
-      for (const code of line.message.matchAll(/ERROR\d{4}/g)) {
-        if (!task.errors.includes(code[0])) task.errors.push(code[0])
+
+    const candidates: Array<{ timeMs: number; globalIndex: number; ref: LogLineRef }> = []
+    for (const event of task.relatedEvents) {
+      if (event.type === 'error_code' && event.level === 'error' && event.line) {
+        candidates.push({ timeMs: event.timeMs, globalIndex: event.line.globalIndex, ref: event.line })
       }
     }
-    const failureLine = relatedLines.find((line) => /ERROR\d{4}|false|unfinished_path/i.test(line.message))
-    if (failureLine) {
-      const context = await rawStore.readAroundTime(failureLine.timeMs, 41)
-      const idx = context.findIndex((l) => l.file === failureLine.file && l.line === failureLine.line)
-      task.failureLine = toRef(failureLine)
-      task.beforeFailureLines = context.slice(Math.max(0, idx - 20), idx).map(toRef)
-      task.afterFailureLines = context.slice(idx + 1, idx + 21).map(toRef)
-      task.failureContextCount = (task.beforeFailureLines?.length || 0) + 1 + (task.afterFailureLines?.length || 0)
+    for (const line of relatedLines) {
+      if (/ERROR\d{4}/.test(line.message)) candidates.push({ timeMs: line.timeMs, globalIndex: line.globalIndex, ref: toRef(line) })
     }
+    if (failureSignal) candidates.push({ timeMs: failureSignal.timeMs, globalIndex: failureSignal.globalIndex, ref: failureSignal })
+    if (candidates.length === 0) continue
+    candidates.sort((a, b) => a.timeMs - b.timeMs || a.globalIndex - b.globalIndex)
+    const failureLine = candidates[0].ref
+    task.failureLine = failureLine
+    if (failureLine.globalIndex < 0) {
+      task.beforeFailureLines = []
+      task.afterFailureLines = []
+      task.failureContextCount = 1
+      continue
+    }
+    const before = await rawStore.readSlice(failureLine.globalIndex - 20, failureLine.globalIndex)
+    const after = await rawStore.readSlice(failureLine.globalIndex + 1, failureLine.globalIndex + 21)
+    task.beforeFailureLines = before.map(toRef)
+    task.afterFailureLines = after.map(toRef)
+    task.failureContextCount = before.length + 1 + after.length
   }
 }
 

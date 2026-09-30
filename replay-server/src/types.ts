@@ -53,11 +53,13 @@ export type IndexedLogLine = ParsedLogLine & { globalIndex: number }
 export interface RawLineReader {
   getCount(): Promise<number>
   streamLines(): AsyncGenerator<IndexedLogLine>
+  streamMatchingLines(rowTest: (row: string) => boolean): AsyncGenerator<IndexedLogLine>
   readAll(): Promise<IndexedLogLine[]>
   readFiltered(predicate: (line: IndexedLogLine) => boolean): Promise<IndexedLogLine[]>
   readRange(startMs: number, endMs: number): Promise<IndexedLogLine[]>
   readSlice(start: number, end: number): Promise<IndexedLogLine[]>
   readAroundTime(timeMs: number, count: number): Promise<IndexedLogLine[]>
+  findIndexRangeByTime(startMs: number, endMs: number): Promise<[number, number]>
   resolveRefs(refs: LogLineRef[]): Promise<IndexedLogLine[]>
 }
 
