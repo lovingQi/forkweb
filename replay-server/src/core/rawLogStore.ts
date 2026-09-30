@@ -4,6 +4,7 @@ import { createReadStream, createWriteStream } from 'fs'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import { createInterface } from 'readline'
+import { randomUUID } from 'crypto'
 import { CACHE_DIR } from '../paths'
 import { parseLogLine } from '../parser/logLine'
 import type { IndexedLogLine, LogLineRef, ParsedLogLine } from '../types'
@@ -38,7 +39,7 @@ export class RawLogStore {
 
   static async create(lines: ParsedLogLine[], filePath: string): Promise<RawLogStore> {
     await fs.mkdir(path.dirname(filePath), { recursive: true })
-    const temporary = `${filePath}.${process.pid}.tmp`
+    const temporary = `${filePath}.${process.pid}.${randomUUID()}.tmp`
     try {
       const source = Readable.from(
         (function* () {
@@ -67,7 +68,7 @@ export class RawLogStore {
     onLine?: (line: ParsedLogLine, registerRef: (ref: LogLineRef) => void) => void
   ): Promise<{ store: RawLogStore; refMap: Map<string, number> }> {
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    const temporary = `${outPath}.${process.pid}.tmp`
+    const temporary = `${outPath}.${process.pid}.${randomUUID()}.tmp`
     const perFile: {
       file: string
       handle: fs.FileHandle

@@ -67,7 +67,7 @@ export async function readSessionCache(key: string): Promise<ReplaySessionData |
 export async function writeSessionCache(key: string, data: ReplaySessionData): Promise<boolean> {
   await fs.mkdir(CACHE_ROOT_DIR, { recursive: true })
   const target = cacheFile(key)
-  const temporary = `${target}.${process.pid}.tmp`
+  const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`
   try {
     const payload = JSON.stringify({ version: CACHE_VERSION, data })
     await fs.writeFile(temporary, payload, 'utf8')
