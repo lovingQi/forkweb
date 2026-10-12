@@ -6,7 +6,8 @@ import type { AuthUser } from '../auth/middleware';
 import { getDb } from '../db/index';
 import { createTicketEvent, deleteEventsByTicketId, listTicketEvents } from '../db/events';
 import { createAnalysisVersion, deleteAnalysisVersionsByTicketId, getLatestAnalysisVersion, listAnalysisVersions } from '../db/analysisVersions';
-import { countTicketsWithReporter, createTicket, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
+import { countTicketsWithReporter, createTicket, deleteTicketRow, getTicketById, listTicketsWithReporter, type DbTicket, type TicketStatus, updateTicket } from '../db/tickets';
+import { deleteCallbackDeliveriesByTicketId } from '../db/callbackDeliveries';
 import { ensureTicketDirs, getTicketCommentImageDir, getTicketDir, getTicketLogDir, getTicketMapDir, processUploadFiles, type ProcessUploadResult } from '../upload/handler';
 import { deleteTempFile, getTempFiles, type PendingTempFile } from '../upload/tempFiles';
 import { sendRdNotificationEmail } from '../mail/sender';
@@ -29,7 +30,10 @@ import { OpenAiCompatibleClient } from '../core/openAiCompatibleClient';
 import { LlmProviderError } from '../core/llmProvider';
 import { buildTicketConclusionChunk } from '../core/knowledgeEmbedding';
 import { appendVectorStoreChunk } from '../core/vectorStore';
-import type { KnowledgeRule } from '../types';
+import type { AssistantAnswer, KnowledgeRule } from '../types';
+import { enqueueTicketCallback } from '../callbacks/dispatcher';
+import { buildAnalysisCompletedPayload, buildAnalysisFailedPayload, type CallbackAiSummary } from '../callbacks/payload';
+import { getPublicBaseUrl } from '../openapi/config';
 import { ZipArchive, type Archiver } from 'archiver';
 
 const ANALYSIS_TIMEOUT_MS = Number(process.env.FORKWEB_ANALYSIS_TIMEOUT_MS || 10 * 60 * 1000);
@@ -91,6 +95,7 @@ export interface CreateTicketServiceInput {
   occurredStartAt?: string;
   occurredEndAt?: string;
   aiEnabled?: boolean;
+  externalId?: string;
 }
 
 export async function createTicketWithUploads(input: CreateTicketServiceInput): Promise<DbTicket> {
@@ -109,33 +114,41 @@ export async function createTicketWithUploads(input: CreateTicketServiceInput): 
     occurredStartAt: input.occurredStartAt,
     occurredEndAt: input.occurredEndAt,
     logDir: '', // 稍后更新
-    aiEnabled: input.aiEnabled
+    aiEnabled: input.aiEnabled,
+    externalId: input.externalId
   });
 
-  await ensureTicketDirs(ticket.id);
+  try {
+    await ensureTicketDirs(ticket.id);
 
-  // 处理上传文件：自动解压、识别 .log 和 .json
-  const processed = await processUploadFiles(ticket.id, input.filePaths, input.originalNames);
-  if (processed.logCount === 0) {
-    throw new Error('未找到 .log 日志文件，请至少上传一个日志文件或包含日志的压缩包');
+    // 处理上传文件：自动解压、识别 .log 和 .json
+    const processed = await processUploadFiles(ticket.id, input.filePaths, input.originalNames);
+    if (processed.logCount === 0) {
+      throw new Error('未找到 .log 日志文件，请至少上传一个日志文件或包含日志的压缩包');
+    }
+
+    // 更新 ticket 路径信息
+    const updated = await updateTicket(ticket.id, {
+      log_dir: processed.logDir,
+      map_dir: processed.mapDir || null,
+      map_file: processed.mapFile || null
+    });
+    if (!updated) throw new Error('更新工单路径失败');
+
+    await createTicketEvent({
+      ticketId: ticket.id,
+      actorId: input.reporter.id,
+      action: 'created',
+      payload: { title: input.title, logDir: processed.logDir, mapDir: processed.mapDir, mapFile: processed.mapFile, logCount: processed.logCount }
+    });
+
+    return updated;
+  } catch (error) {
+    await deleteEventsByTicketId(ticket.id).catch(() => undefined);
+    await deleteTicketRow(ticket.id).catch(() => undefined);
+    await fs.rm(getTicketDir(ticket.id), { recursive: true, force: true }).catch(() => undefined);
+    throw error;
   }
-
-  // 更新 ticket 路径信息
-  const updated = await updateTicket(ticket.id, {
-    log_dir: processed.logDir,
-    map_dir: processed.mapDir || null,
-    map_file: processed.mapFile || null
-  });
-  if (!updated) throw new Error('更新工单路径失败');
-
-  await createTicketEvent({
-    ticketId: ticket.id,
-    actorId: input.reporter.id,
-    action: 'created',
-    payload: { title: input.title, logDir: processed.logDir, mapDir: processed.mapDir, mapFile: processed.mapFile, logCount: processed.logCount }
-  });
-
-  return updated;
 }
 
 export interface CreateTicketWithTempFilesInput extends Omit<CreateTicketServiceInput, 'filePaths' | 'originalNames'> {
@@ -222,7 +235,8 @@ async function revertFailedAnalysis(
 
   await updateTicket(ticketId, {
     status: 'pending_analysis',
-    conclusion: action === 'analysis_timeout' ? reason : `自动分析失败: ${reason}`
+    conclusion: action === 'analysis_timeout' ? reason : `自动分析失败: ${reason}`,
+    analysis_recover_count: 0
   });
   await createTicketEvent({
     ticketId,
@@ -230,6 +244,23 @@ async function revertFailedAnalysis(
     action,
     payload: action === 'analysis_timeout' ? { timeoutMs: ANALYSIS_TIMEOUT_MS, error: reason } : { error: reason }
   });
+  if (ticket.external_id) {
+    const message = action === 'analysis_timeout' ? reason : `自动分析失败: ${reason}`;
+    void enqueueTicketCallback(ticketId, buildAnalysisFailedPayload({
+      ticket,
+      reason: action,
+      message
+    })).catch((error) => console.error('[callback] 写入失败回调失败:', error));
+  }
+}
+
+export async function failInterruptedAnalysis(ticketId: number, actor: AuthUser): Promise<void> {
+  await revertFailedAnalysis(
+    ticketId,
+    actor,
+    'analysis_failed',
+    '服务多次重启导致分析中断，已超过自动重试上限（3 次）'
+  );
 }
 
 function runTicketAnalysisInBackground(ticketId: number, actor: AuthUser, runId: symbol): void {
@@ -287,6 +318,8 @@ async function finalizeTicketAnalysis(
     errorSummaries: data.errorSummaries
   });
 
+  const topIssues = buildTopIssues(data);
+  const evidenceSummary = buildEvidenceSummary(data);
   const paths = generateTroubleshootingPaths(data, ticket);
 
   if (!isRunActive()) return;
@@ -299,9 +332,9 @@ async function finalizeTicketAnalysis(
     occurredStartAt: ticket.occurred_start_at || undefined,
     occurredEndAt: ticket.occurred_end_at || undefined,
     issueType: inferredIssueType,
-    topIssues: buildTopIssues(data),
+    topIssues,
     troubleshootingPathsSnapshot: { paths },
-    evidenceSummary: buildEvidenceSummary(data),
+    evidenceSummary,
     reportPath: mdPath,
     packagePath: pkgDest
   });
@@ -341,9 +374,11 @@ async function finalizeTicketAnalysis(
     report_path: mdPath,
     package_path: pkgDest,
     latest_analysis_version_id: analysisVersion.id,
-    issue_type: inferredIssueType
+    issue_type: inferredIssueType,
+    analysis_recover_count: 0
   };
 
+  let aiSummary: CallbackAiSummary | null = null;
   if (ticket.ai_enabled) {
     try {
       const aiAnswer = await askReplayAssistant(data, {
@@ -352,6 +387,7 @@ async function finalizeTicketAnalysis(
         maxLogLines: 120,
         maxKnowledge: 8
       });
+      aiSummary = toCallbackAiSummary(aiAnswer);
       updatePayload.ai_conclusion = JSON.stringify(aiAnswer);
       updatePayload.ai_offline = aiAnswer.offline ? 1 : 0;
       void appendVectorStoreChunk(buildTicketConclusionChunk({
@@ -364,8 +400,18 @@ async function finalizeTicketAnalysis(
       })).catch((e) => console.error('[ticket] 向量库回流失败:', e));
     } catch (e) {
       console.error('[ticket] AI 分析失败:', e);
+      const message = `AI 分析调用失败：${e instanceof Error ? e.message : String(e)}`;
+      aiSummary = {
+        answer: message,
+        rootCauseCandidates: [],
+        suggestions: [],
+        uncertainties: [],
+        offline: true,
+        provider: 'offline',
+        model: ''
+      };
       updatePayload.ai_conclusion = JSON.stringify({
-        answer: `AI 分析调用失败：${e instanceof Error ? e.message : String(e)}`,
+        answer: message,
         provider: 'offline',
         offline: true
       });
@@ -383,6 +429,30 @@ async function finalizeTicketAnalysis(
     action: 'analysis_completed',
     payload: { reportPath: mdPath, packagePath: pkgDest, conclusion, aiEnabled: !!ticket.ai_enabled, analysisVersionId: analysisVersion.id }
   });
+
+  if (ticket.external_id) {
+    void enqueueTicketCallback(ticketId, buildAnalysisCompletedPayload({
+      ticket,
+      analysisVersionNo: analysisVersion.version_no,
+      conclusion,
+      issueType: inferredIssueType,
+      topIssues,
+      evidenceSummary,
+      troubleshootingPaths: paths.map((item) => ({
+        title: item.title,
+        severity: item.severity,
+        confidence: item.confidence,
+        steps: item.guideSteps.map((step) => ({
+          stepNo: step.stepNo,
+          title: step.title,
+          instruction: step.instruction || '',
+          criteria: step.criteria || ''
+        }))
+      })),
+      ai: aiSummary,
+      links: analysisDownloadLinks(ticket.ticket_no)
+    })).catch((error) => console.error('[callback] 写入完成回调失败:', error));
+  }
 
   void sendWechatWorkNotification({
     title: '工单分析完成',
@@ -468,6 +538,7 @@ export async function deleteTicket(ticketId: number, actor: AuthUser): Promise<v
   }
 
   // 按依赖顺序删除数据库记录
+  await deleteCallbackDeliveriesByTicketId(ticketId);
   await deleteStepEventsByTicketId(ticketId);
   await deleteStepsByTicketId(ticketId);
   await deletePathsByTicketId(ticketId);
@@ -1319,6 +1390,28 @@ export async function listUserTickets(
     countTicketsWithReporter(countFilters)
   ]);
   return { tickets, total };
+}
+
+function analysisDownloadLinks(ticketNo: string): { reportUrl: string | null; packageUrl: string | null } {
+  const base = getPublicBaseUrl();
+  if (!base) return { reportUrl: null, packageUrl: null };
+  const encoded = encodeURIComponent(ticketNo);
+  return {
+    reportUrl: `${base}/api/open/v1/tickets/${encoded}/report`,
+    packageUrl: `${base}/api/open/v1/tickets/${encoded}/package`
+  };
+}
+
+function toCallbackAiSummary(answer: AssistantAnswer): CallbackAiSummary {
+  return {
+    answer: answer.answer,
+    rootCauseCandidates: answer.rootCauseCandidates || [],
+    suggestions: answer.suggestions || [],
+    uncertainties: answer.uncertainties || [],
+    offline: answer.offline,
+    provider: answer.provider,
+    model: answer.model
+  };
 }
 
 function summarizeRootCauses(rootCauses: any[]): string {

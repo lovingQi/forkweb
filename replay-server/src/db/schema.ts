@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   ai_offline INTEGER,
   latest_analysis_version_id INTEGER,
   vehicle_model_id INTEGER,
+  external_id TEXT,
+  analysis_recover_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   resolved_at TEXT,
@@ -180,4 +182,23 @@ CREATE TABLE IF NOT EXISTS json_stores (
   payload TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS callback_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT UNIQUE NOT NULL,
+  ticket_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'succeeded', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  last_attempt_at TEXT,
+  last_http_status INTEGER,
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (ticket_id) REFERENCES tickets(id)
+);
+CREATE INDEX IF NOT EXISTS idx_callback_deliveries_due ON callback_deliveries(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_callback_deliveries_ticket ON callback_deliveries(ticket_id);
 `;

@@ -39,6 +39,8 @@ export interface DbTicket {
   ai_offline: number | null;
   latest_analysis_version_id: number | null;
   vehicle_model_id: number | null;
+  external_id: string | null;
+  analysis_recover_count: number;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -59,13 +61,14 @@ export interface CreateTicketInput {
   mapDir?: string;
   mapFile?: string;
   aiEnabled?: boolean;
+  externalId?: string;
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<DbTicket> {
   const db = await getDb();
   const stmt = db.prepare(
-    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, issue_type, impact_level, occurred_start_at, occurred_end_at, vehicle_model_id, log_dir, map_dir, map_file, ai_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tickets (ticket_no, title, description, reporter_id, site_id, status, issue_type, impact_level, occurred_start_at, occurred_end_at, vehicle_model_id, log_dir, map_dir, map_file, ai_enabled, external_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const result = stmt.run(
     input.ticketNo,
@@ -82,7 +85,8 @@ export async function createTicket(input: CreateTicketInput): Promise<DbTicket> 
     input.logDir,
     input.mapDir || null,
     input.mapFile || null,
-    input.aiEnabled ? 1 : 0
+    input.aiEnabled ? 1 : 0,
+    input.externalId ?? null
   );
   return getTicketById(Number(result.lastInsertRowid)) as Promise<DbTicket>;
 }
@@ -95,6 +99,16 @@ export async function getTicketById(id: number): Promise<DbTicket | undefined> {
 export async function getTicketByNo(ticketNo: string): Promise<DbTicket | undefined> {
   const db = await getDb();
   return db.prepare('SELECT * FROM tickets WHERE ticket_no = ?').get(ticketNo) as DbTicket | undefined;
+}
+
+export async function getTicketByExternalId(externalId: string): Promise<DbTicket | undefined> {
+  const db = await getDb();
+  return db.prepare('SELECT * FROM tickets WHERE external_id = ?').get(externalId) as DbTicket | undefined;
+}
+
+export async function deleteTicketRow(id: number): Promise<void> {
+  const db = await getDb();
+  db.prepare('DELETE FROM tickets WHERE id = ?').run(id);
 }
 
 export async function updateTicket(
@@ -126,6 +140,7 @@ export async function updateTicket(
       | 'ai_conclusion'
       | 'ai_offline'
       | 'latest_analysis_version_id'
+      | 'analysis_recover_count'
       | 'resolved_at'
     >
   >

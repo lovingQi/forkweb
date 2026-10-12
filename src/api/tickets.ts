@@ -76,6 +76,7 @@ export interface Ticket {
   aiConclusion: string | null
   aiOffline: boolean
   latestAnalysisVersionId?: number
+  externalId?: string
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -438,4 +439,31 @@ export async function switchAnalysisVersion(
   const { data } = await ticketHttp.post(`/tickets/${ticketId}/analysis-versions/${versionId}/switch`)
   if (!data.succeed) throw new Error(data.error || '切换分析版本失败')
   return { ticket: data.ticket, version: data.version }
+}
+
+export interface CallbackDelivery {
+  id: number
+  eventId: string
+  ticketId: number
+  eventType: string
+  status: 'pending' | 'succeeded' | 'failed'
+  attemptCount: number
+  nextAttemptAt: string
+  lastAttemptAt: string | null
+  lastHttpStatus: number | null
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function listTicketCallbacks(ticketId: number): Promise<CallbackDelivery[]> {
+  const { data } = await ticketHttp.get(`/tickets/${ticketId}/callbacks`)
+  if (!data.succeed) throw new Error(data.error || '获取回调记录失败')
+  return data.callbacks
+}
+
+export async function retryTicketCallback(ticketId: number, deliveryId: number): Promise<CallbackDelivery> {
+  const { data } = await ticketHttp.post(`/tickets/${ticketId}/callbacks/${deliveryId}/retry`)
+  if (!data.succeed) throw new Error(data.error || '重推回调失败')
+  return data.callback
 }

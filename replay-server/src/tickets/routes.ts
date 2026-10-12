@@ -7,6 +7,8 @@ import { CACHE_DIR } from '../paths';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth/middleware';
 import type { DbTicket, TicketStatus } from '../db/tickets';
 import { getTicketById, getTicketByNo } from '../db/tickets';
+import { listCallbackDeliveriesByTicketId, type DbCallbackDelivery } from '../db/callbackDeliveries';
+import { retryCallbackDelivery } from '../callbacks/dispatcher';
 import { getSiteById } from '../db/sites';
 import { getModelById } from '../db/vehicleModels';
 import { getAnalysisVersionById, listAnalysisVersions, type DbAnalysisVersion } from '../db/analysisVersions';
@@ -850,6 +852,61 @@ router.get('/:id/files', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
+function serializeCallbackDelivery(delivery: DbCallbackDelivery) {
+  return {
+    id: delivery.id,
+    eventId: delivery.event_id,
+    ticketId: delivery.ticket_id,
+    eventType: delivery.event_type,
+    status: delivery.status,
+    attemptCount: delivery.attempt_count,
+    nextAttemptAt: delivery.next_attempt_at,
+    lastAttemptAt: delivery.last_attempt_at,
+    lastHttpStatus: delivery.last_http_status,
+    lastError: delivery.last_error,
+    createdAt: delivery.created_at,
+    updatedAt: delivery.updated_at
+  };
+}
+
+router.get('/:id/callbacks', authMiddleware, requireRole('admin'), async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const ticket = await getTicketById(ticketId);
+    if (!ticket) {
+      res.status(404).json({ succeed: false, error: '工单不存在' });
+      return;
+    }
+    const deliveries = await listCallbackDeliveriesByTicketId(ticketId);
+    res.json({ succeed: true, callbacks: deliveries.map(serializeCallbackDelivery) });
+  } catch (e) {
+    res.status(500).json({ succeed: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.post('/:id/callbacks/:deliveryId/retry', authMiddleware, requireRole('admin'), async (req: AuthRequest, res) => {
+  try {
+    const ticketId = Number(req.params.id);
+    const deliveryId = Number(req.params.deliveryId);
+    const ticket = await getTicketById(ticketId);
+    if (!ticket) {
+      res.status(404).json({ succeed: false, error: '工单不存在' });
+      return;
+    }
+    const deliveries = await listCallbackDeliveriesByTicketId(ticketId);
+    if (!deliveries.some((item) => item.id === deliveryId)) {
+      res.status(404).json({ succeed: false, error: '回调记录不存在' });
+      return;
+    }
+    const updated = await retryCallbackDelivery(deliveryId);
+    res.json({ succeed: true, callback: serializeCallbackDelivery(updated) });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const status = message.includes('不能重推') ? 400 : 500;
+    res.status(status).json({ succeed: false, error: message });
+  }
+});
+
 function serializeTicket(ticket: DbTicket) {
   const withExtra = ticket as DbTicket & { reporter_username?: string; site_name?: string; vehicle_model_name?: string; vehicle_category_name?: string };
   return {
@@ -884,6 +941,7 @@ function serializeTicket(ticket: DbTicket) {
     aiConclusion: ticket.ai_conclusion,
     aiOffline: ticket.ai_offline === 1,
     latestAnalysisVersionId: ticket.latest_analysis_version_id ?? undefined,
+    externalId: ticket.external_id ?? undefined,
     createdAt: ticket.created_at,
     updatedAt: ticket.updated_at,
     resolvedAt: ticket.resolved_at

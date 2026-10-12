@@ -338,6 +338,19 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE tickets ADD COLUMN vehicle_model_id INTEGER REFERENCES vehicle_models(id);
     `
+  },
+  {
+    id: 'ticket_external_fields',
+    sql: `
+      ALTER TABLE tickets ADD COLUMN external_id TEXT;
+      ALTER TABLE tickets ADD COLUMN analysis_recover_count INTEGER NOT NULL DEFAULT 0;
+    `
+  },
+  {
+    id: 'ticket_external_id_index',
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_external_id ON tickets(external_id);
+    `
   }
 ];
 
@@ -446,6 +459,13 @@ export async function runMigrations(db: Database.Database): Promise<void> {
       continue;
     }
     if (migration.id === 'ticket_vehicle_model_id' && columnExists(db, 'tickets', 'vehicle_model_id')) {
+      continue;
+    }
+    if (
+      migration.id === 'ticket_external_fields' &&
+      columnExists(db, 'tickets', 'external_id') &&
+      columnExists(db, 'tickets', 'analysis_recover_count')
+    ) {
       continue;
     }
     try {

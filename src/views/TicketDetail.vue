@@ -38,6 +38,9 @@
               {{ ticketStore.currentTicket.conclusion || '暂无' }}
             </el-descriptions-item>
             <el-descriptions-item label="描述">{{ ticketStore.currentTicket.description }}</el-descriptions-item>
+            <el-descriptions-item v-if="ticketStore.currentTicket.externalId" label="外部单号">
+              {{ ticketStore.currentTicket.externalId }}
+            </el-descriptions-item>
             <el-descriptions-item label="项目现场">{{ ticketStore.currentTicket.siteName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="车型">
               <span v-if="ticketStore.currentTicket.vehicleModelName">
@@ -189,6 +192,11 @@
 
       <div class="section-title">精简证据</div>
       <TicketEvidencePanel />
+
+      <template v-if="auth.isAdmin && ticketStore.currentTicket.externalId">
+        <div class="section-title">外部对接回调</div>
+        <TicketCallbackPanel :ticket-id="ticketId" />
+      </template>
 
       <div class="section-title">事件流</div>
       <el-timeline>
@@ -442,6 +450,7 @@ import { ElMessage } from 'element-plus'
 import AnalysisVersionDiff from '@/components/AnalysisVersionDiff.vue'
 import TicketTroubleshootingGuide from '@/components/TicketTroubleshootingGuide.vue'
 import TicketEvidencePanel from '@/components/TicketEvidencePanel.vue'
+import TicketCallbackPanel from '@/components/TicketCallbackPanel.vue'
 import TicketCommentImages from '@/components/TicketCommentImages.vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 

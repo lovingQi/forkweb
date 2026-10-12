@@ -63,6 +63,26 @@ export async function deleteModel(id: number): Promise<{ deleted: boolean; reaso
   return { deleted: result.changes > 0 };
 }
 
+export async function findModelsByName(name: string, categoryName?: string): Promise<DbVehicleModelWithCategory[]> {
+  const db = await getDb();
+  if (categoryName) {
+    return db.prepare(`
+      SELECT vm.*, vc.name as category_name
+      FROM vehicle_models vm
+      JOIN vehicle_categories vc ON vm.category_id = vc.id
+      WHERE vm.name = ? AND vc.name = ?
+      ORDER BY vm.id ASC
+    `).all(name, categoryName) as DbVehicleModelWithCategory[];
+  }
+  return db.prepare(`
+    SELECT vm.*, vc.name as category_name
+    FROM vehicle_models vm
+    JOIN vehicle_categories vc ON vm.category_id = vc.id
+    WHERE vm.name = ?
+    ORDER BY vm.id ASC
+  `).all(name) as DbVehicleModelWithCategory[];
+}
+
 export async function listModelsBySiteId(siteId: number): Promise<DbVehicleModelWithCategory[]> {
   const db = await getDb();
   return db.prepare(`

@@ -154,7 +154,33 @@ docker-compose -f docker-compose.friend.yml up -d --build
 | `FORKWEB_CONFIG_DIR`      | `/app/data/config`                        | 配置目录                |
 | `WECHAT_WORK_WEBHOOK_URL` | 空                                         | 企业微信 Webhook，用于健康告警 |
 | `JWT_SECRET`              | `forkweb-dev-secret-change-in-production` | JWT 签名密钥，生产环境务必修改   |
+| `FORKWEB_OPEN_API_KEY`    | 空                                         | 售后 AI 系统调用对外接口的 API Key，为空表示不启用对接 |
+| `FORKWEB_OPEN_API_USERNAME` | `aftersales-ai`                          | 外部工单挂靠的系统账号用户名 |
+| `FORKWEB_CALLBACK_URL`    | 空                                         | 分析结果回调地址 |
+| `FORKWEB_CALLBACK_SECRET` | 空                                         | 回调签名密钥 |
+| `REPLAY_SERVER_BASE_URL`  | 空                                         | 对外可访问的服务根地址，用于生成报告和诊断包下载链接 |
 
+
+## 售后 AI 系统对接
+
+启用后，售后 AI 系统可以通过 API Key 创建工单。分析完成、失败或超时后，本系统会把结果签名推送到对方的回调地址。接口说明、签名规则和联调步骤见 [open-api-integration.md](open-api-integration.md)。
+
+在项目目录创建 `.env`（不要提交到仓库），写入双方约定的密钥和地址：
+
+```bash
+FORKWEB_OPEN_API_KEY=<至少 32 位的随机字符串>
+FORKWEB_CALLBACK_URL=http://<对方内网地址>/callbacks/forkweb
+FORKWEB_CALLBACK_SECRET=<双方约定的签名密钥>
+REPLAY_SERVER_BASE_URL=http://<本机内网地址>:8091
+```
+
+然后重新构建并启动。`docker-compose.yml` 会读取这些变量。朋友服务器把端口和 `REPLAY_SERVER_BASE_URL` 换成 `18091`。
+
+```bash
+docker compose up -d --build
+```
+
+首次启动会自动创建系统账号 `aftersales-ai`（可用 `FORKWEB_OPEN_API_USERNAME` 修改）。禁用这个账号即可临时关闭对接。API Key 长度不足 32 位时，启动日志会给出警告。回调地址或签名密钥未配置时，待发送的回调会留在数据库里，补上配置并重启后自动补发。
 
 ## 一键更新
 

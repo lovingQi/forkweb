@@ -57,6 +57,10 @@ import { CACHE_DIR, CONFIG_DIR } from './paths'
 import authRoutes, { ensureAdminUser } from './users/routes'
 import { authMiddleware, requireRole } from './auth/middleware'
 import ticketRoutes from './tickets/routes'
+import openApiRoutes from './openapi/routes'
+import { ensureOpenApiUser } from './openapi/systemUser'
+import { recoverInterruptedAnalyses } from './tickets/recovery'
+import { startCallbackDispatcher } from './callbacks/dispatcher'
 import siteRoutes from './sites/routes'
 import statsRoutes from './stats/routes'
 import vehicleRoutes from './vehicles/routes'
@@ -76,6 +80,7 @@ app.use('/api/tickets', ticketRoutes)
 app.use('/api/sites', siteRoutes)
 app.use('/api/stats', statsRoutes)
 app.use('/api/vehicles', vehicleRoutes)
+app.use('/api/open/v1', openApiRoutes)
 
 app.post('/api/replay/session', async (req, res) => {
   try {
@@ -936,8 +941,11 @@ scheduleDailyStorageCleanup()
 
 server.listen(port, host, async () => {
   await ensureAdminUser()
+  await ensureOpenApiUser()
   const removedTempFiles = await cleanupStaleTempFiles()
   if (removedTempFiles > 0) console.log(`[cache] removed stale temp files: ${removedTempFiles}`)
+  await recoverInterruptedAnalyses()
+  startCallbackDispatcher()
   console.log(`replay server listening on http://${host}:${port}`)
 })
 
